@@ -548,6 +548,10 @@ class MainWindow:
         
         tk.Button(action_btn_frame, text="🌐 Translate Game", font=self._theme.get_font(), bg="#9b59b6", fg="white", relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._translate_game({"id": game_id, "name": game_name})).pack(side="left", padx=3)
         tk.Button(action_btn_frame, text="🔗 Attach to Game", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._attach_to_game({"id": game_id, "name": game_name, "process_name": game_config.get("process_name", "")})).pack(side="left", padx=3)
+        
+        if game_config.get("hook_mode") == "bepinex" or "flotsam" in game_id.lower():
+            tk.Button(action_btn_frame, text="🖥️ Start Server", font=self._theme.get_font(), bg=AppColors.SUCCESS, fg="black", relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._start_translation_server()).pack(side="left", padx=3)
+        
         tk.Button(action_btn_frame, text="📥 Sync from Game", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._sync_from_game(game_id, game_name, game_config)).pack(side="left", padx=3)
         tk.Button(action_btn_frame, text="📤 Sync to Game", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._sync_to_game(game_id, game_name, game_config)).pack(side="left", padx=3)
         tk.Button(action_btn_frame, text="✏️ Edit Config", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._edit_game_dialog(game_id)).pack(side="left", padx=3)
@@ -1448,6 +1452,38 @@ class MainWindow:
                     stats = self._cache.get_stats(game_name)
                     log_to_dialog(f"\nCached translations: {stats['total_translations']}")
             
+            elif "flotsam" in game_id_lower:
+                from games.flotsam.translator import FlotsamTranslator
+                handler = FlotsamTranslator(game_path, self._translation_engine, self._cache)
+                handler.set_callbacks(progress=update_progress, log=log_to_dialog)
+                
+                if not handler.is_game_valid():
+                    log_to_dialog(f"ERROR: I2Languages file not found at: {game_path}")
+                    return
+                
+                log_to_dialog(f"Engine: Unity + I2Languages")
+                log_to_dialog(f"Model: {selected_model} | Mode: {mode}")
+                log_to_dialog(f"Terms: {handler.get_terms_count()}")
+                log_to_dialog("")
+                log_to_dialog("Starting translation...")
+                
+                success = handler.translate_all()
+                stats = handler.get_stats()
+                
+                def show_flotsam_result():
+                    if success:
+                        log_to_dialog(f"\n{'='*40}")
+                        log_to_dialog(f"COMPLETE | Model: {selected_model}")
+                        log_to_dialog(f"Total: {stats['total']} | New: {stats['translated']} | Cached: {stats['cached']}")
+                        log_to_dialog(f"Saved: {handler.output_path}")
+                        log_to_dialog("")
+                        log_to_dialog("Start the game and the translation server (port 5001)")
+                        self._set_status(f"Flotsam translated with {selected_model}")
+                    else:
+                        log_to_dialog("\nSTOPPED or FAILED")
+                
+                self._safe_after(0, show_flotsam_result)
+            
             else:
                 log_to_dialog(f"Engine: {engine_type}")
                 log_to_dialog(f"Model: {selected_model} | Mode: {mode}")
@@ -2040,6 +2076,25 @@ class MainWindow:
                 return candidate
         
         return ""
+    
+    def _start_translation_server(self):
+        import subprocess
+        
+        server_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "translation_server.py")
+        
+        if not os.path.exists(server_script):
+            messagebox.showwarning("Warning", "translation_server.py not found")
+            return
+        
+        try:
+            subprocess.Popen(
+                ["python", server_script],
+                creationflags=0x00000008,
+                cwd=os.path.dirname(server_script)
+            )
+            self._set_status("Translation server started on port 5001")
+        except Exception as e:
+            self._set_status(f"Failed to start server: {e}")
     
     def _sync_from_game(self, game_id, game_name, game_config):
         translate_dir = self._find_translate_dir(game_config)
