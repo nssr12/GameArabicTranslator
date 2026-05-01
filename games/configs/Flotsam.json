@@ -1,13 +1,14 @@
 {
   "name": "Flotsam",
   "process_name": "Flotsam.exe",
-  "game_path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Flotsam",
-  "engine": "unity",
-  "hook_mode": "bepinex",
+  "game_path": "C:/Program Files (x86)/Steam/steamapps/common/Flotsam",
+  "engine": "auto",
+  "hook_mode": "frida",
   "source_lang": "en",
   "target_lang": "ar",
   "replace_font": false,
-  "notes": "Unity + BepInEx + XUnity.AutoTranslator + FlotsamArabicRuntime.dll. Uses I2Languages. Connects to http://127.0.0.1:5001/",
+  "font_path": "",
+  "notes": "",
   "hooks": [],
   "enabled": true
 }

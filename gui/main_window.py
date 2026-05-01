@@ -2097,6 +2097,12 @@ class MainWindow:
             self._set_status(f"Failed to start server: {e}")
     
     def _sync_from_game(self, game_id, game_name, game_config):
+        game_id_lower = game_id.lower().replace(" ", "").replace("_", "")
+        
+        if "flotsam" in game_id_lower:
+            self._sync_flotsam_from_game(game_id, game_name, game_config)
+            return
+        
         translate_dir = self._find_translate_dir(game_config)
         if not translate_dir:
             messagebox.showwarning("Warning", "Translate directory not found")
@@ -2138,6 +2144,12 @@ class MainWindow:
         threading.Thread(target=sync_thread, daemon=True).start()
     
     def _sync_to_game(self, game_id, game_name, game_config):
+        game_id_lower = game_id.lower().replace(" ", "").replace("_", "")
+        
+        if "flotsam" in game_id_lower:
+            self._sync_flotsam_to_game(game_id, game_name, game_config)
+            return
+        
         translate_dir = self._find_translate_dir(game_config)
         if not translate_dir:
             messagebox.showwarning("Warning", "Translate directory not found")
@@ -2181,6 +2193,97 @@ class MainWindow:
             self._safe_after(0, lambda: self._show_game_detail(game_id))
         
         self._set_status("Syncing to game...")
+        threading.Thread(target=sync_thread, daemon=True).start()
+    
+    def _sync_flotsam_from_game(self, game_id, game_name, game_config):
+        game_path = game_config.get("game_path", "")
+        json_path = os.path.join(game_path, "BepInEx", "config", "ArabicGameTranslator", "flotsam_i2_translated_only.json")
+        
+        if not os.path.exists(json_path):
+            messagebox.showwarning("Warning", "Flotsam translation JSON not found")
+            return
+        
+        def sync_thread():
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                
+                i2_path = os.path.join(game_path, "Flotsam_Data", "I2Languages-resources.assets-115691.json")
+                key_to_english = {}
+                if os.path.exists(i2_path):
+                    with open(i2_path, 'r', encoding='utf-8') as f:
+                        i2data = json.load(f)
+                    for term in i2data.get('mSource', {}).get('mTerms', {}).get('Array', []):
+                        name = term.get('Term', '')
+                        langs = term.get('Languages', {}).get('Array', [])
+                        if name and langs:
+                            key_to_english[name] = langs[0]
+                
+                entries = payload.get('entries', [])
+                imported = 0
+                for entry in entries:
+                    key = entry.get('key', '')
+                    arabic = entry.get('Arabic', '')
+                    if not key or not arabic:
+                        continue
+                    
+                    english = key_to_english.get(key, key)
+                    existing = self._cache.get(game_name, english) if self._cache else None
+                    if existing == arabic:
+                        continue
+                    
+                    if self._cache:
+                        self._cache.put(game_name, english, arabic, "flotsam_sync")
+                    imported += 1
+                
+                self._safe_after(0, lambda: self._set_status(f"Synced {imported} Flotsam translations from game"))
+                self._safe_after(0, lambda: self._show_game_detail(game_id))
+            except Exception as e:
+                self._safe_after(0, lambda: self._set_status(f"Sync error: {e}"))
+        
+        self._set_status("Syncing Flotsam translations...")
+        threading.Thread(target=sync_thread, daemon=True).start()
+    
+    def _sync_flotsam_to_game(self, game_id, game_name, game_config):
+        game_path = game_config.get("game_path", "")
+        json_path = os.path.join(game_path, "BepInEx", "config", "ArabicGameTranslator", "flotsam_i2_translated_only.json")
+        
+        i2_path = os.path.join(game_path, "Flotsam_Data", "I2Languages-resources.assets-115691.json")
+        if not os.path.exists(i2_path):
+            messagebox.showwarning("Warning", "I2Languages file not found")
+            return
+        
+        def sync_thread():
+            try:
+                with open(i2_path, 'r', encoding='utf-8') as f:
+                    i2data = json.load(f)
+                
+                terms = i2data.get('mSource', {}).get('mTerms', {}).get('Array', [])
+                
+                translations = self._cache.get_all_for_game(game_name) if self._cache else {}
+                
+                english_to_key = {}
+                for term in terms:
+                    name = term.get('Term', '')
+                    langs = term.get('Languages', {}).get('Array', [])
+                    if name and langs:
+                        english_to_key[langs[0]] = name
+                
+                entries = []
+                for english, arabic in translations.items():
+                    key = english_to_key.get(english, english)
+                    entries.append({'key': key, 'Arabic': arabic})
+                
+                os.makedirs(os.path.dirname(json_path), exist_ok=True)
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump({'entries': entries}, f, ensure_ascii=False)
+                
+                self._safe_after(0, lambda: self._set_status(f"Synced {len(entries)} translations to Flotsam"))
+                self._safe_after(0, lambda: self._show_game_detail(game_id))
+            except Exception as e:
+                self._safe_after(0, lambda: self._set_status(f"Sync error: {e}"))
+        
+        self._set_status("Syncing to Flotsam...")
         threading.Thread(target=sync_thread, daemon=True).start()
     
     def _read_subtitle_file(self, path):
