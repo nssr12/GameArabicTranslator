@@ -1,0 +1,14 @@
+{
+  "name": "Manor Lords",
+  "process_name": "ManorLords.exe",
+  "game_path": "C:/Program Files (x86)/Steam/steamapps/common/Manor Lords",
+  "engine": "auto",
+  "hook_mode": "frida",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "font_path": "",
+  "notes": "",
+  "hooks": [],
+  "enabled": true
+}

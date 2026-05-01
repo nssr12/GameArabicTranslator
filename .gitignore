@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data files (large)
+data/cache/*.db
+data/game_images/
+data/ue4ss/
+data/manorlords_extracted/
+data/manorlords_strings.json
+
+# HuggingFace cache
+.huggingface/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary
+tmp_*/
+*.tmp
+
+# Large binary files
+*.zip
+*.rar
+*.pak
+*.uexp
+*.uasset
+*.dll
+*.exe
+*.ttf
+*.otf

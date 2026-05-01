@@ -1,0 +1,14 @@
+{
+  "name": "Sample Game",
+  "process_name": "",
+  "game_path": "",
+  "engine": "auto",
+  "hook_mode": "frida",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "font_path": "",
+  "notes": "Edit this config for your game",
+  "hooks": [],
+  "enabled": true
+}

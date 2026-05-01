@@ -1,0 +1,70 @@
+{
+  "app_name": "Game Arabic Translator",
+  "version": "1.0.0",
+  "default_model": "marianmt",
+  "models": {
+    "marianmt": {
+      "name": "Helsinki-NLP/opus-mt-en-ar",
+      "type": "huggingface",
+      "description": "MarianMT - Fast & lightweight English→Arabic",
+      "enabled": true
+    },
+    "mbart": {
+      "name": "facebook/mbart-large-50-many-to-many-mmt",
+      "type": "huggingface",
+      "description": "mBART50 - High quality multilingual",
+      "enabled": false
+    },
+    "nllb": {
+      "name": "facebook/nllb-200-distilled-600M",
+      "type": "huggingface",
+      "description": "NLLB-200 - Meta's multilingual model (600M)",
+      "enabled": false
+    },
+    "google_free": {
+      "name": "google_translate_free",
+      "type": "google_free",
+      "description": "Google Translate (Free - no API key needed)",
+      "enabled": true
+    },
+    "ollama": {
+      "name": "ollama",
+      "type": "ollama",
+      "description": "Ollama local LLM (any model)",
+      "model": "llama3",
+      "url": "http://localhost:11434",
+      "enabled": false
+    },
+    "custom_endpoint": {
+      "name": "custom",
+      "type": "custom",
+      "description": "Custom HTTP translation endpoint",
+      "url": "http://localhost:5001/translate",
+      "enabled": false
+    },
+    "deepl": {
+      "name": "deepl",
+      "type": "deepl",
+      "description": "DeepL API (Free: 500k chars/month)",
+      "api_key": "",
+      "tier": "free",
+      "enabled": false
+    }
+  },
+  "cache": {
+    "db_path": "data/cache/translations.db",
+    "max_cache_size_mb": 500
+  },
+  "frida": {
+    "enabled": true,
+    "script_dir": "hooking/hooks"
+  },
+  "gui": {
+    "theme": "dark",
+    "language": "ar",
+    "font_family": "Segoe UI",
+    "font_size": 11,
+    "window_width": 1200,
+    "window_height": 750
+  }
+}
