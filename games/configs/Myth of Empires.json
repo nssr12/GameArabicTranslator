@@ -11,5 +11,6 @@
   "notes": "UE4 game with custom .locres format. Supports file-based translation.",
   "text_reorder_enabled": true,
   "hooks": [],
-  "enabled": true
+  "enabled": true,
+  "locres_path": "D:/SteamLibrary/steamapps/common/Myth of Empires/MOE/Content/Paks/pakchunk0_optional-WindowsNoEditor_P/MOE/Content/Localization/MoeGame/en/MoeGame.locres"
 }
