@@ -1,0 +1,15 @@
+{
+  "name": "Myth of Empires",
+  "process_name": "MOE.exe",
+  "game_path": "D:\\SteamLibrary\\steamapps\\common\\Myth of Empires",
+  "engine": "unreal",
+  "hook_mode": "frida",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "font_path": "",
+  "notes": "UE4 game with custom .locres format. Supports file-based translation.",
+  "text_reorder_enabled": true,
+  "hooks": [],
+  "enabled": true
+}

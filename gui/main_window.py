@@ -1433,6 +1433,59 @@ class MainWindow:
                 
                 self._safe_after(0, show_result)
             
+            elif "myth" in game_id_lower or "empires" in game_id_lower or "moe" in game_id_lower:
+                from games.mythofempires.translator import MythOfEmpiresTranslator
+                handler = MythOfEmpiresTranslator(game_path, self._translation_engine, self._cache)
+                handler.set_callbacks(progress=update_progress, log=log_to_dialog)
+
+                if not handler.is_game_valid():
+                    log_to_dialog(f"ERROR: No .locres files found at: {game_path}")
+                    return
+
+                locres_files = handler.find_locres_files()
+                log_to_dialog(f"Engine: Unreal Engine (.locres)")
+                log_to_dialog(f"Model: {selected_model} | Mode: {mode}")
+                log_to_dialog(f"Found {len(locres_files)} locres files:")
+                for lf in locres_files:
+                    log_to_dialog(f"  - {os.path.basename(lf)}")
+
+                target_locres = None
+                for lf in locres_files:
+                    if "game" in os.path.basename(lf).lower() or "moe" in os.path.basename(lf).lower():
+                        target_locres = lf
+                        break
+                if not target_locres and locres_files:
+                    target_locres = locres_files[0]
+
+                if not target_locres:
+                    log_to_dialog("ERROR: Could not determine target locres file")
+                    return
+
+                handler.set_locres_path(target_locres)
+                log_to_dialog(f"\nTarget: {os.path.basename(target_locres)}")
+
+                if not handler.load_locres():
+                    log_to_dialog("ERROR: Failed to parse locres file")
+                    return
+
+                log_to_dialog(f"Entries: {handler.get_entries_count()}")
+                log_to_dialog("\nStarting translation...")
+
+                success = handler.translate_all()
+                stats = handler.get_stats()
+
+                def show_moe_result():
+                    if success:
+                        log_to_dialog(f"\n{'='*40}")
+                        log_to_dialog(f"COMPLETE | Model: {selected_model}")
+                        log_to_dialog(f"Total: {stats['total']} | New: {stats['translated']} | Cached: {stats['cached']}")
+                        log_to_dialog(f"Saved: {stats['locres_path']}")
+                        self._set_status(f"Myth of Empires translated with {selected_model}")
+                    else:
+                        log_to_dialog("\nSTOPPED or FAILED")
+
+                self._safe_after(0, show_moe_result)
+
             elif "manor" in game_id_lower or engine_type == "unreal":
                 log_to_dialog(f"Engine: Unreal Engine")
                 log_to_dialog(f"Model: {selected_model} | Mode: {mode}")
@@ -2103,6 +2156,10 @@ class MainWindow:
             self._sync_flotsam_from_game(game_id, game_name, game_config)
             return
         
+        if "myth" in game_id_lower or "empires" in game_id_lower or "moe" in game_id_lower:
+            self._sync_moe_from_game(game_id, game_name, game_config)
+            return
+        
         translate_dir = self._find_translate_dir(game_config)
         if not translate_dir:
             messagebox.showwarning("Warning", "Translate directory not found")
@@ -2284,6 +2341,55 @@ class MainWindow:
                 self._safe_after(0, lambda: self._set_status(f"Sync error: {e}"))
         
         self._set_status("Syncing to Flotsam...")
+        threading.Thread(target=sync_thread, daemon=True).start()
+    
+    def _sync_moe_from_game(self, game_id, game_name, game_config):
+        game_path = game_config.get("game_path", "")
+        
+        def sync_thread():
+            try:
+                from games.mythofempires.translator import MythOfEmpiresTranslator
+                handler = MythOfEmpiresTranslator(game_path, None, self._cache)
+                
+                if not handler.is_game_valid():
+                    self._safe_after(0, lambda: self._set_status("ERROR: No .locres files found"))
+                    return
+                
+                locres_files = handler.find_locres_files()
+                target = None
+                for lf in locres_files:
+                    if "game" in os.path.basename(lf).lower() or "moe" in os.path.basename(lf).lower():
+                        target = lf
+                        break
+                if not target and locres_files:
+                    target = locres_files[0]
+                
+                if not target:
+                    self._safe_after(0, lambda: self._set_status("ERROR: No target locres file"))
+                    return
+                
+                if not handler.load_locres(target):
+                    self._safe_after(0, lambda: self._set_status("ERROR: Failed to parse locres"))
+                    return
+                
+                entries = handler.get_entries()
+                imported = 0
+                for key, value in entries.items():
+                    if not value or len(value.strip()) < 2:
+                        continue
+                    existing = self._cache.get(game_name, key) if self._cache else None
+                    if existing == value:
+                        continue
+                    if self._cache:
+                        self._cache.put(game_name, key, value, "moe_locres_sync")
+                    imported += 1
+                
+                self._safe_after(0, lambda: self._set_status(f"Synced {imported} Myth of Empires translations from game"))
+                self._safe_after(0, lambda: self._show_game_detail(game_id))
+            except Exception as e:
+                self._safe_after(0, lambda: self._set_status(f"Sync error: {e}"))
+        
+        self._set_status("Syncing Myth of Empires translations...")
         threading.Thread(target=sync_thread, daemon=True).start()
     
     def _read_subtitle_file(self, path):
