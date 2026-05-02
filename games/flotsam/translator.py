@@ -6,6 +6,26 @@ from typing import Optional, Dict, Callable
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+TOKEN_ONLY_RE = re.compile(
+    r"(%[A-Z0-9_]+%|\[\{[A-Z0-9_:,]+\}\]|\{[A-Z0-9_:,]+\}|\{\[[A-Z0-9_:,]+\]\})"
+)
+
+
+def mask_tokens(text):
+    tokens = []
+    def repl(match):
+        tokens.append(match.group(0))
+        return f"__AGT_{len(tokens)-1}__"
+    return TOKEN_ONLY_RE.sub(repl, text), tokens
+
+
+def restore_tokens(text, tokens):
+    result = text
+    for i, token in enumerate(tokens):
+        marker = f"__AGT_{i}__"
+        result = result.replace(marker, token)
+    return result
+
 
 class FlotsamTranslator:
     
@@ -72,6 +92,24 @@ class FlotsamTranslator:
         
         return result
     
+    def _translate_with_token_protection(self, text):
+        cached = self.cache.get(self.game_name, text) if self.cache else None
+        if cached:
+            return cached
+        
+        masked, tokens = mask_tokens(text)
+        
+        result = self.engine.translate(masked) if self.engine else None
+        if not result or not result.strip() or result == masked:
+            return None
+        
+        final = restore_tokens(result, tokens)
+        
+        if self.cache:
+            self.cache.put(self.game_name, text, final, self.engine.get_active_model() or "unknown")
+        
+        return final
+    
     def translate_all(self) -> bool:
         self._stop = False
         self._translated = 0
@@ -87,7 +125,7 @@ class FlotsamTranslator:
         self._total = len(terms)
         self._log(f"Found {self._total} terms to translate")
         
-        translations = {}
+        entries = []
         
         for term_name, english_text in terms.items():
             if self._stop:
@@ -96,15 +134,13 @@ class FlotsamTranslator:
             
             cached = self.cache.get(self.game_name, english_text) if self.cache else None
             if cached:
-                translations[term_name] = cached
+                entries.append({"key": term_name, "Arabic": cached})
                 self._cached += 1
             else:
-                result = self.engine.translate(english_text) if self.engine else None
-                if result and result.strip() and result != english_text:
-                    translations[term_name] = result
+                result = self._translate_with_token_protection(english_text)
+                if result:
+                    entries.append({"key": term_name, "Arabic": result})
                     self._translated += 1
-                    if self.cache:
-                        self.cache.put(self.game_name, english_text, result, self.engine.get_active_model() or "unknown")
                 else:
                     self._failed += 1
             
@@ -115,11 +151,12 @@ class FlotsamTranslator:
             if done % 50 == 0:
                 self._log(f"Progress: {done}/{self._total}")
         
-        self._log(f"Writing {len(translations)} translations to JSON...")
+        self._log(f"Writing {len(entries)} entries to JSON...")
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
         
+        payload = {"entries": entries}
         with open(self.output_path, 'w', encoding='utf-8') as f:
-            json.dump(translations, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False)
         
         self._log(f"Saved: {self.output_path}")
         self._log(f"Total: {self._total} | Translated: {self._translated} | Cached: {self._cached} | Failed: {self._failed}")
