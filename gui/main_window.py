@@ -555,6 +555,33 @@ class MainWindow:
         tk.Button(action_btn_frame, text="📥 Sync from Game", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._sync_from_game(game_id, game_name, game_config)).pack(side="left", padx=3)
         tk.Button(action_btn_frame, text="📤 Sync to Game", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._sync_to_game(game_id, game_name, game_config)).pack(side="left", padx=3)
         tk.Button(action_btn_frame, text="✏️ Edit Config", font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=15, pady=5, cursor="hand2", command=lambda: self._edit_game_dialog(game_id)).pack(side="left", padx=3)
+        
+        game_id_lower = game_id.lower().replace(" ", "").replace("_", "")
+        if "myth" in game_id_lower or "empires" in game_id_lower or "moe" in game_id_lower:
+            locres_frame = tk.Frame(page, bg=AppColors.BG_CARD, padx=20, pady=10)
+            locres_frame.pack(fill="x", pady=(0, 10))
+            
+            saved_locres = game_config.get("locres_path", "")
+            locres_label_text = saved_locres if saved_locres and os.path.exists(saved_locres) else "No .locres file selected"
+            
+            tk.Label(locres_frame, text="📄 Locres File:", font=self._theme.get_font(), bg=AppColors.BG_CARD, fg=AppColors.TEXT_PRIMARY).pack(side="left")
+            locres_var = tk.StringVar(value=locres_label_text)
+            locres_entry = tk.Entry(locres_frame, textvariable=locres_var, font=self._theme.get_font(), bg=AppColors.BG_LIGHT, fg=AppColors.TEXT_PRIMARY, relief="flat", width=60)
+            locres_entry.pack(side="left", padx=5, fill="x", expand=True)
+            
+            def browse_locres():
+                path = filedialog.askopenfilename(
+                    title="Select .locres file",
+                    initialdir=game_path,
+                    filetypes=[("UE4 Localization", "*.locres"), ("All files", "*.*")]
+                )
+                if path:
+                    locres_var.set(path)
+                    if self._game_manager:
+                        self._game_manager.update_game(game_id, {"locres_path": path})
+                    self._set_status(f"Locres path saved: {os.path.basename(path)}")
+            
+            tk.Button(locres_frame, text="Browse", font=self._theme.get_font(), bg=AppColors.ACCENT, fg=AppColors.TEXT_PRIMARY, relief="flat", padx=10, pady=3, cursor="hand2", command=browse_locres).pack(side="left", padx=3)
     
     def _build_games_page(self):
         page = tk.Frame(self._content_frame, bg=AppColors.BG_DARK)
@@ -1447,25 +1474,38 @@ class MainWindow:
                 log_to_dialog(f"Model: {selected_model} | Mode: {mode}")
                 log_to_dialog(f"Found {len(locres_files)} locres files:")
                 for lf in locres_files:
-                    log_to_dialog(f"  - {os.path.basename(lf)}")
+                    log_to_dialog(f"  - {lf}")
 
                 target_locres = None
-                for lf in locres_files:
-                    if "game" in os.path.basename(lf).lower() or "moe" in os.path.basename(lf).lower():
-                        target_locres = lf
-                        break
-                if not target_locres and locres_files:
-                    target_locres = locres_files[0]
+
+                saved_locres = game_config.get("locres_path", "")
+                if saved_locres and os.path.exists(saved_locres):
+                    target_locres = saved_locres
+                    log_to_dialog(f"\nUsing saved locres: {os.path.basename(target_locres)}")
+                else:
+                    for lf in locres_files:
+                        basename = os.path.basename(lf).lower()
+                        if "moegame" in basename or "game" in basename:
+                            target_locres = lf
+                            break
+                    if not target_locres and locres_files:
+                        target_locres = locres_files[0]
+
+                    if target_locres:
+                        if self._game_manager:
+                            self._game_manager.update_game(game_id, {"locres_path": target_locres})
+                        log_to_dialog(f"\nAuto-selected: {target_locres}")
 
                 if not target_locres:
                     log_to_dialog("ERROR: Could not determine target locres file")
+                    log_to_dialog("Use Browse to select a .locres file in the game detail page")
                     return
 
                 handler.set_locres_path(target_locres)
                 log_to_dialog(f"\nTarget: {os.path.basename(target_locres)}")
 
                 if not handler.load_locres():
-                    log_to_dialog("ERROR: Failed to parse locres file")
+                    log_to_dialog("ERROR: Failed to export/parse locres file")
                     return
 
                 log_to_dialog(f"Entries: {handler.get_entries_count()}")
@@ -2345,6 +2385,7 @@ class MainWindow:
     
     def _sync_moe_from_game(self, game_id, game_name, game_config):
         game_path = game_config.get("game_path", "")
+        saved_locres = game_config.get("locres_path", "")
         
         def sync_thread():
             try:
@@ -2355,21 +2396,23 @@ class MainWindow:
                     self._safe_after(0, lambda: self._set_status("ERROR: No .locres files found"))
                     return
                 
-                locres_files = handler.find_locres_files()
-                target = None
-                for lf in locres_files:
-                    if "game" in os.path.basename(lf).lower() or "moe" in os.path.basename(lf).lower():
-                        target = lf
-                        break
-                if not target and locres_files:
-                    target = locres_files[0]
+                target = saved_locres
+                if not target or not os.path.exists(target):
+                    locres_files = handler.find_locres_files()
+                    for lf in locres_files:
+                        basename = os.path.basename(lf).lower()
+                        if "moegame" in basename or "game" in basename:
+                            target = lf
+                            break
+                    if not target and locres_files:
+                        target = locres_files[0]
                 
-                if not target:
+                if not target or not os.path.exists(target):
                     self._safe_after(0, lambda: self._set_status("ERROR: No target locres file"))
                     return
                 
                 if not handler.load_locres(target):
-                    self._safe_after(0, lambda: self._set_status("ERROR: Failed to parse locres"))
+                    self._safe_after(0, lambda: self._set_status("ERROR: Failed to export/parse locres"))
                     return
                 
                 entries = handler.get_entries()
