@@ -42,7 +42,12 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
         
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.inner.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", lambda e: self.canvas.yview_scroll(-3, "units"))
+        self.canvas.bind("<Button-5>", lambda e: self.canvas.yview_scroll(3, "units"))
+        self.inner.bind("<Button-4>", lambda e: self.canvas.yview_scroll(-3, "units"))
+        self.inner.bind("<Button-5>", lambda e: self.canvas.yview_scroll(3, "units"))
     
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -55,6 +60,15 @@ class MainWindow:
         self.root.title("Game Arabic Translator v1.0")
         self.root.geometry("1200x750")
         self.root.minsize(900, 600)
+        
+        self.root.bind_class("Entry", "<Control-c>", lambda e: e.widget.event_generate("<<Copy>>"))
+        self.root.bind_class("Entry", "<Control-v>", lambda e: e.widget.event_generate("<<Paste>>"))
+        self.root.bind_class("Entry", "<Control-x>", lambda e: e.widget.event_generate("<<Cut>>"))
+        self.root.bind_class("Entry", "<Control-a>", lambda e: e.widget.select_range(0, tk.END))
+        self.root.bind_class("Text", "<Control-c>", lambda e: e.widget.event_generate("<<Copy>>"))
+        self.root.bind_class("Text", "<Control-v>", lambda e: e.widget.event_generate("<<Paste>>"))
+        self.root.bind_class("Text", "<Control-x>", lambda e: e.widget.event_generate("<<Cut>>"))
+        self.root.bind_class("Text", "<Control-a>", lambda e: e.widget.tag_add("sel", "1.0", "end"))
         
         self._theme = ThemeManager(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data"))
         self._C = self._theme.get_colors()
@@ -725,6 +739,10 @@ class MainWindow:
         
         self._cache_stats_label = tk.Label(row2, text="", font=self._theme.get_small_font(), bg=AppColors.BG_CARD, fg=AppColors.TEXT_MUTED)
         self._cache_stats_label.pack(side="right")
+        
+        self._cache_reshape_var = tk.BooleanVar(value=False)
+        reshape_cb = tk.Checkbutton(row2, text="Show Raw Arabic", variable=self._cache_reshape_var, font=self._theme.get_small_font(), bg=AppColors.BG_CARD, fg=AppColors.TEXT_SECONDARY, selectcolor=AppColors.BG_LIGHT, activebackground=AppColors.BG_CARD, activeforeground=AppColors.TEXT_PRIMARY, command=self._cache_load_entries)
+        reshape_cb.pack(side="right", padx=10)
         
         self._cache_nav_frame = tk.Frame(page, bg=AppColors.BG_DARK)
         self._cache_nav_frame.pack(fill="x", pady=(5, 5))
@@ -2054,7 +2072,11 @@ class MainWindow:
             orig = entry["original"][:70] + ("..." if len(entry["original"]) > 70 else "")
             tk.Label(row, text=orig, font=self._theme.get_code_font(), bg=row_bg, fg=AppColors.TEXT_SECONDARY, width=32, anchor="w").pack(side="left", padx=3)
             
-            trans = self._display_arabic(entry["translated"][:70])
+            trans = entry["translated"][:70]
+            if not self._cache_reshape_var.get():
+                trans = self._display_arabic(trans)
+            if len(entry["translated"]) > 70:
+                trans += "..."
             tk.Label(row, text=trans, font=self._theme.get_code_font(), bg=row_bg, fg=AppColors.SUCCESS, width=32, anchor="e").pack(side="left", padx=3)
             
             model = entry.get("model", "?")[:12]
@@ -2247,6 +2269,10 @@ class MainWindow:
             self._sync_flotsam_to_game(game_id, game_name, game_config)
             return
         
+        if "myth" in game_id_lower or "empires" in game_id_lower or "moe" in game_id_lower:
+            self._sync_moe_to_game(game_id, game_name, game_config)
+            return
+        
         translate_dir = self._find_translate_dir(game_config)
         if not translate_dir:
             messagebox.showwarning("Warning", "Translate directory not found")
@@ -2433,6 +2459,54 @@ class MainWindow:
                 self._safe_after(0, lambda: self._set_status(f"Sync error: {e}"))
         
         self._set_status("Syncing Myth of Empires translations...")
+        threading.Thread(target=sync_thread, daemon=True).start()
+    
+    def _sync_moe_to_game(self, game_id, game_name, game_config):
+        game_path = game_config.get("game_path", "")
+        saved_locres = game_config.get("locres_path", "")
+        
+        if not saved_locres or not os.path.exists(saved_locres):
+            messagebox.showwarning("Warning", "No .locres file selected. Use Browse to select one first.")
+            return
+        
+        def sync_thread():
+            try:
+                from games.mythofempires.translator import MythOfEmpiresTranslator
+                handler = MythOfEmpiresTranslator(game_path, None, self._cache)
+                
+                self._safe_after(0, lambda: self._set_status("Exporting locres..."))
+                if not handler.load_locres(saved_locres):
+                    self._safe_after(0, lambda: self._set_status("ERROR: Failed to export locres"))
+                    return
+                
+                translations = self._cache.get_all_for_game(game_name) if self._cache else {}
+                if not translations:
+                    self._safe_after(0, lambda: self._set_status("No translations in cache"))
+                    return
+                
+                entries = handler.get_entries()
+                applied = 0
+                for key, value in entries.items():
+                    if key in translations:
+                        entries[key] = translations[key]
+                        applied += 1
+                
+                handler._entries = entries
+                
+                self._safe_after(0, lambda: self._set_status(f"Writing {applied} translations to TXT..."))
+                if handler._write_txt():
+                    self._safe_after(0, lambda: self._set_status("Importing TXT to locres..."))
+                    if handler._import_locres():
+                        self._safe_after(0, lambda: self._set_status(f"Synced {applied} translations to Myth of Empires"))
+                        self._safe_after(0, lambda: self._show_game_detail(game_id))
+                    else:
+                        self._safe_after(0, lambda: self._set_status("ERROR: Failed to import locres"))
+                else:
+                    self._safe_after(0, lambda: self._set_status("ERROR: Failed to write TXT"))
+            except Exception as e:
+                self._safe_after(0, lambda: self._set_status(f"Sync error: {e}"))
+        
+        self._set_status("Syncing to Myth of Empires...")
         threading.Thread(target=sync_thread, daemon=True).start()
     
     def _read_subtitle_file(self, path):
