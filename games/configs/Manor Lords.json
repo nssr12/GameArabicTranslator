@@ -1,14 +1,23 @@
 {
   "name": "Manor Lords",
-  "process_name": "ManorLords.exe",
-  "game_path": "C:/Program Files (x86)/Steam/steamapps/common/Manor Lords",
-  "engine": "auto",
+  "process_name": "ManorLords-Win64-Shipping.exe",
+  "game_path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Manor Lords",
+  "engine": "unreal",
   "hook_mode": "frida",
   "source_lang": "en",
   "target_lang": "ar",
   "replace_font": false,
-  "font_path": "",
-  "notes": "",
-  "hooks": [],
-  "enabled": true
+  "text_reorder_enabled": true,
+  "notes": "Unreal Engine game - text in .pak files. Uses Frida runtime hook.",
+  "hooks": [
+    {
+      "file": "manorlords_hook.js",
+      "description": "Manor Lords Unreal Engine text hook"
+    }
+  ],
+  "enabled": true,
+  "hidden_features": [],
+  "shown_features": [
+    "iostore_section"
+  ]
 }

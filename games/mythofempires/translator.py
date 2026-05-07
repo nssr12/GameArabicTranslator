@@ -13,7 +13,8 @@ TOOL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
 
 class MythOfEmpiresTranslator:
 
-    def __init__(self, game_path: str, translator_engine=None, cache=None):
+    def __init__(self, game_path: str, translator_engine=None, cache=None,
+                 unrealpak_path: str = None, reshape_text: bool = False):
         self.game_path = game_path
         self.engine = translator_engine
         self.cache = cache
@@ -28,6 +29,8 @@ class MythOfEmpiresTranslator:
         self._locres_path: Optional[str] = None
         self._txt_path: Optional[str] = None
         self._entries: Dict[str, str] = {}
+        self._unrealpak_path: Optional[str] = unrealpak_path
+        self._reshape_text: bool = reshape_text
 
     def set_callbacks(self, progress: Callable = None, log: Callable = None):
         self._progress_callback = progress
@@ -112,13 +115,13 @@ class MythOfEmpiresTranslator:
             self._entries = {}
             with open(self._txt_path, "r", encoding="utf-8") as f:
                 for line in f:
-                    line = line.strip()
+                    line = line.rstrip('\r\n')  # preserve trailing spaces in values
                     if not line or "=" not in line:
                         continue
                     eq_pos = line.index("=")
                     key = line[:eq_pos]
                     value = line[eq_pos + 1:]
-                    if key and value:
+                    if key:
                         self._entries[key] = value
 
             self._total_strings = len(self._entries)
@@ -168,6 +171,13 @@ class MythOfEmpiresTranslator:
             if not value or len(value.strip()) < 2:
                 continue
 
+            # Skip entries that are already in Arabic (from a previous translation run)
+            if any('؀' <= c <= 'ۿ' for c in value):
+                self._cached_strings += 1
+                done = self._translated_strings + self._cached_strings + self._failed_strings
+                self._update_progress(done, self._total_strings, self._cached_strings, self._failed_strings)
+                continue
+
             cached = None
             if self.cache:
                 cached = self.cache.get(self.game_name, value)
@@ -189,7 +199,9 @@ class MythOfEmpiresTranslator:
         self._log(f"Translation complete! Total: {self._total_strings}, New: {self._translated_strings}, Cached: {self._cached_strings}, Failed: {self._failed_strings}")
 
         if self._write_txt():
-            return self._import_locres()
+            if self._import_locres():
+                self._pack_to_pak()
+                return True
         return False
 
     def _translate_single(self, text: str) -> Optional[str]:
@@ -202,10 +214,10 @@ class MythOfEmpiresTranslator:
             result = self.engine.translate(protected)
             if result:
                 final = self._restore_tokens(result, replacements)
-                reshaped = reshape_arabic_keep_tags(final)
+                output = reshape_arabic_keep_tags(final) if self._reshape_text else final
                 if self.cache:
-                    self.cache.put(self.game_name, text, reshaped, self.engine.get_active_model() or "unknown")
-                return reshaped
+                    self.cache.put(self.game_name, text, output, self.engine.get_active_model() or "unknown")
+                return output
 
         return None
 
@@ -240,9 +252,9 @@ class MythOfEmpiresTranslator:
             if not os.path.exists(backup) and os.path.exists(self._txt_path):
                 shutil.copy2(self._txt_path, backup)
 
-            with open(self._txt_path, "w", encoding="utf-8") as f:
+            with open(self._txt_path, "w", encoding="utf-8", newline='') as f:
                 for key, value in self._entries.items():
-                    f.write(f"{key}={value}\n")
+                    f.write(f"{key}={value}\r\n")
 
             self._log(f"Wrote translated TXT: {os.path.basename(self._txt_path)}")
             return True
@@ -259,7 +271,7 @@ class MythOfEmpiresTranslator:
         try:
             self._log("Importing TXT back to locres...")
             result = subprocess.run(
-                [TOOL_PATH, "-import", self._txt_path],
+                [TOOL_PATH, "import", self._txt_path],
                 capture_output=True, text=True, timeout=60
             )
 
@@ -286,6 +298,120 @@ class MythOfEmpiresTranslator:
             return False
         except Exception as e:
             self._log(f"ERROR: Import exception: {e}")
+            return False
+
+    def _find_pak_folder(self) -> Optional[tuple]:
+        """Find the pakchunk folder from locres_path. Returns (pak_folder, output_pak_path) or None."""
+        if not self._locres_path:
+            return None
+        norm = self._locres_path.replace('\\', '/')
+        parts = norm.split('/')
+        for i, part in enumerate(parts):
+            if 'pakchunk' in part.lower() and part.lower().endswith('_p'):
+                pak_folder = os.path.normpath('/'.join(parts[:i + 1]))
+                pak_dir = os.path.normpath('/'.join(parts[:i]))
+                output_pak = os.path.join(pak_dir, part + '.pak')
+                return pak_folder, output_pak
+        return None
+
+    def _find_unrealpak(self) -> Optional[str]:
+        """Find UnrealPak.exe from config path or common UE installation directories."""
+        if self._unrealpak_path and os.path.isfile(self._unrealpak_path):
+            return self._unrealpak_path
+        candidates = [
+            os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'tools', 'UnrealPak.exe')),
+        ]
+        for drive in ['C', 'D', 'E', 'F']:
+            base = f'{drive}:\\Program Files\\Epic Games'
+            if os.path.isdir(base):
+                try:
+                    for entry in os.listdir(base):
+                        candidates.append(os.path.join(base, entry, 'Engine', 'Binaries', 'Win64', 'UnrealPak.exe'))
+                except OSError:
+                    pass
+        for c in candidates:
+            if os.path.isfile(c):
+                return os.path.normpath(c)
+        return None
+
+    def _pack_to_pak(self) -> bool:
+        """Pack the pakchunk folder into a .pak file using UnrealPak.exe."""
+        result = self._find_pak_folder()
+        if not result:
+            self._log('Pack: Could not find pakchunk folder in locres path')
+            return False
+
+        pak_folder, output_pak = result
+
+        if not os.path.isdir(pak_folder):
+            self._log(f'Pack: Folder not found: {pak_folder}')
+            return False
+
+        tool = self._find_unrealpak()
+        if not tool:
+            self._log('Pack: UnrealPak.exe not found.')
+            self._log('  Options: (1) Go to Settings -> UE4 Tools and browse for UnrealPak.exe')
+            self._log('  (2) Copy UnrealPak.exe to: tools\\UnrealPak.exe inside the app folder')
+            self._log(f'  Translated locres is ready at: {self._locres_path}')
+            return False
+
+        self._log(f'Packing {os.path.basename(pak_folder)} -> {os.path.basename(output_pak)}...')
+
+        # Extensions to exclude from the pak (temp files created during translation)
+        _EXCLUDE_EXT = {'.txt', '.bak'}
+
+        try:
+            import tempfile
+
+            # Build per-file filelist excluding temp files
+            entries_added = 0
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as rf:
+                response_path = rf.name
+                for root, _, files in os.walk(pak_folder):
+                    for fname in files:
+                        ext = os.path.splitext(fname)[1].lower()
+                        if ext in _EXCLUDE_EXT:
+                            continue
+                        src = os.path.join(root, fname)
+                        rel = os.path.relpath(src, pak_folder).replace('\\', '/')
+                        rf.write(f'"{src}" "../../../{rel}"\n')
+                        entries_added += 1
+
+            self._log(f'Pack: {entries_added} files queued')
+
+            if os.path.exists(output_pak):
+                bak = output_pak + '.bak'
+                if not os.path.exists(bak):
+                    shutil.copy2(output_pak, bak)
+                    self._log(f'Backed up existing: {os.path.basename(bak)}')
+
+            proc = subprocess.run(
+                [tool, output_pak, f'-create={response_path}'],
+                capture_output=True, text=True, timeout=120
+            )
+            try:
+                os.remove(response_path)
+            except OSError:
+                pass
+
+            if proc.returncode != 0:
+                self._log(f'Pack ERROR (exit {proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}')
+                return False
+
+            if os.path.exists(output_pak):
+                size_mb = os.path.getsize(output_pak) / (1024 * 1024)
+                self._log(f'Pack complete: {os.path.basename(output_pak)} ({size_mb:.1f} MB)')
+                self._log(f'Location: {output_pak}')
+                return True
+            else:
+                self._log('Pack ERROR: Output .pak file was not created')
+                return False
+
+        except subprocess.TimeoutExpired:
+            self._log('Pack ERROR: UnrealPak timed out after 120s')
+            return False
+        except Exception as e:
+            self._log(f'Pack ERROR: {e}')
             return False
 
     def stop(self):
@@ -320,7 +446,8 @@ class MythOfEmpiresTranslator:
 
         if synced > 0:
             if self._write_txt():
-                self._import_locres()
+                if self._import_locres():
+                    self._pack_to_pak()
             self._log(f"Synced {synced} entries from cache")
 
         return synced

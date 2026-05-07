@@ -1,0 +1,19 @@
+{
+  "name": "Grounded2",
+  "process_name": "Grounded2.exe",
+  "game_path": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks",
+  "engine": "auto",
+  "hook_mode": "frida",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "font_path": "",
+  "notes": "",
+  "hooks": [],
+  "enabled": true,
+  "hidden_features": [],
+  "shown_features": [
+    "locres_section",
+    "iostore_section"
+  ]
+}

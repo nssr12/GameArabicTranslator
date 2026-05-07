@@ -127,4 +127,4 @@ class ThemeManager:
         return self.get_font(-2)
     
     def get_code_font(self) -> tuple:
-        return ("Consolas", max(8, self.font_size - 1))
+        return (self.font_family, max(8, self.font_size - 1))

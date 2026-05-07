@@ -7,43 +7,89 @@ try:
 except ImportError:
     ARABIC_LIBS_AVAILABLE = False
 
+# Matches all game/engine tokens that must survive reshaping unchanged
+_TOKEN_RE = re.compile(
+    r'('
+    r'\{[^{}]{0,60}\}'                    # {0}  {playerName}  {damage:.2f}
+    r'|</?[a-zA-Z][^<>]{0,120}>'          # <color=#ff0000>  </b>  <size=20>
+    r'|\[[a-zA-Z/#][^\[\]]{0,60}\]'       # [b]  [/color=red]  [sprite icon]
+    r'|\\[nrtbf\\]'                        # \n  \t  \r  \b  \f  \\
+    r'|%(?:[0-9]+\$)?[-+0 #]*[0-9]*(?:\.[0-9]+)?[sdifgeoxXu%]'  # %s %d %1$s %.2f
+    r'|\|[A-Za-z0-9_]+\|'                 # |icon_name|
+    r'|&(?:[a-zA-Z]+|#[0-9]+);'           # &amp;  &lt;  &#39;
+    r')'
+)
+
 
 def reshape_arabic(text: str) -> str:
     if not text or not ARABIC_LIBS_AVAILABLE:
         return text
-    
     if not re.search(r'[\u0600-\u06FF]', text):
         return text
-    
     try:
         reshaped = arabic_reshaper.reshape(text)
-        display = get_display(reshaped)
-        return display
+        return get_display(reshaped)
     except Exception:
         return text
 
 
 def reshape_arabic_keep_tags(text: str) -> str:
+    """Reshape Arabic text for LTR tkinter display while preserving game tokens."""
     if not text or not ARABIC_LIBS_AVAILABLE:
         return text
-    
-    if not re.search(r'[\u0600-\u06FF]', text):
+    if not re.search(r'[\u0600-\u06FF\uFE70-\uFEFF]', text):
         return text
-    
     try:
-        tag_pattern = re.compile(r'(<[^>]+>|{[^}]*})')
-        tags = []
-        def replace_tag(match):
-            tags.append(match.group(0))
-            return f"__TAG{len(tags)-1}__"
-        
-        protected = tag_pattern.sub(replace_tag, text)
+        # If text is already in presentation form, convert back to base form first
+        if any(0xFE70 <= ord(c) <= 0xFEFF for c in text[:30]):
+            text = _presentation_to_normal(text)
+
+        tokens: list = []
+
+        def _protect(m: re.Match) -> str:
+            tokens.append(m.group(0))
+            return f"RRTAG{len(tokens) - 1}RR"
+
+        protected = _TOKEN_RE.sub(_protect, text)
         reshaped = arabic_reshaper.reshape(protected)
-        display = get_display(reshaped)
-        
-        for i, tag in enumerate(tags):
-            display = display.replace(f"__TAG{i}__", tag)
-        
+        display = get_display(reshaped, base_dir='R')
+
+        for i, tok in enumerate(tokens):
+            display = display.replace(f"RRTAG{i}RR", tok)
+
         return display
     except Exception:
         return text
+
+
+def _presentation_to_normal(text: str) -> str:
+    """Convert Arabic presentation forms (FE70-FEFF) back to base Unicode."""
+    MAPPING = {
+        0xFE8D: 0x0627, 0xFE8E: 0x0627, 0xFE8F: 0x0628, 0xFE90: 0x0628,
+        0xFE91: 0x0628, 0xFE92: 0x0628, 0xFE93: 0x0629, 0xFE94: 0x0629,
+        0xFE95: 0x062A, 0xFE96: 0x062A, 0xFE97: 0x062A, 0xFE98: 0x062A,
+        0xFE99: 0x062B, 0xFE9A: 0x062B, 0xFE9B: 0x062B, 0xFE9C: 0x062B,
+        0xFE9D: 0x062C, 0xFE9E: 0x062C, 0xFE9F: 0x062C, 0xFEA0: 0x062C,
+        0xFEA1: 0x062D, 0xFEA2: 0x062D, 0xFEA3: 0x062D, 0xFEA4: 0x062D,
+        0xFEA5: 0x062E, 0xFEA6: 0x062E, 0xFEA7: 0x062E, 0xFEA8: 0x062E,
+        0xFEA9: 0x062F, 0xFEAA: 0x062F, 0xFEAB: 0x0630, 0xFEAC: 0x0630,
+        0xFEAD: 0x0631, 0xFEAE: 0x0631, 0xFEAF: 0x0632, 0xFEB0: 0x0632,
+        0xFEB1: 0x0633, 0xFEB2: 0x0633, 0xFEB3: 0x0633, 0xFEB4: 0x0633,
+        0xFEB5: 0x0634, 0xFEB6: 0x0634, 0xFEB7: 0x0634, 0xFEB8: 0x0634,
+        0xFEB9: 0x0635, 0xFEBA: 0x0635, 0xFEBB: 0x0635, 0xFEBC: 0x0635,
+        0xFEBD: 0x0636, 0xFEBE: 0x0636, 0xFEBF: 0x0636, 0xFEC0: 0x0636,
+        0xFEC1: 0x0637, 0xFEC2: 0x0637, 0xFEC3: 0x0637, 0xFEC4: 0x0637,
+        0xFEC5: 0x0638, 0xFEC6: 0x0638, 0xFEC7: 0x0638, 0xFEC8: 0x0638,
+        0xFEC9: 0x0639, 0xFECA: 0x0639, 0xFECB: 0x0639, 0xFECC: 0x0639,
+        0xFECD: 0x063A, 0xFECE: 0x063A, 0xFECF: 0x063A, 0xFED0: 0x063A,
+        0xFED1: 0x0641, 0xFED2: 0x0641, 0xFED3: 0x0641, 0xFED4: 0x0641,
+        0xFED5: 0x0642, 0xFED6: 0x0642, 0xFED7: 0x0642, 0xFED8: 0x0642,
+        0xFED9: 0x0643, 0xFEDA: 0x0643, 0xFEDB: 0x0643, 0xFEDC: 0x0643,
+        0xFEDD: 0x0644, 0xFEDE: 0x0644, 0xFEDF: 0x0644, 0xFEE0: 0x0644,
+        0xFEE1: 0x0645, 0xFEE2: 0x0645, 0xFEE3: 0x0645, 0xFEE4: 0x0645,
+        0xFEE5: 0x0646, 0xFEE6: 0x0646, 0xFEE7: 0x0646, 0xFEE8: 0x0646,
+        0xFEE9: 0x0647, 0xFEEA: 0x0647, 0xFEEB: 0x0647, 0xFEEC: 0x0647,
+        0xFEED: 0x0648, 0xFEEE: 0x0648, 0xFEEF: 0x0649, 0xFEF0: 0x0649,
+        0xFEF1: 0x064A, 0xFEF2: 0x064A, 0xFEF3: 0x064A, 0xFEF4: 0x064A,
+    }
+    return ''.join(chr(MAPPING.get(ord(c), ord(c))) for c in text)
