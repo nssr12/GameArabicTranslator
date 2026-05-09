@@ -1,18 +1,18 @@
 {
   "files": [
     {
-      "name": "Paks_translated_P.pak",
-      "game_target": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks/Paks_translated_P.pak",
+      "name": "Paks_legacy_P.pak",
+      "game_target": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks/Paks_legacy_P.pak",
       "has_orig": false
     },
     {
-      "name": "Paks_translated_P.ucas",
-      "game_target": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks/Paks_translated_P.ucas",
+      "name": "Paks_legacy_P.ucas",
+      "game_target": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks/Paks_legacy_P.ucas",
       "has_orig": false
     },
     {
-      "name": "Paks_translated_P.utoc",
-      "game_target": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks/Paks_translated_P.utoc",
+      "name": "Paks_legacy_P.utoc",
+      "game_target": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks/Paks_legacy_P.utoc",
       "has_orig": false
     }
   ],
@@ -21,7 +21,7 @@
     "ue_version": "VER_UE5_6",
     "extraction_mode": "default_text",
     "mappings": "",
-    "output_base": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content\\Paks_translated",
+    "output_base": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks_legacy",
     "game_target_dir": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks"
   }
 }

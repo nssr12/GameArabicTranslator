@@ -97,18 +97,33 @@ class TranslationEngine:
     def set_active_model(self, model_key: str) -> bool:
         if model_key in self._translators:
             self._active_model = model_key
+            self._persist_active_model(model_key)
             return True
         return False
-    
+
+    def _persist_active_model(self, model_key: str):
+        try:
+            config_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), self.config_path)
+            if not os.path.exists(config_file):
+                config_file = self.config_path
+            with open(config_file, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            cfg["default_model"] = model_key
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[Engine] Could not persist active model: {e}")
+
     def load_model(self, model_key: str) -> bool:
         if model_key not in self._translators:
             print(f"[Engine] Model '{model_key}' not found")
             return False
-        
+
         translator = self._translators[model_key]
         if translator.is_loaded:
             return True
-        
+
+        translator._load_failed_session = False
         print(f"[Engine] Loading model: {model_key}")
         return translator.load()
     
@@ -121,19 +136,25 @@ class TranslationEngine:
             return self.load_model(self._active_model)
         return False
     
-    def translate(self, text: str, model_key: str = None) -> Optional[str]:
+    def translate(self, text: str, model_key: str = None,
+                  source_lang: str = "en", target_lang: str = "ar") -> Optional[str]:
         key = model_key or self._active_model
         if not key or key not in self._translators:
             return None
-        
+
         translator = self._translators[key]
-        
+
         if not translator.is_loaded:
+            # Don't retry if load already failed this session — avoids hammering
+            # HuggingFace download or Ollama on every single text in a batch.
+            if getattr(translator, '_load_failed_session', False):
+                return None
             success = translator.load()
             if not success:
+                translator._load_failed_session = True
                 return None
-        
-        return translator.translate(text)
+
+        return translator.translate(text, source_lang=source_lang, target_lang=target_lang)
     
     def translate_batch(self, texts: List[str], model_key: str = None) -> List[Optional[str]]:
         results = []

@@ -1,11 +1,15 @@
 import os
+import sys
 import json
 import shutil
 from typing import List, Tuple, Optional
 
-_MODS_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mods")
-)
+if getattr(sys, 'frozen', False):
+    _MODS_DIR = os.path.join(os.path.dirname(sys.executable), 'mods')
+else:
+    _MODS_DIR = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mods")
+    )
 
 
 class TranslationPackage:

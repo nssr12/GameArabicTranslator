@@ -395,7 +395,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Bow"
+                              "Value": "القوس"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -591,7 +591,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Charge attack damage slightly increased."
+                              "Value": "تم زيادة ضرر الهجوم القوي بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -689,7 +689,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Charge attack damage increased."
+                              "Value": "تم زيادة ضرر الهجوم القوي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -787,7 +787,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Charge attack damage greatly increased."
+                              "Value": "تم زيادة ضرر الهجوم المفاجئ بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -885,7 +885,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stun with clubs slightly increased."
+                              "Value": "تم زيادة تأثير الصعق الناتج عن استخدام العصي قليلًا."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -983,7 +983,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stun with clubs increased."
+                              "Value": "تم زيادة تأثير الصعق الناتج عن استخدام العصي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1081,7 +1081,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stun with clubs greatly increased."
+                              "Value": "تم زيادة فعالية العصي في تسبب الصعق بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1179,7 +1179,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Spear reflect and throw damage slightly increased."
+                              "Value": "تم زيادة ضرر ارتداد الرمح وإلقائه بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1277,7 +1277,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Spear reflect and throw damage increased."
+                              "Value": "تم زيادة ضرر ارتداد الرمح وقوة رميه."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1375,7 +1375,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Spear reflect and throw damage greatly increased."
+                              "Value": "تم زيادة ضرر ارتداد الرمح بشكل كبير، وكذلك ضرر رميه."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1473,7 +1473,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Dash strike crit chance and damage slightly increased."
+                              "Value": "تم زيادة فرصة الضربة الحاسمة والأضرار الناتجة عن الهجوم السريع بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1571,7 +1571,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Dash strike crit chance and damage increased."
+                              "Value": "تم زيادة فرصة الضربة الحاسمة والأضرار الناتجة عن الهجوم السريع."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1669,7 +1669,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Dash strike crit chance and damage greatly increased."
+                              "Value": "تم زيادة فرصة الإصابة الحرجة والأضرار بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1767,7 +1767,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Charged shot critical chance slightly increased."
+                              "Value": "تم زيادة فرصة الإصابة الحرجة عند استخدام الطلقة المشحونة بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1865,7 +1865,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Charged shot critical chance increased."
+                              "Value": "تم زيادة فرصة الإصابة الحرجة عند استخدام الطلقة المشحونة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1963,7 +1963,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Charged shot critical chance greatly increased."
+                              "Value": "احتمالية الإصابة الحرجة للطلقة المشحونة زادت بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2061,7 +2061,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Target attack damage slightly reduced."
+                              "Value": "تم تخفيض ضرر الهجوم قليلاً."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2159,7 +2159,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Target attack damage reduced."
+                              "Value": "تم تخفيض ضرر الهجوم."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2257,7 +2257,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Target attack damage greatly reduced."
+                              "Value": "تم تخفيض ضرر الهجوم بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2355,7 +2355,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sizzle, shatter, and pucker damage slightly increased."
+                              "Value": "تم زيادة تأثير الحرق، التكسير، والضرر الطفيف بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2453,7 +2453,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sizzle, shatter, and pucker damage increased."
+                              "Value": "تم زيادة تأثير الحرق، والتفتيت، والضرر الناتج عن التشنج."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2551,7 +2551,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sizzle, shatter, and pucker damage greatly increased."
+                              "Value": "تم زيادة ضرر الاحتراق والكسر والتشنج بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2649,7 +2649,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Perfect blocks restore a little stamina."
+                              "Value": "الصدودات المثالية تستعيد جزءًا من القدرة على التحمل."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2747,7 +2747,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Perfect blocks restore stamina."
+                              "Value": "الصدودات المثالية تستعيد القدرة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2845,7 +2845,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Perfect blocks restore lots of stamina."
+                              "Value": "الصدودات المثالية تستعيد كمية كبيرة من القدرة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2943,7 +2943,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Ambush attacks with daggers deal extra damage."
+                              "Value": "الهجمات الخاطفة باستخدام الخناجر تتسبب في ضرر إضافي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3041,7 +3041,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Ambush attacks with daggers deal high damage."
+                              "Value": "الهجمات الخاطفة باستخدام الخناجر تتسبب في أضرار كبيرة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3139,7 +3139,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Ambush attacks with daggers deal extreme damage."
+                              "Value": "الهجمات الخاطفة باستخدام الخناجر تتسبب في أضرار جسيمة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3237,7 +3237,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Melee damage increased while enraged."
+                              "Value": "تم زيادة ضرر الهجمات القريبة أثناء الغضب."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3335,7 +3335,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical hit damage slightly increased."
+                              "Value": "تم زيادة ضرر الضربة الحاسمة بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3433,7 +3433,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical hit damage increased."
+                              "Value": "تم زيادة ضرر الضربات الحاسمة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3531,7 +3531,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical hit damage greatly increased."
+                              "Value": "تضاعف ضرر الضربات الحاسمة بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3629,7 +3629,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Run speed slightly increased."
+                              "Value": "تم زيادة سرعة الركض بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3727,7 +3727,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Run speed increased."
+                              "Value": "تم زيادة سرعة الركض."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3825,7 +3825,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Run speed greatly increased."
+                              "Value": "تم زيادة سرعة الركض بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3923,7 +3923,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stamina regeneration slightly increased."
+                              "Value": "تم زيادة معدل تجديد القدرة قليلًا."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4021,7 +4021,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stamina regeneration increased."
+                              "Value": "تم زيادة معدل تجديد القدرة على التحمل."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4119,7 +4119,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stamina regeneration greatly increased."
+                              "Value": "تم زيادة معدل تجديد القدرة بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4217,7 +4217,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Revive speed slightly increased."
+                              "Value": "تم زيادة سرعة الاستعادة بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4315,7 +4315,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Revive speed increased."
+                              "Value": "تم زيادة سرعة الإحياء."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4413,7 +4413,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Revive speed greatly increased."
+                              "Value": "تم زيادة سرعة الاستعادة بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4511,7 +4511,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sizzle buildup, burn, and gas damage slightly reduced."
+                              "Value": "تم تخفيض تأثير التسخين، والاحتراق، وتلف الغاز بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4609,7 +4609,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sizzle buildup, burn, and gas damage reduced."
+                              "Value": "تم تخفيض تأثير التسخين، والاحتراق، وأضرار الغاز."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4707,7 +4707,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sizzle buildup, burn, and gas damage greatly reduced."
+                              "Value": "تم تخفيض تأثير التسخين والاحتراق والأضرار الناتجة عن الغاز بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4805,7 +4805,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Chill buildup and freeze damage slightly reduced."
+                              "Value": "تم تخفيف تأثير التجميد وتقليل الضرر الناتج عنه قليلًا."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4903,7 +4903,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Chill buildup and freeze damage reduced."
+                              "Value": "تم تخفيض تأثير التجميد والضرر الناتج عنه."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5001,7 +5001,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Chill buildup, freeze, and shatter damage reduced."
+                              "Value": "تم تخفيض تأثير التجميد التدريجي، وتأثير التجميد، وتأثير الضرر الناتج عن التكسير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5099,7 +5099,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Venom buildup slightly reduced."
+                              "Value": "تم تخفيض تأثير السم بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5197,7 +5197,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Venom buildup reduced."
+                              "Value": "تم تخفيض مستوى تراكم السم."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5295,7 +5295,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Venom buildup and damage greatly reduced."
+                              "Value": "تم تخفيض تراكم السم والأضرار بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5393,7 +5393,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Defense event damage slightly increased."
+                              "Value": "تم زيادة الضرر الناتج عن أحداث الدفاع بشكل طفيف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5491,7 +5491,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Defense event damage increased."
+                              "Value": "تم زيادة ضرر فعاليات الدفاع."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5589,7 +5589,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Defense event damage greatly increased."
+                              "Value": "تم زيادة ضرر أحداث الدفاع بشكل كبير."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5687,7 +5687,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Perfect bow shots increase Buggy damage and threat."
+                              "Value": "تزيد الطلقات المثالية من القوس من ضرر وسلوك سيارة \"باجي\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5785,7 +5785,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "No location found!"
+                              "Value": "لم يتم العثور على أي موقع!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5883,7 +5883,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{0} didn't survive."
+                              "Value": "{0} لم ينجُ."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -5981,7 +5981,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "No Nearby Recruit"
+                              "Value": "لا يوجد مجند قريب."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6079,7 +6079,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "For more tips, check out the Survival Guide"
+                              "Value": "لمزيد من النصائح، اطلع على دليل البقاء على قيد الحياة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6177,7 +6177,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Snap to Grid: On"
+                              "Value": "الالتصاق بالشبكة: قيد التشغيل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6275,7 +6275,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Snap to Grid: Off"
+                              "Value": "الالتصاق بالشبكة: معطل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6373,7 +6373,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Placing view"
+                              "Value": "وضع الرؤية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6471,7 +6471,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Building grid"
+                              "Value": "شبكة البناء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6569,7 +6569,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Structure"
+                              "Value": "الهيكل."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6667,7 +6667,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Food & Water"
+                              "Value": "طعام وماء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6765,7 +6765,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Trophy Mount"
+                              "Value": "حامل الجوائز"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6863,7 +6863,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Open Chopping List"
+                              "Value": "فتح قائمة التقطيع"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6961,7 +6961,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Close Chopping List"
+                              "Value": "إغلاق قائمة المهام\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7059,7 +7059,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Condition"
+                              "Value": "الحالة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7157,7 +7157,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Grass Walls"
+                              "Value": "جدران عشبية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7255,7 +7255,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stem Walls"
+                              "Value": "الجدران المحصنة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7353,7 +7353,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sturdy Walls"
+                              "Value": "جدران متينة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7451,7 +7451,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pine Walls"
+                              "Value": "جدران الصنوبر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7549,7 +7549,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Mushroom Walls"
+                              "Value": "الجدران الفطرية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7647,7 +7647,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Grass Stairs"
+                              "Value": "سلم عشبي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7745,7 +7745,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Acorn Stairs"
+                              "Value": "سلم الجوز\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7843,7 +7843,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Mushroom Stairs"
+                              "Value": "سلم الفطر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7941,7 +7941,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Grass Floors"
+                              "Value": "أرضيات عشبية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8039,7 +8039,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stem Floors"
+                              "Value": "أرضيات متينة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8137,7 +8137,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Bur Floors"
+                              "Value": "أرضيات بور"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8235,7 +8235,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Clover Roof"
+                              "Value": "سقف الكلافر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8333,7 +8333,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Feather Roof"
+                              "Value": "سقف ريشي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8431,7 +8431,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Thatch Roof"
+                              "Value": "سقف من القش"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8529,7 +8529,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pinecone Roof"
+                              "Value": "سقف من أصداف الصنوبر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8627,7 +8627,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Clover Awning"
+                              "Value": "كلوفر أونيغ"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8725,7 +8725,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Feather Awning"
+                              "Value": "مظلة الريش"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8823,7 +8823,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Thatch Awning"
+                              "Value": "مظلة القش"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8921,7 +8921,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Acorn Fencing"
+                              "Value": "أسوار الجوز"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9019,7 +9019,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Crafting & Production"
+                              "Value": "الصناعة والإنتاج"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9117,7 +9117,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Axl has consumed prey and is healing!"
+                              "Value": "آكسل التهم فريسته وهو يتعافى!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9215,7 +9215,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Scaffolding"
+                              "Value": "السقالة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9313,7 +9313,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pebblet Foundations"
+                              "Value": "أساسات صغيرة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9411,7 +9411,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Clay Foundations"
+                              "Value": "الأساسات الطينية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9509,7 +9509,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pillars"
+                              "Value": "الأعمدة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9607,7 +9607,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Fireplace & Chimneys"
+                              "Value": "مدفأة ومداخن"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9705,7 +9705,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Your Buggy can't go to a nest because either none was found or there are no available slots."
+                              "Value": "لا يمكن لمركبتك \"باجي\" الذهاب إلى عش لأن إما أنه لم يتم العثور على أي عش، أو لا توجد فتحات متاحة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9803,7 +9803,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Your Buggy can't go to its nest while you are riding it."
+                              "Value": "لا يمكن لمركبتك \"باجي\" أن تعود إلى عشها وأنت تركبها."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9901,7 +9901,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Dynamic Global Illumination"
+                              "Value": "الإضاءة العالمية الديناميكية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9999,7 +9999,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Warning: Disabling Dynamic Global Illumination may result in instances of inconsistent interior lighting, harsh lighting transitions, or certain areas appearing much brighter or darker than intended.\u000b\n\nWhile keeping this feature enabled is recommended for the optimal experience, disabling it may improve performance."
+                              "Value": "تحذير: قد يؤدي تعطيل الإضاءة العالمية الديناميكية إلى ظهور حالات من عدم اتساق الإضاءة الداخلية، أو انتقالات إضاءة حادة، أو قد تبدو بعض المناطق أكثر إشراقًا أو ظلمة مما هو مقصود.\n\nعلى الرغم من أن تفعيل هذه الميزة موصى به للحصول على أفضل تجربة،"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10097,7 +10097,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Memory Warning"
+                              "Value": "تحذير: ذاكرة الجهاز منخفضة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10195,7 +10195,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Setting the memory limit to Local Platform will let you create more objects but may cause crashes or instability when trying to play on lower end hardware. "
+                              "Value": "تحديد حد الذاكرة على \"المنصة المحلية\" يسمح لك بإنشاء المزيد من العناصر، ولكنه قد يتسبب في أعطال أو عدم استقرار عند محاولة اللعب على أجهزة ذات مواصفات منخفضة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10293,7 +10293,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Setting the memory limit to No Limit will let you create more objects but may cause crashes or instability when too many objects are added."
+                              "Value": "تحديد حد الذاكرة على \"بلا حدود\" يسمح لك بإنشاء المزيد من العناصر، ولكنه قد يتسبب في أعطال أو عدم استقرار النظام عند إضافة عدد كبير جدًا من العناصر."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10391,7 +10391,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "DLSS Super Resolution Quality"
+                              "Value": "جودة الدقة الفائقة بتقنية DLSS"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10489,7 +10489,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Choose the quality level for NVIDIA's Deep Learning Super Sampling (DLSS) upscaling.\n\nHigher quality settings render the game at a resolution closer to native, offering better visual fidelity but with a potential performance impact.\n\nLower settings increase performance by rendering at a lower base resolution."
+                              "Value": "اختر مستوى الجودة لتقنية NVIDIA للتحسين البصري (DLSS).\n\nتتيح إعدادات الجودة الأعلى عرض اللعبة بدقة أقرب إلى الدقة الأصلية، مما يوفر جودة بصرية أفضل، ولكن قد يؤثر على الأداء.\n\nتقلل إعدادات الجودة الأقل من الأثر على الأداء عن طريق عرض الل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10587,7 +10587,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Upscaling"
+                              "Value": "تحسين الدقة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10685,7 +10685,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Improve performance by rendering the game at a lower resolution and upscaling it to match your display. The techniques available may depend the system's hardware.\n\nThe enhanced image quality will maintain a smoother frame rate, but may introduce minor visual artifacts."
+                              "Value": "لتحسين الأداء، قم بتشغيل اللعبة بدقة أقل ثم قم بزيادة دقتها لتتناسب مع شاشتك. قد تعتمد التقنيات المتاحة على مكونات جهازك.\n\nستحافظ جودة الصورة المحسنة على معدل إطارات أكثر سلاسة، ولكنها قد تتسبب في ظهور بعض التشوهات البصرية الطفيفة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10979,7 +10979,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Auto"
+                              "Value": "تلقائي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11175,7 +11175,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Native AA"
+                              "Value": "مواطن من المستوى الأعلى"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11583,7 +11583,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A fleck of oxidization found mostly on <GlobalColor.Attention>metal</> that's exposed to the elements."
+                              "Value": "جزيء صغير من الأكسدة، يوجد بشكل أساسي على... <GlobalColor.Attention>معدن</> الذي يتعرض للعوامل الجوية."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11681,7 +11681,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Nightstalker Helm"
+                              "Value": "خوذة \"Nightstalker\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11779,7 +11779,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A dreadful helm crafted with the grim visage of <GlobalColor.Attention>Axl</>, the fallen tarantula."
+                              "Value": "خوذة مروعة صُنعت بابتكار، وتزينها صورة بشعة لـ {0}. <GlobalColor.Attention>أكسل</>، العنكبوت الثعباني الميت."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11877,7 +11877,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Nightstalker Vest"
+                              "Value": "سترة \"نايتستوكر\"\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11975,7 +11975,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A rugged vest with a dreadful presence, fit to command the greatest arachnids."
+                              "Value": "سترة متينة ذات حضور مهيب، تستحق أن يقودها أعظم العناكب."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12073,7 +12073,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Nightstalker Greaves"
+                              "Value": "جوارب \"نايتستوكر\"\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12171,7 +12171,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A dreadful pair of shin kickers to keep your foes in line."
+                              "Value": "زوج من الأحذية الممتازة التي تساعدك في السيطرة على أعدائك."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12269,7 +12269,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Nightstalker Fangs"
+                              "Value": "أنياب الصياد الليلي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12367,7 +12367,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "An exquisite trophy harvested from <GlobalColor.Attention>Axl</>, the fuzziest arachnid to ever roam the park."
+                              "Value": "جائزة نفيسة تم الحصول عليها من... <GlobalColor.Attention>أكسل</>, وهو أكثر العنكبوتيات غموضًا التي تجوب الحديقة على الإطلاق."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12465,7 +12465,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Axl's Talon"
+                              "Value": "مخلب أكسل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12563,7 +12563,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A broad spear forged from one of <GlobalColor.Attention>Axl's</> great talons. It oozes fresh <GlobalColor.Attention>venom</> with every strike."
+                              "Value": "رمح عريض مصنوع من أحد... <GlobalColor.Attention>آكسل</> مخالب عظيمة. إنه يفيض بـ... <GlobalColor.Attention>سمّ</> مع كل ضربة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12661,7 +12661,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Black Fang Greatbow"
+                              "Value": "قوس \"بلاك فانج\" العظيم"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12759,7 +12759,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A massive greatbow crafted from the dreadful fangs of <GlobalColor.Attention>Axl</>, the fallen tarantula."
+                              "Value": "قوس ضخم مصنوع من أنياب مرعبة لـ <GlobalColor.Attention>أكسل</>، العنكبوت الثماني الأرجل الميت."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12857,7 +12857,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Great Arrow"
+                              "Value": "سهم عظيم"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12955,7 +12955,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "An arrow made from <GlobalColor.Attention>northern scorpion</> chitin. Requires a <GlobalColor.Attention>greatbow</> to fire."
+                              "Value": "سهم مصنوع من <GlobalColor.Attention>العقرب الشمالي</> كيتين. يتطلب وجود\". <GlobalColor.Attention>قوس عظيم.</> لإطلاق النار."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13053,7 +13053,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Great Venom Arrow"
+                              "Value": "سهم السم القوي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13151,7 +13151,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A barbed great arrow dunked in <GlobalColor.Attention>scorpion venom</>."
+                              "Value": "سهم كبير ذو رؤوس حادة مغموس في <GlobalColor.Attention>سمّ العقرب.</>."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13249,7 +13249,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Corn Hog Chunk"
+                              "Value": "كورن هوج تشانك"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13347,7 +13347,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A crispy golden chunk of a Get N' Jet Corn Hog, deep fried to perfection."
+                              "Value": "قطعة ذهبية مقرمشة من خبز الذرة \"Get N' Jet Corn Hog\"، مقلية بشكل مثالي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13445,7 +13445,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pretzel Chunk"
+                              "Value": "قطعة بريتزل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13543,7 +13543,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A chewy snack with a salty crunchy exterior."
+                              "Value": "وجبة خفيفة مقرمشة من الخارج، ذات قوام مطاطي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13641,7 +13641,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Hearty Arrow"
+                              "Value": "سهم القوة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13739,7 +13739,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A compact <GlobalColor.Attention>mosquito blood sack</> wrapped tightly on the tip of an arrow. Showers the target with a healing splash of filtered blood jelly."
+                              "Value": "حزمة صغيرة <GlobalColor.Attention>كيس دم البعوض</> ملفوفة بإحكام على طرف السهم. تغمر الهدف برذاذ شافٍ من مادة هلامية دموية مُصفّاة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13837,7 +13837,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Battlefield 1992"
+                              "Value": "ساحة المعركة: عام 1992"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13935,7 +13935,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A forest enclosure which is the site of an ongoing military action. The soldiers are frozen in place, as there is no child remaining to animate them to victory or defeat."
+                              "Value": "منطقة غابات محاطة، وهي مسرح لعملية عسكرية مستمرة. الجنود متجمدون في أماكنهم، حيث لا يوجد طفل متبقٍ لإلهامهم لتحقيق النصر أو الهزيمة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -14033,7 +14033,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Nightstalker's Bane"
+                              "Value": "لعنة الصياد الليلي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -14131,7 +14131,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A pure sample of <GlobalColor.Attention>Axl's </> venom. The tiniest drop can coat weapons to deadly effect."
+                              "Value": "عينة نموذجية تمامًا من <GlobalColor.Attention>آكسل </> سم. حتى قطرة صغيرة منه يمكن أن تغطي الأسلحة وتجعلها قاتلة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -14539,7 +14539,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Knock dew drops off of grass blades and drink them, or craft and fill a Canteen to carry water with you."
+                              "Value": "أزل قطرات الندى من أطراف العشب واشربها، أو اصنع وعاءً مملوءًا بالماء لحمله معك."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -14637,7 +14637,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "To fill your hungry belly, cook Raw Meat at a Roasting Spit or cook Meals with the Cookery. "
+                              "Value": "لإشباع جوعك، قم بطهي اللحم النيء على شيش أو قم بإعداد الوجبات باستخدام موقد الطهي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -14735,7 +14735,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A Gas Mask crafted from Weevil parts will protect you from Poison gas."
+                              "Value": "قناع الغاز المصنوع من قطع الـ Weevil سيحميك من غاز السم."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -14833,7 +14833,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "You can equip a torch from your hotpouch while riding a Buggy to light the way!"
+                              "Value": "يمكنك تجهيز مصباح من حقيبتك أثناء قيادة مركبة \"باجي\" لإضاءة الطريق!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15241,7 +15241,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Ms. Sloane Beaumont"
+                              "Value": "السيدة سلوان بومونت"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15649,7 +15649,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} was steamrolled to death by Axl "
+                              "Value": "{PlayerName} دُهس حتى الموت على يد آكسل. "
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15747,7 +15747,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} was stomped to bits by Axl"
+                              "Value": "{PlayerName} تم تدميره بالكامل على يد أكسل."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15845,7 +15845,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} became a victim of Axl's vicious combo "
+                              "Value": "{PlayerName} أصبح ضحية للتركيبة الهجومية العنيفة التي يستخدمها أكسل. "
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15943,7 +15943,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} was taken down by Axl's venomous hair"
+                              "Value": "{PlayerName} لقد سقط بسبب شعر أكسل السام."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16351,7 +16351,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Holiday Tree"
+                              "Value": "شجرة الأعياد."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16449,7 +16449,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A festive tree to help your little home feel merry and bright. Mysteriously, each December morning a small gift may appear beneath it. Who could be leaving them?"
+                              "Value": "شجرة احتفالية لإضفاء جو من البهجة والسعادة على منزلك الصغير. بشكل غامض، قد تظهر هدية صغيرة أسفلها في كل صباح من شهر ديسمبر. من الذي يتركها؟"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16547,7 +16547,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Firework Launcher"
+                              "Value": "قاذف الألعاب النارية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16645,7 +16645,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Send a festive firework into the air."
+                              "Value": "أطلق عصفورًا من الألعاب النارية الاحتفالية في الهواء."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16743,7 +16743,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Tarantula Candelabra"
+                              "Value": "شمعدان عنكبوت الطرائد"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16841,7 +16841,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A colorful arrangement of candles to light up your base."
+                              "Value": "تشكيلة ملونة من الشموع لإضاءة قاعدتك."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16939,7 +16939,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Tarantula Throne"
+                              "Value": "عرش العناكب\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17037,7 +17037,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A dreadful throne befitting a ruler of arachnids."
+                              "Value": "عرش مروع يليق بحاكم العناكب."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17135,7 +17135,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Tarantula Chest"
+                              "Value": "صندوق العناكب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17233,7 +17233,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A monstrous chest to hoard your treasures. Stores 60 items."
+                              "Value": "صندوق ضخم لتخزين كنوزك. يتسع لـ 60 عنصرًا."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17331,7 +17331,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Grass Quarter Triangle Floor"
+                              "Value": "ربع العشب، شكل مثلث، أرضية."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17429,7 +17429,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A triangle variant of a grass quartered floor section."
+                              "Value": "نوع مثلثي من قسم الأرضية المكون من أربعة أجزاء."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17527,7 +17527,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stem Quarter Triangle Floor"
+                              "Value": "الجزء السفلي، الربع، المثلث، الأرضية\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17625,7 +17625,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A triangle variant of a stem quartered floor section."
+                              "Value": "نوع مثلثي من جزء الأرضية المقسم إلى أربعة أجزاء متساوية."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17723,7 +17723,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pine Wall B"
+                              "Value": "جدار الصنوبر ب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17821,7 +17821,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A variant of the pine wall with an alternate pattern."
+                              "Value": "نسخة مختلفة من الجدار الخشبي، بتصميم مختلف."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17919,7 +17919,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Wolf Rug"
+                              "Value": "سجادة الذئب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18017,7 +18017,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A bestial rug to show off your hunting prowess."
+                              "Value": "سجادة فذة تبرز مهاراتك في الصيد."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18115,7 +18115,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Quarter Triangle Floor"
+                              "Value": "أرضية الربع دائرة\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18213,7 +18213,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pine Table"
+                              "Value": "طاولة من خشب الصنوبر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18311,7 +18311,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A sturdy table made out of <GlobalColor.Attention>pine needles</>."
+                              "Value": "طاولة متينة مصنوعة من <GlobalColor.Attention>إبر الصنوبر.</>."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18409,7 +18409,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pine Stool"
+                              "Value": "مقعد خشبي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18507,7 +18507,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A common stool made out of <GlobalColor.Attention>pine needles</>."
+                              "Value": "كرسي بسيط مصنوع من... <GlobalColor.Attention>إبر الصنوبر.</>."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18605,7 +18605,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pine Skull Mount"
+                              "Value": "جبلة جمجمة الصنوبر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18703,7 +18703,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A glittering candy skull sculpted from <GlobalColor.Attention>mint shards</>, mounted on a pine frame."
+                              "Value": "جمجمة حلوى لامعة منحوتة من... <GlobalColor.Attention>شظايا النعناع.</>, مثبت على إطار خشبي من خشب الصنوبر."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18801,7 +18801,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pine Lounger"
+                              "Value": "كرسي استرخاء خشبي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18899,7 +18899,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sink into the depths of coziness and become one with this bowl lounger."
+                              "Value": "انغمس في أعماق الراحة وتوحد مع هذا الكرسي المريح."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18997,7 +18997,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Scorpion Bed"
+                              "Value": "سرير العقرب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19095,7 +19095,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A luxuriously spooky bed. Sleep soundly with the nightmares you conquered to make it."
+                              "Value": "سرير فاخر وغريب. نم قريرًا مع الكوابيس التي تغلبت عليها لتستحقه."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19193,7 +19193,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Scorpion Lamp"
+                              "Value": "مصباح العقرب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19291,7 +19291,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A lavish standing lamp made from <GlobalColor.Attention>northern scorpion chunks</>."
+                              "Value": "مصباح أرضي فاخر مصنوع من... <GlobalColor.Attention>قطع من قنديل البحر الشمالي</>."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19389,7 +19389,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Axl Wall Mount"
+                              "Value": "تركيب أكسل على الحائط"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19487,7 +19487,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Stuffed Axl"
+                              "Value": "أكسل المحشو"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19585,7 +19585,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Concave Grass Curved Floor"
+                              "Value": "عشب مقعر، أرضية منحنية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19683,7 +19683,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A concave grass floor that fits the exterior of a curved wall."
+                              "Value": "أرضية عشبية مقعرة تتناسب مع الجدار المنحني الخارجي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19781,7 +19781,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Concave Stem Curved Floor"
+                              "Value": "جذع مقعر، أرضية منحنية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19879,7 +19879,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A concave stem floor that fits the exterior of a curved wall."
+                              "Value": "أرضية مقوسة تتناسب مع الجدار المنحني الخارجي."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19977,7 +19977,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "EverChar Roasting Spit"
+                              "Value": "شواية EverChar للشواء."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20075,7 +20075,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A roasting spit with a high capacity for grilling. Banish the darkness with a teenage cookout!"
+                              "Value": "شواية ذات سعة كبيرة مثالية للشواء. طرد الظلام مع حفلة شواء مراهقين!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20173,7 +20173,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Trick-Or-Treatery"
+                              "Value": "مغامرات الهالوين"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20271,7 +20271,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Occasionally offers a sugary treat... or plays a trick on you."
+                              "Value": "في بعض الأحيان، يقدم لك حلوى... أو يمزح معك."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20369,7 +20369,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Scorpion Lounger"
+                              "Value": "كرسي الاسترخاء العقرب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20467,7 +20467,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Nestle into the loving embrace of this cozy lounger."
+                              "Value": "استرخ واستمتع بالدفء في هذا الكرسي المريح."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20565,7 +20565,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Halved corner version of <GlobalColor.Attention>acorn stairs</>."
+                              "Value": "إصدار الزاوية المقصوصة. <GlobalColor.Attention>سلم مصنوع من جوز\".</>."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20663,7 +20663,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Festive lighting to fill your home with warmth and cheer!"
+                              "Value": "إضاءة احتفالية لتملأ منزلك بالدفء والفرح!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20761,7 +20761,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Holiday Lights"
+                              "Value": "أضواء العيد"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21169,7 +21169,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Mighty Glob"
+                              "Value": "الحدادة: جلوب العظيم"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21267,7 +21267,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Spicy Glob"
+                              "Value": "الحدادة: كتلة حارة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21365,7 +21365,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Mint Glob"
+                              "Value": "صناعة الأدوات: بلورة النعناع"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21463,7 +21463,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Salt Glob"
+                              "Value": "الصناعة: كرة ملح\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21561,7 +21561,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Mighty Jewel"
+                              "Value": "الصياغة: جوهرة قوية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21659,7 +21659,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Flavored Jewels"
+                              "Value": "صناعة المجوهرات: أحجار بنكهات مختلفة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21757,7 +21757,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Glue Masher"
+                              "Value": "صناعة الأدوات: مطحنة الغراء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21855,7 +21855,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Flavored Globs"
+                              "Value": "الصناعة: كرات بنكهات مختلفة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21953,7 +21953,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Brittle Upgrades"
+                              "Value": "الحدادة: ترقيات تزيد من الهشاشة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22051,7 +22051,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Supreme Upgrades"
+                              "Value": "الحدادة: ترقيات فائقة\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22149,7 +22149,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Smithing: Sturdy Upgrades"
+                              "Value": "الحدادة: ترقيات متينة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22247,7 +22247,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Holiday Tree"
+                              "Value": "شجرة الأعياد."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22345,7 +22345,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "December Treats"
+                              "Value": "مفاجآت ديسمبر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22443,7 +22443,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sign Set: December"
+                              "Value": "مجموعة اللافتات: شهر ديسمبر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22541,7 +22541,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "January Treats"
+                              "Value": "هدايا شهر يناير"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22639,7 +22639,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Sign Set: January"
+                              "Value": "مجموعة اللافتات: شهر يناير"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23047,7 +23047,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical Recovery"
+                              "Value": "تعافي حاسم"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23145,7 +23145,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical hits recover health over time."
+                              "Value": "الضربات الحاسمة تستعيد الصحة تدريجيًا مع مرور الوقت."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23243,7 +23243,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical Haste"
+                              "Value": "سرعة حاسمة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23341,7 +23341,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical hits with melee weapons have a chance to increase attack speed."
+                              "Value": "الضربات الحاسمة باستخدام الأسلحة القتالية القريبة قد تزيد من سرعة الهجوم."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23439,7 +23439,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Melee Attack Speed"
+                              "Value": "سرعة الهجوم القريب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23537,7 +23537,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Your melee attacks are faster."
+                              "Value": "هجماتك القريبة أسرع."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23635,7 +23635,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Luck: Axl"
+                              "Value": "الحظ: أكسل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23831,7 +23831,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Angry creatures you ambush with melee weapons are immobilized a short duration."
+                              "Value": "المخلوقات الغاضبة التي تهاجمها بأسلحة قريبة تصبح مشلولة لفترة قصيرة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23929,7 +23929,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Increases damage dealt against Axl."
+                              "Value": "يزيد الضرر الذي يلحق بـ \"أكسل\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -24027,7 +24027,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Raging Venom"
+                              "Value": "سمّ الغضب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -24125,7 +24125,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Critical hits apply venom that persists, increasing venom damage taken for a short duration."
+                              "Value": "الضربات الحاسمة تسبب تسممًا مستمرًا، مما يزيد من ضرر التسمم الذي يتلقاه الهدف لفترة قصيرة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -24533,7 +24533,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Battlefield 1992"
+                              "Value": "ساحة المعركة: عام 1992"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -24631,7 +24631,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "A forest enclosure which is the site of an ongoing military action. The soldiers are frozen in place, as there is no child remaining to animate them to victory or defeat."
+                              "Value": "منطقة غابات محاطة، وهي مسرح لعملية عسكرية مستمرة. الجنود متجمدون في أماكنهم، حيث لا يوجد طفل متبقٍ لإلهامهم لتحقيق النصر أو الهزيمة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -25137,7 +25137,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Pretzel"
+                              "Value": "بريتزل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -25545,7 +25545,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Keep the Change, ya Furry Animal!"
+                              "Value": "احتفظ بالباقي، أيها الحيوان الفروي!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -25953,7 +25953,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Deck the halls with cozy items and make room for a special tree"
+                              "Value": "زينوا القاعات بأشياء مريحة واحرصوا على وجود مكان لشجرة مميزة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26051,7 +26051,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "New Year's Limited Event"
+                              "Value": "فعالية خاصة بمناسبة العام الجديد\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26149,7 +26149,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Ring in the new year with flare"
+                              "Value": "احتفلوا بالعام الجديد بحماس."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26247,7 +26247,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Brookhollow Park gets spooky with tricks and treats"
+                              "Value": "تتحول حديقة بروكهولو إلى مكان مخيف مع الألعاب والمكافآت."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26345,7 +26345,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "AXL is here! Hunt him down in our new 0.2 update!"
+                              "Value": "أوكسل هنا! اصطاده في تحديثنا الجديد 0.2!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26443,7 +26443,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "AXL armor set"
+                              "Value": "مجموعة دروع AXL"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26541,7 +26541,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "AXL bow, arrow, and spear"
+                              "Value": "قوس AXL، سهم، ورمح\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26639,7 +26639,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "AXL-themed build items and decor"
+                              "Value": "عناصر تزيين ومعدات مستوحاة من عالم AXL."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26737,7 +26737,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Other surprises to uncover..."
+                              "Value": "مفاجآت أخرى تنتظركم..."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26835,7 +26835,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Peep into the future with our new roadmap!"
+                              "Value": "اطل على المستقبل مع خريطتنا الجديدة!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26933,7 +26933,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "More buggies on the way"
+                              "Value": "المزيد من المركبات المدرعة قادمة\"."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27031,7 +27031,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "New base building materials and furniture"
+                              "Value": "مواد بناء وأثاث جديدة للقاعدة."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27129,7 +27129,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Quality of life improvements and bug fixes"
+                              "Value": "تحسينات في تجربة اللعب وإصلاحات للأخطاء."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27227,7 +27227,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "And much much more!"
+                              "Value": "والمزيد والمزيد!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27325,7 +27325,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Deck the halls with cozy items, festive lighting, and a holiday tree!"
+                              "Value": "زينوا القاعات بأشياء مريحة، وإضاءة احتفالية، وشجرة العيد!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27423,7 +27423,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "Light up the night with the firework launcher!"
+                              "Value": "أضئ الليل باستخدام قاذف الألعاب النارية!"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",

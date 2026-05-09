@@ -229,6 +229,16 @@ class IoStoreTranslator:
         translations: Dict[str, str] = {}
         total = len(texts)
 
+        if self.engine:
+            try:
+                model_key = self.engine.get_active_model() or "unknown"
+            except Exception:
+                model_key = "unknown"
+            self._log(f"[IoStore] translate_texts — model: {model_key}, texts: {total}")
+        else:
+            self._log("[IoStore] ERROR: no engine — translation not possible")
+            return translations
+
         if use_cache and self.cache and texts:
             cached = self.cache.get_batch(game_name, texts)
             translations.update(cached)
@@ -236,14 +246,40 @@ class IoStoreTranslator:
             self._progress(len(translations), total)
 
         remaining = [t for t in texts if t not in translations]
-        for text in remaining:
+        if remaining:
+            # Quick sanity-check: try ONE text before the full loop.
+            # Catches "model not installed / load failed" without iterating everything.
+            probe = next((t for t in remaining if t and len(t.strip()) >= 2), None)
+            if probe:
+                probe_result = translate_preserving_tokens(probe, self.engine.translate)
+                if probe_result is None:
+                    active = self.engine.get_active_model() or "?"
+                    self._log(
+                        f"[ERROR] Model '{active}' returned None — "
+                        "check that the model is installed and loaded in the Models page."
+                    )
+                    return translations
+                # Save probe result and remove from remaining to avoid double-translation
+                if probe_result and probe_result != probe:
+                    translations[probe] = probe_result
+                    if self.cache:
+                        try:
+                            model = self.engine.get_active_model() or "unknown"
+                        except Exception:
+                            model = "unknown"
+                        self.cache.put(game_name, probe, probe_result, model)
+                remaining = [t for t in remaining if t != probe]
+                self._progress(len(translations), total)
+
+        cache_count = len(translations)
+        for i, text in enumerate(remaining):
             if self._stop_flag:
                 self._log("Translation stopped by user")
                 break
             while self._pause_flag and not self._stop_flag:
                 time.sleep(0.3)
             if not text or len(text.strip()) < 2:
-                self._progress(len(translations), total)
+                self._progress(cache_count + i + 1, total)
                 continue
             try:
                 if self.engine:
@@ -256,9 +292,13 @@ class IoStoreTranslator:
                             except Exception:
                                 model = "unknown"
                             self.cache.put(game_name, text, result, model)
+                    else:
+                        self._log(f"  [warn] no translation returned for: {text[:60]!r}")
+                else:
+                    self._log("  [error] no engine set — cannot translate")
             except Exception as e:
-                self._log(f"  Translate error: {e}")
-            self._progress(len(translations), total)
+                self._log(f"  Translate error ({type(e).__name__}): {e}")
+            self._progress(cache_count + i + 1, total)
 
         self._log(f"Translation done: {len(translations)}/{total}")
         return translations
@@ -301,7 +341,7 @@ class IoStoreTranslator:
             if (obj.get("Name") == "DefaultText"
                     and isinstance(obj.get("Value"), str)
                     and obj["Value"] in translations):
-                obj["Value"] = translations[obj["Value"]]
+                obj["Value"] = translations[obj["Value"]].replace("\\n", "\n")
             for v in obj.values():
                 self._replace_default_texts(v, translations)
         elif isinstance(obj, list):
@@ -317,7 +357,7 @@ class IoStoreTranslator:
                     and "StrPropertyData" in obj.get("$type", "")
                     and isinstance(obj.get("Value"), str)
                     and obj["Value"] in translations):
-                obj["Value"] = translations[obj["Value"]]
+                obj["Value"] = translations[obj["Value"]].replace("\\n", "\n")
             else:
                 for v in obj.values():
                     self._replace_datatable_english(v, translations)

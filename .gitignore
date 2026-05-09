@@ -45,9 +45,36 @@ tmp_*/
 *.pak
 *.uexp
 *.uasset
+*.ucas
+*.utoc
 *.dll
 *.exe
 *.ttf
 *.otf
 
+# User data & settings
+data/cache/
+data/qt_settings.json
+logs/
+
+# Development / temp files
+check_import.py
+main_1.py
+main_2.py
+
+# Other game language folders (Arabic translation only needs enus)
+mods/*/for_cache/**/Localized/dede/
+mods/*/for_cache/**/Localized/eses/
+mods/*/for_cache/**/Localized/esmx/
+mods/*/for_cache/**/Localized/frfr/
+mods/*/for_cache/**/Localized/itit/
+mods/*/for_cache/**/Localized/jajp/
+mods/*/for_cache/**/Localized/ptbr/
+mods/*/for_cache/**/Localized/zhch/
+mods/*/for_cache/**/Design/
+
+# PyInstaller build output
+dist/
+build/
+*.spec.bak
 

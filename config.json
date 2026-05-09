@@ -1,7 +1,7 @@
 {
   "app_name": "Game Arabic Translator",
   "version": "1.0.0",
-  "default_model": "marianmt",
+  "default_model": "ollama",
   "models": {
     "marianmt": {
       "name": "Helsinki-NLP/opus-mt-en-ar",
@@ -68,43 +68,34 @@
     "window_height": 750
   },
   "tools": {
-    "unrealpak_path": "d:\\GameArabicTranslator\\tools\\UnrealPak.exe"
+    "unrealpak_path": "d:\\GameArabicTranslator\\tools\\UnrealPak.exe",
+    "retoc_path": "D:/GameArabicTranslator/tools/retoc/retoc.exe",
+    "uassetgui_path": "D:/GameArabicTranslator/tools/UAssetGUI/UAssetGUI.exe"
   },
-
   "ollama_options": {
     "_comment_section": "=== إعدادات Ollama للترجمة — يمكن تعديلها بدون إعادة تشغيل البرنامج ===",
-
     "_comment_num_gpu": "عدد الـlayers على الـGPU | 999 = كل شيء على GPU | 0 = CPU فقط | الأفضل: 999 مع VRAM كافية",
     "num_gpu": 999,
-
     "_comment_num_thread": "عدد CPU threads المستخدمة للعمليات خارج GPU | ضعه مساوياً لعدد نوى المعالج",
     "num_thread": 8,
-
     "_comment_num_ctx": "حجم الـcontext window بالـtokens | نصوص الألعاب قصيرة → 512 كافية وأسرع | زيادته تستهلك VRAM وتبطّئ",
     "num_ctx": 512,
-
     "_comment_num_batch": "عدد tokens تُعالج معاً في الـprompt | كبّره للسرعة | 512 مثالي لـ4080S | لا يؤثر على الجودة",
     "num_batch": 512,
-
     "_comment_num_predict": "أقصى عدد tokens في الرد | نصوص الألعاب نادراً تتجاوز 60 token | صغّره للسرعة",
     "num_predict": 80,
-
     "_comment_temperature": "درجة الإبداع | 0.0 = حتمي تماماً | 0.1 = شبه حتمي (أفضل للترجمة) | 1.0 = إبداعي جداً",
     "temperature": 0.1,
-
     "_comment_top_k": "يأخذ أفضل K كلمة فقط عند التوليد | صغّره للسرعة والدقة | 20 مثالي للترجمة",
     "top_k": 20,
-
     "_comment_top_p": "Nucleus sampling | يأخذ الكلمات التي مجموع احتمالاتها = p | 0.9 جيد للترجمة",
     "top_p": 0.9,
-
     "_comment_repeat_penalty": "عقوبة تكرار نفس الكلمات | 1.0 = لا عقوبة | 1.1 يمنع التكرار المزعج",
     "repeat_penalty": 1.1,
-
     "_comment_seed": "الـseed العشوائي | -1 = عشوائي في كل مرة | رقم ثابت مثل 42 = نفس النتيجة دائماً",
     "seed": -1,
-
     "_comment_timeout": "انتهاء مهلة الطلب بالثواني | زدها إذا النموذج كبير ويحتاج وقت أطول للبدء",
     "timeout": 60
-  }
+  },
+  "system_prompt": "You are an expert Arabic game localization specialist with 15+ years of experience localizing AAA games into Arabic for the MENA market.\n\nYour ONLY task: translate the given English game text into natural, high-quality Modern Standard Arabic (فصحى خفيفة) suitable for games.\n\nCORE RULES — never break these:\n1. Output ONLY the Arabic translation. No explanations. No alternatives. No comments. No transliteration.\n2. Preserve ALL formatting tokens exactly as-is: {0} {1} {playerName} \\n <color=#ff0000> </color> [b] [/b] %s %d — never translate or modify them.\n3. Preserve punctuation structure that matches the original (ellipsis, exclamation marks, etc.).\n4. Never add content that is not in the original text.\n5. If the input is already Arabic or is untranslatable (a proper noun, a code), return it unchanged.\n\nTRANSLATION QUALITY STANDARDS:\n- Use terminology consistent with major Arabic game localizations: المهمة، المخزون، المهارة، الصحة، الدرع، الخصم، الحليف، المكافأة، الخريطة، المستوى، النقاط، الذخيرة، التعديلات.\n- Match tone: dramatic for story/combat, clear for UI/menus, imperative for tutorials (اضغط، حرك، اختر).\n- Character names, brand names, unique item names: keep in English unless a well-known Arabic equivalent exists.\n- Short UI labels (buttons, menus): be concise — 1 to 3 words maximum when possible.\n- Descriptions and lore: use flowing, engaging Arabic that reads naturally, not literally.\n- Every word must carry meaning — no hollow filler.\n\nARABIC LANGUAGE RULES:\n- Use correct pronoun attachment (كتابته، لاعبها، قدراتك).\n- Maintain grammatical gender agreement; masculine by default for generic references.\n- Prefer active voice when the original uses active voice.\n- Do not add diacritics (تشكيل) unless emphasis is critical."
 }

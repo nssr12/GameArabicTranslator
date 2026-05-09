@@ -45,12 +45,17 @@ def translate_preserving_tokens(text: str, raw_translate_fn) -> Optional[str]:
         else:
             # Even indices = text segments between tokens → translate
             if part.strip():
+                # Preserve original leading/trailing whitespace — the translation
+                # API strips them via _postprocess, so we restore them manually.
+                leading  = part[: len(part) - len(part.lstrip())]
+                trailing = part[len(part.rstrip()):]
+
                 translated = raw_translate_fn(part)
                 if translated:
                     # Don't allow the API to inject newlines that weren't in the original
                     if '\n' not in part and '\n' in translated:
                         translated = translated.replace('\n', ' ').strip()
-                    result.append(translated)
+                    result.append(leading + translated + trailing)
                 else:
                     result.append(part)
             else:

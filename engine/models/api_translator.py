@@ -229,7 +229,16 @@ class OllamaTranslator(BaseTranslator):
         except Exception as e:
             print(f"[Ollama] Translation error: {e}")
             return None
-    
+
+    def cancel_current_request(self):
+        """Close session to interrupt any in-flight request, then recreate it."""
+        if self._session:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            self._session = requests.Session()
+
     def unload(self):
         if self._session:
             self._session.close()

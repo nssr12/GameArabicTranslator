@@ -1,13 +1,19 @@
-transformers>=4.35.0
-torch>=2.0.0
-sentencepiece>=0.1.99
-sacremoses>=0.1.1
-frida-tools>=12.0.0
-frida>=16.0.0
-psutil>=5.9.0
+PySide6>=6.5.0
 requests>=2.31.0
-chardet>=5.0.0
+psutil>=5.9.0
 arabic-reshaper>=3.0.0
 python-bidi>=0.4.2
-UnityPy>=1.20.0
-Pillow>=10.0.0
+
+# Optional — HuggingFace local models
+# transformers>=4.35.0
+# torch>=2.0.0
+# sentencepiece>=0.1.99
+# sacremoses>=0.1.1
+
+# Optional — Frida runtime hook
+# frida-tools>=12.0.0
+# frida>=16.0.0
+
+# Optional — Unity games
+# UnityPy>=1.20.0
+# Pillow>=10.0.0
