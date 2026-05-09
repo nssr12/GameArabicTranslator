@@ -28,10 +28,10 @@ class RegistryFetchWorker(QThread):
             if reg.fetch(timeout=10):
                 self.done.emit(reg.all_translations(), True, "")
                 return
-            else:
-                self.done.emit({}, False, "fetch returned False")
+            err = getattr(reg, '_last_error', 'fetch returned False')
+            self.done.emit({}, False, err)
         except Exception as e:
-            self.done.emit({}, False, str(e))
+            self.done.emit({}, False, f"import error: {e}")
 
 
 # ── Download worker ───────────────────────────────────────────────────────────

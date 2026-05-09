@@ -31,6 +31,7 @@ class TranslationRegistry:
 
     def fetch(self, timeout: int = 8) -> bool:
         """Download and parse the manifest. Returns True on success."""
+        errors = []
         # Use urllib (no SSL cert issues in PyInstaller bundles)
         try:
             import urllib.request, ssl
@@ -44,8 +45,8 @@ class TranslationRegistry:
             with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
                 self._manifest = json.loads(resp.read().decode())
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"urllib:{e}")
         # Fallback: requests
         try:
             import requests
@@ -53,8 +54,10 @@ class TranslationRegistry:
             if r.ok:
                 self._manifest = r.json()
                 return True
-        except Exception:
-            pass
+            errors.append(f"requests:status={r.status_code}")
+        except Exception as e:
+            errors.append(f"requests:{e}")
+        self._last_error = " | ".join(errors)
         return False
 
     @property
