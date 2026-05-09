@@ -7,28 +7,28 @@
   },
   "translations": {
     "Grounded2": {
-      "version": "0.1",
+      "version": "0.2",
       "game_name": "Grounded 2",
       "description": "ترجمة عربية للنصوص الأساسية (Release 0.1 – 0.4)",
       "size_mb": 36,
       "files": [
         {
           "name": "Paks_legacy_P.pak",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.1/Paks_legacy_P.pak",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.2/Paks_legacy_P.pak",
           "game_target": "Augusta/Content/Paks/Paks_legacy_P.pak",
           "size": 347
         },
         {
           "name": "Paks_legacy_P.ucas",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.1/Paks_legacy_P.ucas",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.2/Paks_legacy_P.ucas",
           "game_target": "Augusta/Content/Paks/Paks_legacy_P.ucas",
-          "size": 37646387
+          "size": 37637815
         },
         {
           "name": "Paks_legacy_P.utoc",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.1/Paks_legacy_P.utoc",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.2/Paks_legacy_P.utoc",
           "game_target": "Augusta/Content/Paks/Paks_legacy_P.utoc",
-          "size": 12186
+          "size": 12184
         }
       ]
     }
