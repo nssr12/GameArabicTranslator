@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "app": {
+    "version": "1.0",
+    "download_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/v1.0/GameArabicTranslator_v1.0.zip",
+    "release_notes": "الإصدار الأول - واجهة PySide6 + دعم IoStore + Grounded2"
+  },
+  "translations": {
+    "Grounded2": {
+      "version": "0.1",
+      "game_name": "Grounded 2",
+      "description": "ترجمة عربية للنصوص الأساسية (Release 0.1 – 0.4)",
+      "size_mb": 25,
+      "files": [
+        {
+          "name": "Paks_legacy_P.pak",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.1/Paks_legacy_P.pak",
+          "game_target": "Augusta/Content/Paks/Paks_legacy_P.pak",
+          "size": 0
+        },
+        {
+          "name": "Paks_legacy_P.ucas",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.1/Paks_legacy_P.ucas",
+          "game_target": "Augusta/Content/Paks/Paks_legacy_P.ucas",
+          "size": 0
+        },
+        {
+          "name": "Paks_legacy_P.utoc",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.1/Paks_legacy_P.utoc",
+          "game_target": "Augusta/Content/Paks/Paks_legacy_P.utoc",
+          "size": 0
+        }
+      ]
+    }
+  }
+}

@@ -7,13 +7,86 @@ import os
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QScrollArea, QSizePolicy, QMessageBox, QSpacerItem,
+    QScrollArea, QSizePolicy, QMessageBox, QSpacerItem, QProgressBar,
 )
-from PySide6.QtCore  import Qt, Signal
+from PySide6.QtCore  import Qt, Signal, QThread
 from PySide6.QtGui   import QCursor, QFont
 
 from gui.qt.theme              import theme
 from gui.qt.widgets.page_header import make_topbar
+
+
+# ── Download worker ───────────────────────────────────────────────────────────
+
+class DownloadWorker(QThread):
+    progress = Signal(int, int)   # bytes_done, bytes_total
+    file_done = Signal(str)       # filename
+    finished  = Signal(bool, str) # success, message
+
+    def __init__(self, game_id: str, translation_info: dict, ready_dir: str):
+        super().__init__()
+        self._game_id   = game_id
+        self._info      = translation_info
+        self._ready_dir = ready_dir
+        self._cancel    = False
+
+    def cancel(self):
+        self._cancel = True
+
+    def run(self):
+        import requests, shutil
+        from games.translation_package import TranslationPackage
+
+        os.makedirs(self._ready_dir, exist_ok=True)
+        files = self._info.get("files", [])
+        total_size = sum(f.get("size", 0) for f in files)
+        done = 0
+
+        for fi in files:
+            if self._cancel:
+                self.finished.emit(False, "إلغاء")
+                return
+            name = fi["name"]
+            url  = fi["url"]
+            dest = os.path.join(self._ready_dir, name)
+            try:
+                r = requests.get(url, stream=True, timeout=60)
+                r.raise_for_status()
+                chunk_size = 65536
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=chunk_size):
+                        if self._cancel:
+                            break
+                        f.write(chunk)
+                        done += len(chunk)
+                        # estimate total from Content-Length if size=0
+                        if total_size == 0:
+                            cl = r.headers.get("Content-Length")
+                            if cl:
+                                total_size = int(cl) * len(files)
+                        self.progress.emit(done, max(total_size, 1))
+                self.file_done.emit(name)
+            except Exception as e:
+                self.finished.emit(False, f"فشل تحميل {name}: {e}")
+                return
+
+        if self._cancel:
+            self.finished.emit(False, "إلغاء")
+            return
+
+        # Register files in package.json
+        pkg = TranslationPackage()
+        cfg = pkg.get_config(self._game_id)
+        cfg["files"] = [
+            {
+                "name":        fi["name"],
+                "game_target": fi.get("game_target", fi["name"]),
+                "has_orig":    False,
+            }
+            for fi in files
+        ]
+        pkg._save_config(self._game_id, cfg)
+        self.finished.emit(True, f"تم تحميل {len(files)} ملفات بنجاح")
 
 
 # ── Engine colors (same as home page) ────────────────────────────────────────
@@ -149,11 +222,15 @@ class GameDetailPanel(QFrame):
     iostore_requested   = Signal(str, dict)  # game_id, cfg
     install_requested   = Signal(str, str)   # game_id, game_path
     uninstall_requested = Signal(str, str)   # game_id, game_path
+    download_requested  = Signal(str)        # game_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._game_id  = None
-        self._game_cfg = {}
+        self._game_id      = None
+        self._game_cfg     = {}
+        self._registry_info: dict = {}
+        self._dl_progress  = None
+        self._dl_lbl       = None
         self._build_empty()
 
     def _build_empty(self):
@@ -333,21 +410,27 @@ class GameDetailPanel(QFrame):
         lay.addStretch()
 
     def _render_package_card(self, lay, cfg: dict):
-        """بطاقة تثبيت/إلغاء الترجمة المحزومة — تظهر فقط إذا توفّرت ملفات ready."""
+        """بطاقة تحميل/تثبيت/إلغاء الترجمة — تظهر دائماً إذا كانت اللعبة معروفة."""
         from games.translation_package import TranslationPackage
+        from games.translation_registry import TranslationRegistry
         c   = theme.c
         pkg = TranslationPackage()
 
-        has_pkg   = pkg.has_files(self._game_id)
-        game_path = cfg.get("game_path", "")
+        has_pkg       = pkg.has_files(self._game_id)
+        game_path     = cfg.get("game_path", "")
+        registry_info = getattr(self, '_registry_info', {}).get(self._game_id)
 
-        # Determine status
+        # Nothing to show if no local files AND no remote registry info
+        if not has_pkg and not registry_info:
+            return
+
+        # Determine local install status
         if has_pkg and game_path:
-            status = pkg.get_status(self._game_id, game_path)  # True/False/None
+            status = pkg.get_status(self._game_id, game_path)
         elif has_pkg:
-            status = None   # path not set
+            status = None
         else:
-            return           # no package → don't show card at all
+            status = "no_local"   # registry available but not downloaded yet
 
         # Labels
         if status is True:
@@ -356,6 +439,9 @@ class GameDetailPanel(QFrame):
         elif status is False:
             status_text  = "● غير مُثبَّتة"
             status_color = c["accent"]
+        elif status == "no_local":
+            status_text  = "● متاحة للتحميل"
+            status_color = c["blue"]
         else:
             status_text  = "● حدد مسار اللعبة أولاً"
             status_color = c["yellow"]
@@ -381,11 +467,48 @@ class GameDetailPanel(QFrame):
         hdr_row.addWidget(st_lbl)
         cl.addLayout(hdr_row)
 
+        # Progress bar (hidden by default — shown during download)
+        self._dl_progress = QProgressBar()
+        self._dl_progress.setFixedHeight(6)
+        self._dl_progress.setTextVisible(False)
+        self._dl_progress.setVisible(False)
+        self._dl_progress.setStyleSheet(
+            f"QProgressBar {{ background: {c['border']}; border-radius: 3px; border: none; }}"
+            f"QProgressBar::chunk {{ background: {c['blue']}; border-radius: 3px; }}"
+        )
+        cl.addWidget(self._dl_progress)
+
+        self._dl_lbl = QLabel("")
+        self._dl_lbl.setVisible(False)
+        self._dl_lbl.setStyleSheet(
+            f"color: {c['muted']}; font-size: 10px; background: transparent; border: none;"
+        )
+        cl.addWidget(self._dl_lbl)
+
         # Buttons row
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        if status is False:
+        if status == "no_local" and registry_info:
+            size_mb = registry_info.get("size_mb", 0)
+            size_txt = f"  ({size_mb} MB)" if size_mb else ""
+            dl_btn = QPushButton(f"⬇️  تحميل الترجمة{size_txt}")
+            dl_btn.setFixedHeight(36)
+            dl_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            dl_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {c['blue']}; color: #fff;
+                    border: none; border-radius: 8px;
+                    font-weight: bold; font-size: 13px; padding: 0 18px;
+                }}
+                QPushButton:hover {{ background: #1565c0; }}
+            """)
+            dl_btn.clicked.connect(
+                lambda: self.download_requested.emit(self._game_id)
+            )
+            btn_row.addWidget(dl_btn)
+
+        elif status is False:
             inst_btn = QPushButton("✅  تثبيت الترجمة")
             inst_btn.setFixedHeight(36)
             inst_btn.setCursor(QCursor(Qt.PointingHandCursor))
@@ -431,7 +554,9 @@ class GameDetailPanel(QFrame):
         btn_row.addStretch()
         cl.addLayout(btn_row)
 
-        lbl_row = QLabel("الإصدار: v1.0")
+        # Version label
+        ver = registry_info.get("version", "1.0") if registry_info else "1.0"
+        lbl_row = QLabel(f"الإصدار: v{ver}")
         lbl_row.setStyleSheet(
             f"color: {c['muted']}; font-size: 10px;"
             " background: transparent; border: none;"
@@ -521,6 +646,8 @@ class GamesPage(QWidget):
         self._detail.iostore_requested.connect(self._open_iostore_wizard)
         self._detail.install_requested.connect(self._on_install)
         self._detail.uninstall_requested.connect(self._on_uninstall)
+        self._detail.download_requested.connect(self._on_download)
+        self._dl_worker: DownloadWorker | None = None
 
         right_lay = QVBoxLayout(right)
         right_lay.setContentsMargins(0, 0, 0, 0)
@@ -564,6 +691,12 @@ class GamesPage(QWidget):
         self._cache        = cache
         self._game_manager = game_manager
         self.refresh()
+
+    def set_registry(self, registry_info: dict):
+        """Pass {game_id: translation_info} from TranslationRegistry to detail panel."""
+        self._detail._registry_info = registry_info
+        if self._detail._game_id:
+            self._detail.load(self._detail._game_id, self._detail._game_cfg)
 
     # ── Refresh list ──────────────────────────────────────────────────────────
 
@@ -732,6 +865,52 @@ class GamesPage(QWidget):
         else:
             QMessageBox.warning(self, "فشل الإلغاء", f"حدث خطأ:\n\n{msg}")
         self.refresh()
+
+    def _on_download(self, game_id: str):
+        from games.translation_package import TranslationPackage
+        registry_info = getattr(self._detail, '_registry_info', {})
+        info = registry_info.get(game_id)
+        if not info:
+            QMessageBox.warning(self, "تحميل", "معلومات التحميل غير متاحة.")
+            return
+        if self._dl_worker and self._dl_worker.isRunning():
+            return
+
+        ready_dir = TranslationPackage().get_ready_dir(game_id)
+        self._dl_worker = DownloadWorker(game_id, info, ready_dir)
+
+        # Wire progress to the detail panel's progress bar
+        panel = self._detail
+        if hasattr(panel, '_dl_progress'):
+            panel._dl_progress.setVisible(True)
+            panel._dl_progress.setMaximum(100)
+            panel._dl_lbl.setVisible(True)
+
+            def _on_progress(done, total):
+                pct = int(done * 100 / total) if total else 0
+                panel._dl_progress.setValue(pct)
+                panel._dl_lbl.setText(
+                    f"جارٍ التحميل… {done // 1024 // 1024} MB / {total // 1024 // 1024} MB"
+                )
+
+            def _on_file(name):
+                self.status_message.emit(f"⬇️  تم تحميل: {name}")
+
+            def _on_done(ok, msg):
+                panel._dl_progress.setVisible(False)
+                panel._dl_lbl.setVisible(False)
+                if ok:
+                    self.status_message.emit(f"✅  {msg}")
+                    self.refresh()
+                else:
+                    QMessageBox.warning(self, "فشل التحميل", msg)
+
+            self._dl_worker.progress.connect(_on_progress)
+            self._dl_worker.file_done.connect(_on_file)
+            self._dl_worker.finished.connect(_on_done)
+
+        self._dl_worker.start()
+        self.status_message.emit(f"⬇️  بدء تحميل ترجمة {game_id}…")
 
     def _after_save(self, game_id: str, cfg: dict):
         self.status_message.emit(f"✓  تم حفظ: {cfg.get('name', game_id)}")

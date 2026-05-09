@@ -8,10 +8,12 @@ import os
 import sys
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QStackedWidget
+    QMainWindow, QWidget, QHBoxLayout, QStackedWidget,
+    QLabel, QPushButton, QVBoxLayout, QFrame
 )
-from PySide6.QtCore  import QThread, Signal
-from PySide6.QtGui   import QFont
+from PySide6.QtCore  import QThread, Signal, Qt
+from PySide6.QtGui   import QFont, QDesktopServices
+from PySide6.QtCore  import QUrl
 
 from gui.qt.theme           import theme
 from gui.qt.widgets.sidebar import Sidebar
@@ -20,7 +22,8 @@ from gui.qt.widgets.sidebar import Sidebar
 # ── Backend loader ────────────────────────────────────────────────────────────
 
 class BackendLoader(QThread):
-    ready = Signal(object, object, object)   # engine, cache, game_manager
+    ready          = Signal(object, object, object)   # engine, cache, game_manager
+    registry_ready = Signal(object, object)           # translations_dict, update_info_or_None
 
     def run(self):
         try:
@@ -57,6 +60,18 @@ class BackendLoader(QThread):
             print(f"[BackendLoader] {e}")
             self.ready.emit(None, None, None)
 
+        # Fetch online registry (non-blocking — runs after ready is emitted)
+        try:
+            from games.translation_registry import TranslationRegistry
+            reg = TranslationRegistry()
+            if reg.fetch(timeout=8):
+                self.registry_ready.emit(reg.all_translations(), reg.has_update())
+            else:
+                self.registry_ready.emit({}, None)
+        except Exception as e:
+            print(f"[BackendLoader registry] {e}")
+            self.registry_ready.emit({}, None)
+
 
 # ── Main window ───────────────────────────────────────────────────────────────
 
@@ -81,11 +96,48 @@ class MainWindow(QMainWindow):
     # ── UI build ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        root = QWidget()
-        rl   = QHBoxLayout(root)
+        central = QWidget()
+        cl = QVBoxLayout(central)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        self.setCentralWidget(central)
+
+        # ── Update banner (hidden until a newer version is detected) ─────────
+        self._update_banner = QFrame()
+        self._update_banner.setObjectName("updateBanner")
+        self._update_banner.setStyleSheet(
+            "#updateBanner { background: #2d6a2d; border-bottom: 1px solid #4a9e4a; }"
+        )
+        self._update_banner.setVisible(False)
+        bl = QHBoxLayout(self._update_banner)
+        bl.setContentsMargins(16, 6, 16, 6)
+        self._update_lbl = QLabel()
+        self._update_lbl.setStyleSheet("color: #c8ffc8; font-size: 13px;")
+        self._update_lbl.setLayoutDirection(Qt.RightToLeft)
+        bl.addWidget(self._update_lbl, 1)
+        self._update_btn = QPushButton("⬇️  تحميل التحديث")
+        self._update_btn.setStyleSheet(
+            "QPushButton { background:#4a9e4a; color:white; border-radius:4px;"
+            " padding:3px 12px; font-size:12px; }"
+            "QPushButton:hover { background:#5abf5a; }"
+        )
+        self._update_btn.clicked.connect(self._open_update_url)
+        bl.addWidget(self._update_btn)
+        dismiss = QPushButton("✕")
+        dismiss.setFixedWidth(28)
+        dismiss.setStyleSheet(
+            "QPushButton { background:transparent; color:#c8ffc8; border:none; font-size:14px; }"
+        )
+        dismiss.clicked.connect(lambda: self._update_banner.setVisible(False))
+        bl.addWidget(dismiss)
+        cl.addWidget(self._update_banner)
+
+        # ── Main row: sidebar + page stack ───────────────────────────────────
+        row = QWidget()
+        rl  = QHBoxLayout(row)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(0)
-        self.setCentralWidget(root)
+        cl.addWidget(row, 1)
 
         self._sidebar = Sidebar()
         self._sidebar.page_requested.connect(self._navigate)
@@ -157,8 +209,10 @@ class MainWindow(QMainWindow):
     # ── Backend init ──────────────────────────────────────────────────────────
 
     def _start_backend(self):
+        self._update_url: str = ""
         self._loader = BackendLoader()
         self._loader.ready.connect(self._on_backend_ready)
+        self._loader.registry_ready.connect(self._on_registry_ready)
         self._loader.start()
 
     def _open_admin(self):
@@ -218,6 +272,26 @@ class MainWindow(QMainWindow):
                 self._sidebar.set_model_label(_meta(active)["ar"])
 
         self.statusBar().showMessage("✓  المحرك جاهز — مرحباً بك!")
+
+    def _on_registry_ready(self, translations: dict, update_info):
+        # Push translation data to Games page
+        games_page = self._pages.get("games")
+        if games_page and hasattr(games_page, "set_registry"):
+            games_page.set_registry(translations)
+
+        # Show update banner if a newer app version exists
+        if update_info:
+            ver = update_info.get("version", "")
+            notes = update_info.get("release_notes", "")
+            self._update_url = update_info.get("download_url", "")
+            self._update_lbl.setText(
+                f"🚀  يتوفر إصدار جديد: v{ver}  —  {notes}"
+            )
+            self._update_banner.setVisible(True)
+
+    def _open_update_url(self):
+        if self._update_url:
+            QDesktopServices.openUrl(QUrl(self._update_url))
 
     def closeEvent(self, event):
         tp = self._pages.get("translate")
