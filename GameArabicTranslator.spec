@@ -31,6 +31,7 @@ hidden_imports = [
     'engine.models.base',
     'games.game_manager',
     'games.translation_package',
+    'games.translation_registry',
     'games.iostore.translator',
     'games.steam_detector',
     'gui.qt.app',
