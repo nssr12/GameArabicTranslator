@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "app": {
-    "version": "1.0",
+    "version": "1.1",
     "download_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/v1.0/GameArabicTranslator_v1.0.zip",
     "release_notes": "الإصدار الأول - واجهة PySide6 + دعم IoStore + Grounded2"
   },
