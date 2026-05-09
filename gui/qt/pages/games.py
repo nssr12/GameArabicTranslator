@@ -16,6 +16,23 @@ from gui.qt.theme              import theme
 from gui.qt.widgets.page_header import make_topbar
 
 
+# ── Registry fetch worker ─────────────────────────────────────────────────────
+
+class RegistryFetchWorker(QThread):
+    done = Signal(dict, bool)   # translations, success
+
+    def run(self):
+        try:
+            from games.translation_registry import TranslationRegistry
+            reg = TranslationRegistry()
+            if reg.fetch(timeout=10):
+                self.done.emit(reg.all_translations(), True)
+                return
+        except Exception:
+            pass
+        self.done.emit({}, False)
+
+
 # ── Download worker ───────────────────────────────────────────────────────────
 
 class DownloadWorker(QThread):
@@ -724,22 +741,19 @@ class GamesPage(QWidget):
 
     def retry_registry(self):
         """Re-fetch registry in background and update the detail panel."""
-        from PySide6.QtCore import QThread, Signal as Sig
-
-        class _Fetcher(QThread):
-            done = Sig(dict)
-            def run(self):
-                try:
-                    from games.translation_registry import TranslationRegistry
-                    reg = TranslationRegistry()
-                    self.done.emit(reg.all_translations() if reg.fetch() else {})
-                except Exception:
-                    self.done.emit({})
-
-        self._reg_fetcher = _Fetcher()
-        self._reg_fetcher.done.connect(self.set_registry)
+        if hasattr(self, '_reg_fetcher') and self._reg_fetcher.isRunning():
+            return
+        self._reg_fetcher = RegistryFetchWorker()
+        self._reg_fetcher.done.connect(self._on_registry_fetched)
         self._reg_fetcher.start()
         self.status_message.emit("🔄  جارٍ التحقق من الترجمات المتاحة…")
+
+    def _on_registry_fetched(self, translations: dict, success: bool):
+        if success and translations:
+            self.set_registry(translations)
+            self.status_message.emit("✅  تم تحميل بيانات الترجمة")
+        else:
+            self.status_message.emit("❌  تعذّر الاتصال — تحقق من اتصالك بالإنترنت")
 
     # ── Refresh list ──────────────────────────────────────────────────────────
 
