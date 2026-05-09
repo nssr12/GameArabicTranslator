@@ -254,11 +254,13 @@ class GameDetailPanel(QFrame):
         self._game_id  = game_id
         self._game_cfg = cfg
 
-        # Clear existing layout
+        # Clear existing layout — setParent(None) hides immediately, deleteLater frees memory
         while self.layout().count():
             item = self.layout().takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
 
         self._render(cfg, cache)
 
