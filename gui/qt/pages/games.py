@@ -717,8 +717,8 @@ class GamesPage(QWidget):
 
     def set_registry(self, registry_info: dict):
         """Pass {game_id: translation_info} from TranslationRegistry to detail panel."""
-        self._detail._registry_info  = registry_info
-        self._detail._registry_loaded = True
+        self._detail._registry_info   = registry_info
+        self._detail._registry_loaded = bool(registry_info)  # True only when data received
         if self._detail._game_id:
             self._detail.load(self._detail._game_id, self._detail._game_cfg)
 

@@ -60,17 +60,14 @@ class BackendLoader(QThread):
             print(f"[BackendLoader] {e}")
             self.ready.emit(None, None, None)
 
-        # Fetch online registry (non-blocking — runs after ready is emitted)
+        # Fetch online registry — only emit on success so retry button stays visible on failure
         try:
             from games.translation_registry import TranslationRegistry
             reg = TranslationRegistry()
             if reg.fetch(timeout=8):
                 self.registry_ready.emit(reg.all_translations(), reg.has_update())
-            else:
-                self.registry_ready.emit({}, None)
         except Exception as e:
             print(f"[BackendLoader registry] {e}")
-            self.registry_ready.emit({}, None)
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
