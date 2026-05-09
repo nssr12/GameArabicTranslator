@@ -222,15 +222,17 @@ class GameDetailPanel(QFrame):
     iostore_requested   = Signal(str, dict)  # game_id, cfg
     install_requested   = Signal(str, str)   # game_id, game_path
     uninstall_requested = Signal(str, str)   # game_id, game_path
-    download_requested  = Signal(str)        # game_id
+    download_requested       = Signal(str)   # game_id
+    check_registry_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._game_id      = None
-        self._game_cfg     = {}
+        self._game_id       = None
+        self._game_cfg      = {}
         self._registry_info: dict = {}
-        self._dl_progress  = None
-        self._dl_lbl       = None
+        self._registry_loaded: bool = False
+        self._dl_progress   = None
+        self._dl_lbl        = None
         self._build_empty()
 
     def _build_empty(self):
@@ -412,18 +414,18 @@ class GameDetailPanel(QFrame):
         lay.addStretch()
 
     def _render_package_card(self, lay, cfg: dict):
-        """بطاقة تحميل/تثبيت/إلغاء الترجمة — تظهر دائماً إذا كانت اللعبة معروفة."""
+        """بطاقة تحميل/تثبيت/إلغاء الترجمة."""
         from games.translation_package import TranslationPackage
-        from games.translation_registry import TranslationRegistry
         c   = theme.c
         pkg = TranslationPackage()
 
         has_pkg       = pkg.has_files(self._game_id)
         game_path     = cfg.get("game_path", "")
         registry_info = getattr(self, '_registry_info', {}).get(self._game_id)
+        registry_loaded = getattr(self, '_registry_loaded', False)
 
-        # Nothing to show if no local files AND no remote registry info
-        if not has_pkg and not registry_info:
+        # Hide card only when: no local files AND registry already loaded with no entry
+        if not has_pkg and registry_loaded and not registry_info:
             return
 
         # Determine local install status
@@ -432,7 +434,7 @@ class GameDetailPanel(QFrame):
         elif has_pkg:
             status = None
         else:
-            status = "no_local"   # registry available but not downloaded yet
+            status = "no_local"
 
         # Labels
         if status is True:
@@ -441,9 +443,12 @@ class GameDetailPanel(QFrame):
         elif status is False:
             status_text  = "● غير مُثبَّتة"
             status_color = c["accent"]
-        elif status == "no_local":
+        elif status == "no_local" and registry_info:
             status_text  = "● متاحة للتحميل"
             status_color = c["blue"]
+        elif status == "no_local" and not registry_info:
+            status_text  = "● جارٍ التحقق…"
+            status_color = c["muted"]
         else:
             status_text  = "● حدد مسار اللعبة أولاً"
             status_color = c["yellow"]
@@ -509,6 +514,21 @@ class GameDetailPanel(QFrame):
                 lambda: self.download_requested.emit(self._game_id)
             )
             btn_row.addWidget(dl_btn)
+
+        elif status == "no_local" and not registry_info:
+            retry_btn = QPushButton("🔄  تحقق من الترجمات المتاحة")
+            retry_btn.setFixedHeight(36)
+            retry_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            retry_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent; color: {c['muted']};
+                    border: 1px solid {c['border']}; border-radius: 8px;
+                    font-size: 12px; padding: 0 18px;
+                }}
+                QPushButton:hover {{ color: {c['primary']}; border-color: {c['primary']}; }}
+            """)
+            retry_btn.clicked.connect(self.check_registry_requested)
+            btn_row.addWidget(retry_btn)
 
         elif status is False:
             inst_btn = QPushButton("✅  تثبيت الترجمة")
@@ -649,6 +669,7 @@ class GamesPage(QWidget):
         self._detail.install_requested.connect(self._on_install)
         self._detail.uninstall_requested.connect(self._on_uninstall)
         self._detail.download_requested.connect(self._on_download)
+        self._detail.check_registry_requested.connect(self.retry_registry)
         self._dl_worker: DownloadWorker | None = None
 
         right_lay = QVBoxLayout(right)
@@ -696,9 +717,29 @@ class GamesPage(QWidget):
 
     def set_registry(self, registry_info: dict):
         """Pass {game_id: translation_info} from TranslationRegistry to detail panel."""
-        self._detail._registry_info = registry_info
+        self._detail._registry_info  = registry_info
+        self._detail._registry_loaded = True
         if self._detail._game_id:
             self._detail.load(self._detail._game_id, self._detail._game_cfg)
+
+    def retry_registry(self):
+        """Re-fetch registry in background and update the detail panel."""
+        from PySide6.QtCore import QThread, Signal as Sig
+
+        class _Fetcher(QThread):
+            done = Sig(dict)
+            def run(self):
+                try:
+                    from games.translation_registry import TranslationRegistry
+                    reg = TranslationRegistry()
+                    self.done.emit(reg.all_translations() if reg.fetch() else {})
+                except Exception:
+                    self.done.emit({})
+
+        self._reg_fetcher = _Fetcher()
+        self._reg_fetcher.done.connect(self.set_registry)
+        self._reg_fetcher.start()
+        self.status_message.emit("🔄  جارٍ التحقق من الترجمات المتاحة…")
 
     # ── Refresh list ──────────────────────────────────────────────────────────
 

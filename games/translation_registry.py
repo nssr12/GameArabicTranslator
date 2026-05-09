@@ -31,9 +31,25 @@ class TranslationRegistry:
 
     def fetch(self, timeout: int = 8) -> bool:
         """Download and parse the manifest. Returns True on success."""
+        # Use urllib (no SSL cert issues in PyInstaller bundles)
+        try:
+            import urllib.request, ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode    = ssl.CERT_NONE
+            req = urllib.request.Request(
+                MANIFEST_URL,
+                headers={"User-Agent": "GameArabicTranslator/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                self._manifest = json.loads(resp.read().decode())
+                return True
+        except Exception:
+            pass
+        # Fallback: requests
         try:
             import requests
-            r = requests.get(MANIFEST_URL, timeout=timeout)
+            r = requests.get(MANIFEST_URL, timeout=timeout, verify=False)
             if r.ok:
                 self._manifest = r.json()
                 return True
