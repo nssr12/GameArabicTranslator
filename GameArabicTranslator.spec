@@ -5,27 +5,18 @@ Build:  pyinstaller GameArabicTranslator.spec
 """
 
 import os
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 # ── Data files to bundle ──────────────────────────────────────────────────────
 
 added_datas = [
-    # App config
-    ('config.json',              '.'),
-    # Game configs
-    ('games/configs',            'games/configs'),
-    # Pre-packaged Grounded2 mod data (enus JSON + .orig files only)
-    ('mods',                     'mods'),
-    # IoStore tools — retoc, UAssetGUI
-    ('tools/retoc',              'tools/retoc'),
-    ('tools/UAssetGUI.exe',      'tools'),
-    ('tools/oo2core_9_win64.dll','tools'),
+    # IoStore tools — bundled inside _internal (app internals, not user-facing)
+    ('tools/retoc',         'tools/retoc'),
+    ('tools/UAssetGUI.exe', 'tools'),
+    # Note: config.json, games/configs/, mods/ are copied NEXT TO the exe
+    # by build_release.bat so users can edit them directly
 ]
-
-# PySide6 data files
-added_datas += collect_data_files('PySide6')
 
 # ── Hidden imports ────────────────────────────────────────────────────────────
 
