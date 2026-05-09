@@ -35,7 +35,7 @@ def main():
 
     # ── 2. PyInstaller build ──────────────────────────────────────────────────
     print("\n[1/5] Building with PyInstaller...")
-    run(["pyinstaller", "GameArabicTranslator.spec", "--noconfirm"])
+    run([sys.executable, "-m", "PyInstaller", "GameArabicTranslator.spec", "--noconfirm"])
 
     # ── 3. Create user folders + copy configs ─────────────────────────────────
     print("\n[2/5] Setting up user directories...")
@@ -97,8 +97,11 @@ def main():
 
     # ── 8. Git commit + push ──────────────────────────────────────────────────
     run(["git", "add", "manifest.json"])
-    run(["git", "commit", "-m", f"Release app v{version}"])
-    run(["git", "push", "origin", "main"])
+    rc = run(["git", "commit", "-m", f"Release app v{version}"], check=False)
+    if rc == 0:
+        run(["git", "push", "origin", "main"])
+    else:
+        print("manifest.json unchanged — skipping commit.")
 
     print(f"\n=== Done! ===")
     print(f"Version:  v{version}  ({size_mb} MB)")
