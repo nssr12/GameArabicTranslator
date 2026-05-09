@@ -19,18 +19,19 @@ from gui.qt.widgets.page_header import make_topbar
 # ── Registry fetch worker ─────────────────────────────────────────────────────
 
 class RegistryFetchWorker(QThread):
-    done = Signal(dict, bool)   # translations, success
+    done = Signal(dict, bool, str)   # translations, success, error_msg
 
     def run(self):
         try:
             from games.translation_registry import TranslationRegistry
             reg = TranslationRegistry()
             if reg.fetch(timeout=10):
-                self.done.emit(reg.all_translations(), True)
+                self.done.emit(reg.all_translations(), True, "")
                 return
-        except Exception:
-            pass
-        self.done.emit({}, False)
+            else:
+                self.done.emit({}, False, "fetch returned False")
+        except Exception as e:
+            self.done.emit({}, False, str(e))
 
 
 # ── Download worker ───────────────────────────────────────────────────────────
@@ -748,12 +749,13 @@ class GamesPage(QWidget):
         self._reg_fetcher.start()
         self.status_message.emit("🔄  جارٍ التحقق من الترجمات المتاحة…")
 
-    def _on_registry_fetched(self, translations: dict, success: bool):
+    def _on_registry_fetched(self, translations: dict, success: bool, error: str):
         if success and translations:
             self.set_registry(translations)
             self.status_message.emit("✅  تم تحميل بيانات الترجمة")
         else:
-            self.status_message.emit("❌  تعذّر الاتصال — تحقق من اتصالك بالإنترنت")
+            msg = f"❌  {error}" if error else "❌  تعذّر الاتصال"
+            self.status_message.emit(msg)
 
     # ── Refresh list ──────────────────────────────────────────────────────────
 
