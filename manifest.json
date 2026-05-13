@@ -31,6 +31,18 @@
           "size": 12184
         }
       ]
+    },
+    "Windrose": {
+      "version": "0.1",
+      "size_mb": 26,
+      "files": [
+        {
+          "name": "pakchunk0-Windows_P.pak",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Windrose-v0.1/pakchunk0-Windows_P.pak",
+          "game_target": "pakchunk0-Windows_P.pak",
+          "size": 27035148
+        }
+      ]
     }
   }
 }
