@@ -31,18 +31,18 @@
       ]
     },
     "Windrose": {
-      "version": "0.2",
+      "version": "0.3",
       "size_mb": 52,
       "files": [
         {
           "name": "pakchunk0-Windows_P.pak",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Windrose-v0.2/pakchunk0-Windows_P.pak",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Windrose-v0.3/pakchunk0-Windows_P.pak",
           "game_target": "pakchunk0-Windows_P.pak",
           "size": 27035148
         },
         {
           "name": "pakchunk10-Windows_PL.pak",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Windrose-v0.2/pakchunk10-Windows_PL.pak",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Windrose-v0.3/pakchunk10-Windows_PL.pak",
           "game_target": "pakchunk10-Windows_PL.pak",
           "size": 27031070
         }
