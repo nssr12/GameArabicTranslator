@@ -104,12 +104,13 @@ namespace ArabicGameTranslatorMVP.Flotsam
             StartCoroutine(EnsureRtlForArabicTextLoop());
         }
 
-        // حلقة دائمة تضمن isRightToLeftText=true لأي TMP فيه عربي.
-        // ضرورية لأن XUnity قد يُعدّل النص عبر طرق لا تُشغّل hook-اتنا
-        // (مثل تعديل الحقول الخاصة مباشرة، أو overloads لـ SetText لا نُمسكها).
+        // شبكة أمان: تُغطّي حالات يكتب فيها XUnity على TMP بطريقة لا تمر بـ Harmony hooks
+        // (مثل تعديل m_text مباشرة عبر reflection، أو overloads لا نُمسكها).
+        // الـ hooks تُعطي استجابة فورية؛ هذه الحلقة فقط تُغطّي ما يفوتها.
+        // الفترة 2 ثانية كافية كاحتياط بدون استهلاك ملحوظ للأداء.
         private IEnumerator EnsureRtlForArabicTextLoop()
         {
-            var wait = new WaitForSeconds(0.5f);
+            var wait = new WaitForSeconds(2.0f);
             while (true)
             {
                 try
@@ -117,19 +118,7 @@ namespace ArabicGameTranslatorMVP.Flotsam
                     var allTexts = Resources.FindObjectsOfTypeAll<TMP_Text>();
                     foreach (var t in allTexts)
                     {
-                        if (t == null) continue;
-                        bool hasArabic = ContainsArabic(t.text);
-                        if (hasArabic && !t.isRightToLeftText)
-                        {
-                            t.isRightToLeftText = true;
-                            ApplyArabicLayout(t);
-                            t.havePropertiesChanged = true;
-                        }
-                        else if (!hasArabic && t.isRightToLeftText)
-                        {
-                            t.isRightToLeftText = false;
-                            t.havePropertiesChanged = true;
-                        }
+                        EnsureRtlState(t);
                     }
                 }
                 catch { }
@@ -1468,7 +1457,10 @@ namespace ArabicGameTranslatorMVP.Flotsam
         [ThreadStatic]
         private static bool _inLayoutPostfix;
 
-        private static void TmpTextSetterPostfix(TMP_Text __instance)
+        // المنطق الموحّد لضبط isRightToLeftText بناءً على محتوى TMP.
+        // يُستخدم من قِبَل postfix لـ "text" property setter ولـ SetText method
+        // ومن الحلقة الدورية. وضعنا الكود في method واحدة لمنع تكرار التعديل.
+        private static void EnsureRtlState(TMP_Text __instance)
         {
             if (_inLayoutPostfix || __instance == null) return;
             _inLayoutPostfix = true;
@@ -1476,9 +1468,12 @@ namespace ArabicGameTranslatorMVP.Flotsam
             {
                 if (ContainsArabic(__instance.text))
                 {
-                    __instance.isRightToLeftText = true;
+                    if (!__instance.isRightToLeftText)
+                    {
+                        __instance.isRightToLeftText = true;
+                        __instance.havePropertiesChanged = true;
+                    }
                     ApplyArabicLayout(__instance);
-                    __instance.havePropertiesChanged = true;
                 }
                 else if (__instance.isRightToLeftText)
                 {
@@ -1494,6 +1489,8 @@ namespace ArabicGameTranslatorMVP.Flotsam
                 _inLayoutPostfix = false;
             }
         }
+
+        private static void TmpTextSetterPostfix(TMP_Text __instance) => EnsureRtlState(__instance);
 
         // مع isRightToLeftText=true يعكس TMP محارف الـ LTR (أرقام وإنجليزي) داخل النص العربي
         // → نعكسها مسبقاً هنا حتى يُرجعها TMP لوضعها الصحيح
@@ -1541,32 +1538,9 @@ namespace ArabicGameTranslatorMVP.Flotsam
             }
         }
 
-        // postfix لـ SetText — يفعّل isRightToLeftText تماماً كما يفعل text setter postfix
-        // ضروري لأن XUnity يستخدم SetText عند تحميل الترجمات من ملفه translations.txt
-        // وبدون هذا الـ postfix يظهر العربي بترتيب LTR (مقلوب الحروف).
-        private static void TmpSetTextPostfix(TMP_Text __instance)
-        {
-            if (_inLayoutPostfix || __instance == null) return;
-            _inLayoutPostfix = true;
-            try
-            {
-                if (ContainsArabic(__instance.text))
-                {
-                    __instance.isRightToLeftText = true;
-                    ApplyArabicLayout(__instance);
-                    __instance.havePropertiesChanged = true;
-                }
-                else if (__instance.isRightToLeftText)
-                {
-                    __instance.isRightToLeftText = false;
-                    __instance.havePropertiesChanged = true;
-                }
-            }
-            finally
-            {
-                _inLayoutPostfix = false;
-            }
-        }
+        // postfix لـ SetText — يستدعي نفس منطق EnsureRtlState الموحّد.
+        // ضروري لأن XUnity يستخدم SetText عند تحميل الترجمات من ملفه translations.txt.
+        private static void TmpSetTextPostfix(TMP_Text __instance) => EnsureRtlState(__instance);
 
         private static void LocalizedTextUpdateTextPostfix(object __instance)
         {

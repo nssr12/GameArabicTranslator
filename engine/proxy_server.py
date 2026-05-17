@@ -15,8 +15,8 @@ def _needs_translation(text: str) -> bool:
     t = text.strip()
     if len(t) < 3:
         return False
-    # لا يحتوي أي حرف لاتيني أو عربي → أرقام/رموز فقط
-    if not _re.search(r'[a-zA-Z؀-ۿ]', t):
+    # نطلب على الأقل تتابع حرفين لاتينيين أو عربيين — يستبعد "3x4", "+40x40"
+    if not _re.search(r'[a-zA-Z؀-ۿ]{2,}', t):
         return False
     # يحتوي خطوطاً غير إنجليزية (صيني/ياباني/روسي/كوري)
     if _re.search(r'[　-鿿Ѐ-ӿ぀-ヿ가-힯]', t):
