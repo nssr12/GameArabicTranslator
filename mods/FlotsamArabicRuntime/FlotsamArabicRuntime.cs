@@ -7,7 +7,6 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using BepInEx;
 using BepInEx.Configuration;
-using BepInEx.Unity.Mono;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -102,6 +101,40 @@ namespace ArabicGameTranslatorMVP.Flotsam
             SceneManager.sceneLoaded += OnSceneLoaded;
             StartCoroutine(ApplyWhenReady());
             StartCoroutine(WatchLanguageChanges());
+            StartCoroutine(EnsureRtlForArabicTextLoop());
+        }
+
+        // حلقة دائمة تضمن isRightToLeftText=true لأي TMP فيه عربي.
+        // ضرورية لأن XUnity قد يُعدّل النص عبر طرق لا تُشغّل hook-اتنا
+        // (مثل تعديل الحقول الخاصة مباشرة، أو overloads لـ SetText لا نُمسكها).
+        private IEnumerator EnsureRtlForArabicTextLoop()
+        {
+            var wait = new WaitForSeconds(0.5f);
+            while (true)
+            {
+                try
+                {
+                    var allTexts = Resources.FindObjectsOfTypeAll<TMP_Text>();
+                    foreach (var t in allTexts)
+                    {
+                        if (t == null) continue;
+                        bool hasArabic = ContainsArabic(t.text);
+                        if (hasArabic && !t.isRightToLeftText)
+                        {
+                            t.isRightToLeftText = true;
+                            ApplyArabicLayout(t);
+                            t.havePropertiesChanged = true;
+                        }
+                        else if (!hasArabic && t.isRightToLeftText)
+                        {
+                            t.isRightToLeftText = false;
+                            t.havePropertiesChanged = true;
+                        }
+                    }
+                }
+                catch { }
+                yield return wait;
+            }
         }
 
         private void OnDestroy()
@@ -367,7 +400,8 @@ namespace ArabicGameTranslatorMVP.Flotsam
                 {
                     _harmony.Patch(
                         tmpTextSetter,
-                        prefix: new HarmonyMethod(typeof(FlotsamArabicRuntime), "SanitizeTextSetterPrefix")
+                        prefix: new HarmonyMethod(typeof(FlotsamArabicRuntime), "SanitizeTextSetterPrefix"),
+                        postfix: new HarmonyMethod(typeof(FlotsamArabicRuntime), "TmpTextSetterPostfix")
                     );
                 }
 
@@ -385,9 +419,12 @@ namespace ArabicGameTranslatorMVP.Flotsam
                     var parameters = method.GetParameters();
                     if (parameters.Length > 0 && parameters[0].ParameterType == typeof(string))
                     {
+                        // نُمسك postfix أيضاً لتفعيل isRightToLeftText كما نفعل في text setter
+                        // (XUnity يستخدم SetText عند تحميل الترجمات من ملفه المحلي)
                         _harmony.Patch(
                             method,
-                            prefix: new HarmonyMethod(typeof(FlotsamArabicRuntime), "SanitizeSetTextPrefix")
+                            prefix:  new HarmonyMethod(typeof(FlotsamArabicRuntime), "SanitizeSetTextPrefix"),
+                            postfix: new HarmonyMethod(typeof(FlotsamArabicRuntime), "TmpSetTextPostfix")
                         );
                     }
                 }
@@ -823,13 +860,23 @@ namespace ArabicGameTranslatorMVP.Flotsam
                     continue;
                 }
 
+                var languages = GetMemberValue(term, "Languages") as string[];
+
                 string arabic;
                 if (!_translations.TryGetValue(key, out arabic))
                 {
-                    continue;
+                    // Also try matching by English text (langs[0]) — supports JSON files
+                    // where "key" is the English text rather than the I2 term name.
+                    if (languages != null && languages.Length > 0 && !string.IsNullOrWhiteSpace(languages[0]))
+                    {
+                        _translations.TryGetValue(languages[0].Trim(), out arabic);
+                    }
                 }
 
-                var languages = GetMemberValue(term, "Languages") as string[];
+                if (arabic == null)
+                {
+                    continue;
+                }
                 if (languages == null)
                 {
                     continue;
@@ -1358,30 +1405,19 @@ namespace ArabicGameTranslatorMVP.Flotsam
                 return;
             }
 
-            if (!ContainsArabic(text.text) || !IsArabicLanguageActive())
+            if (!ContainsArabic(text.text))
             {
                 return;
             }
 
+            // مع isRightToLeftText=true نصحح فقط اتجاه الملء الرأسي
+            // Bottom* → TopRight حتى يبدأ TMP من الأعلى ويملأ للأسفل بدلاً من العكس
             switch (text.alignment)
             {
-                case TextAlignmentOptions.TopRight:
-                    text.alignment = TextAlignmentOptions.TopLeft;
-                    break;
-                case TextAlignmentOptions.Right:
-                    text.alignment = TextAlignmentOptions.Left;
-                    break;
                 case TextAlignmentOptions.BottomRight:
-                    text.alignment = TextAlignmentOptions.BottomLeft;
-                    break;
-                case TextAlignmentOptions.BaselineRight:
-                    text.alignment = TextAlignmentOptions.BaselineLeft;
-                    break;
-                case TextAlignmentOptions.MidlineRight:
-                    text.alignment = TextAlignmentOptions.MidlineLeft;
-                    break;
-                case TextAlignmentOptions.CaplineRight:
-                    text.alignment = TextAlignmentOptions.CaplineLeft;
+                case TextAlignmentOptions.BottomLeft:
+                case TextAlignmentOptions.Bottom:
+                    text.alignment = TextAlignmentOptions.TopRight;
                     break;
             }
         }
@@ -1416,7 +1452,11 @@ namespace ArabicGameTranslatorMVP.Flotsam
         {
             foreach (var ch in text)
             {
-                if ((ch >= '\u0600' && ch <= '\u06FF') || (ch >= '\u0750' && ch <= '\u077F') || (ch >= '\u08A0' && ch <= '\u08FF'))
+                if ((ch >= '\u0600' && ch <= '\u06FF') ||   // Arabic block
+                    (ch >= '\u0750' && ch <= '\u077F') ||   // Arabic Supplement
+                    (ch >= '\u08A0' && ch <= '\u08FF') ||   // Arabic Extended-A
+                    (ch >= '\uFB50' && ch <= '\uFDFF') ||   // Arabic Presentation Forms-A
+                    (ch >= '\uFE70' && ch <= '\uFEFC'))     // Arabic Presentation Forms-B
                 {
                     return true;
                 }
@@ -1425,19 +1465,106 @@ namespace ArabicGameTranslatorMVP.Flotsam
             return false;
         }
 
+        [ThreadStatic]
+        private static bool _inLayoutPostfix;
+
+        private static void TmpTextSetterPostfix(TMP_Text __instance)
+        {
+            if (_inLayoutPostfix || __instance == null) return;
+            _inLayoutPostfix = true;
+            try
+            {
+                if (ContainsArabic(__instance.text))
+                {
+                    __instance.isRightToLeftText = true;
+                    ApplyArabicLayout(__instance);
+                    __instance.havePropertiesChanged = true;
+                }
+                else if (__instance.isRightToLeftText)
+                {
+                    // النص تغيّر من عربي إلى غير عربي → نُلغي وضع RTL
+                    // وإلا يظهر الإنجليزي والأرقام معكوسة، وقد يلتقطها XUnity معكوسة
+                    // فيُرسل للـ AI نصاً مقلوباً → ترجمة بأرقام مقلوبة (100 → 001)
+                    __instance.isRightToLeftText = false;
+                    __instance.havePropertiesChanged = true;
+                }
+            }
+            finally
+            {
+                _inLayoutPostfix = false;
+            }
+        }
+
+        // مع isRightToLeftText=true يعكس TMP محارف الـ LTR (أرقام وإنجليزي) داخل النص العربي
+        // → نعكسها مسبقاً هنا حتى يُرجعها TMP لوضعها الصحيح
+        private static readonly Regex LtrRunRegex = new Regex(
+            @"[A-Za-z0-9]+",
+            RegexOptions.Compiled
+        );
+
+        private static string PreReverseLtrRunsForRtl(string text)
+        {
+            return LtrRunRegex.Replace(text, m =>
+                new string(m.Value.Reverse().ToArray())
+            );
+        }
+
         private static void SanitizeTextSetterPrefix(ref string value)
         {
+            if (string.IsNullOrEmpty(value)) return;
             if (IsArabicLanguageActive())
             {
                 value = FixCorruptedTokens(value);
+            }
+            else if (ContainsArabic(value))
+            {
+                // تاقات التنسيق مثل <b> يعكسها BiDi في وضع RTL → نحذفها قبل أن تصل لـ TMP
+                value = FormattingTagRegex.Replace(value, string.Empty);
+                value = FixCorruptedTokens(value);
+                // نعكس المحارف اللاتينية/الأرقام مسبقاً لأن TMP في وضع RTL يعكسها بنفسه
+                value = PreReverseLtrRunsForRtl(value);
             }
         }
 
         private static void SanitizeSetTextPrefix(ref string sourceText)
         {
+            if (string.IsNullOrEmpty(sourceText)) return;
             if (IsArabicLanguageActive())
             {
                 sourceText = FixCorruptedTokens(sourceText);
+            }
+            else if (ContainsArabic(sourceText))
+            {
+                sourceText = FormattingTagRegex.Replace(sourceText, string.Empty);
+                sourceText = FixCorruptedTokens(sourceText);
+                sourceText = PreReverseLtrRunsForRtl(sourceText);
+            }
+        }
+
+        // postfix لـ SetText — يفعّل isRightToLeftText تماماً كما يفعل text setter postfix
+        // ضروري لأن XUnity يستخدم SetText عند تحميل الترجمات من ملفه translations.txt
+        // وبدون هذا الـ postfix يظهر العربي بترتيب LTR (مقلوب الحروف).
+        private static void TmpSetTextPostfix(TMP_Text __instance)
+        {
+            if (_inLayoutPostfix || __instance == null) return;
+            _inLayoutPostfix = true;
+            try
+            {
+                if (ContainsArabic(__instance.text))
+                {
+                    __instance.isRightToLeftText = true;
+                    ApplyArabicLayout(__instance);
+                    __instance.havePropertiesChanged = true;
+                }
+                else if (__instance.isRightToLeftText)
+                {
+                    __instance.isRightToLeftText = false;
+                    __instance.havePropertiesChanged = true;
+                }
+            }
+            finally
+            {
+                _inLayoutPostfix = false;
             }
         }
 

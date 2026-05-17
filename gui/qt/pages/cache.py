@@ -313,7 +313,7 @@ class EditDialog(QWidget):
         self._trans.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {c['card2']};
-                border: 1px solid rgba(0,210,255,0.35);
+                border: 1px solid rgba(0,210,255,89);
                 border-radius: 6px;
                 color: {c['primary']};
                 font-size: {theme.font_size}px;
@@ -463,6 +463,7 @@ class CachePage(QWidget):
         self._engine  = engine
         self._game    = "All Games"
         self._model   = "All Models"
+        self._view    = "translated"   # "translated" أو "failed"
         self._search  = ""
         self._page    = 0
         self._total   = 0
@@ -489,12 +490,14 @@ class CachePage(QWidget):
     def _build_topbar(self) -> QFrame:
         bar, lay = make_topbar("💾", "ذاكرة الترجمة")
 
-        self._chip_total = self._chip("0 entries", "blue")
-        self._chip_games = self._chip("0 games",   "green")
-        self._chip_sel   = self._chip("0 selected", "accent")
+        self._chip_total  = self._chip("0 entries", "blue")
+        self._chip_games  = self._chip("0 games",   "green")
+        self._chip_failed = self._chip("0 فاشل",    "accent")
+        self._chip_failed.setToolTip("نصوص فشل المحرّك في ترجمتها — انقر زر 'فاشل' في الشريط لعرضها")
+        self._chip_sel    = self._chip("0 selected", "accent")
         self._chip_sel.setVisible(False)
 
-        for ch in (self._chip_total, self._chip_games, self._chip_sel):
+        for ch in (self._chip_total, self._chip_games, self._chip_failed, self._chip_sel):
             lay.addWidget(ch)
 
         del_btn = QPushButton("🗑  حذف الكل")
@@ -517,8 +520,10 @@ class CachePage(QWidget):
         game_lbl = QLabel("اللعبة:")
         game_lbl.setStyleSheet(f"color: {c['muted']}; font-size: {theme.font_size - 1}px;")
         self._game_combo = QComboBox()
-        self._game_combo.setFixedWidth(170)
+        self._game_combo.setMinimumWidth(120)
+        self._game_combo.setMaximumWidth(160)
         self._game_combo.currentTextChanged.connect(self._game_changed)
+        theme.style_combo(self._game_combo)
         lay.addWidget(game_lbl)
         lay.addWidget(self._game_combo)
         lay.addSpacing(8)
@@ -527,21 +532,49 @@ class CachePage(QWidget):
         model_lbl = QLabel("الموديل:")
         model_lbl.setStyleSheet(f"color: {c['muted']}; font-size: {theme.font_size - 1}px;")
         self._model_combo = QComboBox()
-        self._model_combo.setFixedWidth(160)
+        self._model_combo.setMinimumWidth(110)
+        self._model_combo.setMaximumWidth(150)
         self._model_combo.currentTextChanged.connect(self._model_changed)
+        theme.style_combo(self._model_combo)
         lay.addWidget(model_lbl)
         lay.addWidget(self._model_combo)
         lay.addSpacing(12)
 
-        # Search
+        # View toggle: translated / failed
+        self._btn_view_translated = QPushButton("✅  مترجَم")
+        self._btn_view_failed     = QPushButton("❌  فاشل")
+        for b in (self._btn_view_translated, self._btn_view_failed):
+            b.setCheckable(True)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            b.setFixedHeight(28)
+        self._btn_view_translated.setChecked(True)
+        self._btn_view_translated.setToolTip("عرض الترجمات الناجحة")
+        self._btn_view_failed.setToolTip("عرض النصوص التي فشل المحرّك في ترجمتها مع سبب الفشل")
+        self._btn_view_translated.clicked.connect(lambda: self._switch_view("translated"))
+        self._btn_view_failed.clicked.connect(lambda: self._switch_view("failed"))
+        view_style = (
+            f"QPushButton {{ background: transparent; color: {c['muted']};"
+            f"               border: 1px solid {c['border']}; border-radius: 4px;"
+            f"               padding: 4px 10px; font-size: 11px; }}"
+            f"QPushButton:checked {{ background: {c['primary']}; color: white;"
+            f"                       border-color: {c['primary']}; }}"
+            f"QPushButton:hover:!checked {{ color: {c['primary']}; }}"
+        )
+        self._btn_view_translated.setStyleSheet(view_style)
+        self._btn_view_failed.setStyleSheet(view_style)
+        lay.addWidget(self._btn_view_translated)
+        lay.addWidget(self._btn_view_failed)
+        lay.addSpacing(12)
+
+        # Search — stretches to fill remaining space
         self._search_box = QLineEdit()
         self._search_box.setPlaceholderText("🔍  ابحث... (English أو عربي)")
-        self._search_box.setFixedWidth(280)
+        self._search_box.setMinimumWidth(150)
         self._search_box.textChanged.connect(lambda t: (
             setattr(self, '_search', t.strip()),
             self._search_timer.start(320)
         ))
-        lay.addWidget(self._search_box)
+        lay.addWidget(self._search_box, 1)
 
         clr = QPushButton("✕")
         clr.setObjectName("icon_btn")
@@ -549,7 +582,15 @@ class CachePage(QWidget):
         clr.clicked.connect(self._clear_search)
         lay.addWidget(clr)
 
-        lay.addStretch()
+        lay.addSpacing(8)
+
+        ref_btn = QPushButton("↻  تحديث")
+        ref_btn.setObjectName("icon_btn")
+        ref_btn.setFixedHeight(28)
+        ref_btn.setToolTip("تحديث قائمة الألعاب والإحصائيات")
+        ref_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        ref_btn.clicked.connect(self.refresh)
+        lay.addWidget(ref_btn)
 
         # Sync button (visible only for IoStore games with wizard config)
         self._btn_sync = QPushButton("🔄  مزامنة التعديل")
@@ -666,6 +707,11 @@ class CachePage(QWidget):
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
+    def refresh_theme(self):
+        theme.style_combo(self._game_combo)
+        theme.style_combo(self._model_combo)
+        self._load_table()
+
     def refresh(self):
         """استدعاء خارجي لتحديث الصفحة بالكامل."""
         self._load_selectors()
@@ -686,11 +732,53 @@ class CachePage(QWidget):
         self._game_combo.setCurrentText(self._game)
         self._game_combo.blockSignals(False)
 
-        total_all = sum(self._cache.count_entries(g) for g in games) if self._cache else 0
+        total_all  = sum(self._cache.count_entries(g) for g in games) if self._cache else 0
+        failed_all = sum(self._cache.count_failed(g) for g in games) if self._cache else 0
         self._chip_total.setText(f"{total_all:,} entries")
         self._chip_games.setText(f"{len(games)} games")
+        self._chip_failed.setText(f"{failed_all:,} فاشل")
+        # نُلوّن الشريحة بلون التحذير عند وجود فاشلة
+        self._chip_failed.setVisible(failed_all > 0)
 
         self._reload_model_combo()
+
+    def _switch_view(self, view: str):
+        if view == self._view:
+            # حافظ على حالة الزر المُحدَّد
+            self._btn_view_translated.setChecked(self._view == "translated")
+            self._btn_view_failed.setChecked(self._view == "failed")
+            return
+        self._view = view
+        self._btn_view_translated.setChecked(view == "translated")
+        self._btn_view_failed.setChecked(view == "failed")
+        self._page = 0
+        # غيّر رؤوس الجدول حسب العرض
+        if view == "failed":
+            self._table.setColumnCount(4)
+            self._table.setHorizontalHeaderLabels(["#", "English", "سبب الفشل", "التاريخ"])
+            hdr = self._table.horizontalHeader()
+            hdr.setSectionResizeMode(0, QHeaderView.Fixed)
+            hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+            hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+            hdr.setSectionResizeMode(3, QHeaderView.Fixed)
+            self._table.setColumnWidth(3, 140)
+            self._btn_retrans.setText("🔄  أعد المحاولة")
+            self._btn_retrans.setToolTip("احذف من جدول الفاشلة → سيُستدعى الـ AI مرة أخرى عند الطلب التالي")
+            self._btn_edit.setEnabled(False)  # لا تعديل للفاشلة
+        else:
+            self._table.setColumnCount(5)
+            self._table.setHorizontalHeaderLabels(["#", "English", "عربي", "Model", "↻"])
+            hdr = self._table.horizontalHeader()
+            hdr.setSectionResizeMode(0, QHeaderView.Fixed)
+            hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+            hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+            hdr.setSectionResizeMode(3, QHeaderView.Fixed)
+            hdr.setSectionResizeMode(4, QHeaderView.Fixed)
+            self._table.setColumnWidth(3, 140)
+            self._table.setColumnWidth(4, 45)
+            self._btn_retrans.setText("🔄  إعادة ترجمة")
+            self._btn_retrans.setToolTip("")
+        self._load_table()
 
     def _reload_model_combo(self):
         self._model_combo.blockSignals(True)
@@ -709,6 +797,9 @@ class CachePage(QWidget):
 
     def _load_table(self):
         if not self._cache:
+            return
+        if self._view == "failed":
+            self._load_failed_table()
             return
         c = theme.c
 
@@ -751,7 +842,7 @@ class CachePage(QWidget):
 
             # English
             orig = QTableWidgetItem(row["original"].replace("\\n", " ↵ ").replace("\n", " ↵ "))
-            orig.setForeground(QColor(c['secondary']))
+            orig.setForeground(QColor(c['primary']))
 
             # Arabic — RTL alignment
             ar = QTableWidgetItem(row["translated"].replace("\\n", " ↵ ").replace("\n", " ↵ "))
@@ -783,6 +874,87 @@ class CachePage(QWidget):
         self.status_message.emit(
             f"{len(rows)} صف  |  صفحة {self._page + 1}/{pages}  |  {total:,} إجمالي"
         )
+
+    def _load_failed_table(self):
+        """يملأ الجدول بالنصوص الفاشلة + سبب فشلها."""
+        c = theme.c
+        games = (self._cache.get_all_games()
+                 if self._game == "All Games"
+                 else [self._game])
+        total = sum(self._cache.count_failed(g, self._search) for g in games)
+        self._total = total
+        pages = max(1, (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self._page = max(0, min(self._page, pages - 1))
+
+        rows, quota, skip = [], self.PAGE_SIZE, self._page * self.PAGE_SIZE
+        for g in games:
+            if quota <= 0:
+                break
+            g_total = self._cache.count_failed(g, self._search)
+            if skip >= g_total:
+                skip -= g_total
+                continue
+            batch = self._cache.get_failed_page(g, skip, quota, self._search)
+            for r in batch:
+                rows.append({"game": g, **r})
+            quota -= len(batch)
+            skip = 0
+
+        self._table.setRowCount(0)
+        self._table.setRowCount(len(rows))
+        offset = self._page * self.PAGE_SIZE
+
+        for i, row in enumerate(rows):
+            # #
+            n = QTableWidgetItem(str(offset + i + 1))
+            n.setTextAlignment(Qt.AlignCenter)
+            n.setForeground(QColor(c['muted']))
+
+            # English
+            orig = QTableWidgetItem(row["original"].replace("\\n", " ↵ ").replace("\n", " ↵ "))
+            orig.setForeground(QColor(c['primary']))
+            orig.setData(Qt.UserRole, row)
+
+            # سبب الفشل (مُلوَّن حسب النوع)
+            reason = row.get("reason", "") or "(بلا سبب)"
+            reason_item = QTableWidgetItem(reason)
+            reason_item.setForeground(QColor(self._reason_color(reason)))
+            reason_item.setToolTip(reason)
+
+            # التاريخ
+            dt = QTableWidgetItem(str(row.get("created_at", ""))[:19])
+            dt.setForeground(QColor(c['muted']))
+            dt.setFont(QFont("Consolas", theme.font_size - 2))
+            dt.setTextAlignment(Qt.AlignCenter)
+
+            self._table.setItem(i, 0, n)
+            self._table.setItem(i, 1, orig)
+            self._table.setItem(i, 2, reason_item)
+            self._table.setItem(i, 3, dt)
+
+        self._prev_btn.setEnabled(self._page > 0)
+        self._next_btn.setEnabled(self._page < pages - 1)
+        self._page_lbl.setText(
+            f"صفحة {self._page + 1} / {pages}   •   {total:,} فاشل"
+        )
+        self.status_message.emit(
+            f"{len(rows)} صف فاشل  |  صفحة {self._page + 1}/{pages}  |  {total:,} إجمالي"
+        )
+
+    @staticmethod
+    def _reason_color(reason: str) -> str:
+        """يُرجع لوناً يدل على نوع السبب."""
+        c = theme.c
+        r = reason.lower()
+        if "timeout" in r or "مهلة" in reason:
+            return c.get("accent", "#e94560")
+        if "unchanged" in r or "النموذج أعاد" in reason or "identity" in r:
+            return c.get("yellow", "#ffa600")
+        if "رفض" in reason or "refusal" in r or "هلوسة" in reason or "غير صالح" in reason:
+            return c.get("accent", "#e94560")
+        if "connection" in r or "اتصال" in reason:
+            return c.get("accent", "#e94560")
+        return c.get("muted", "#8a8a8a")
 
     # ── Interaction ───────────────────────────────────────────────────────────
 
@@ -816,8 +988,13 @@ class CachePage(QWidget):
     def _on_selection(self):
         rows  = list({idx.row() for idx in self._table.selectedIndexes()})
         count = len(rows)
-        self._btn_edit.setEnabled(count == 1)
-        self._btn_retrans.setEnabled(count > 0 and self._engine is not None)
+        # في وضع failed: لا تعديل (لا ترجمة بعد لتعديلها)، لكن أعد المحاولة والحذف يعملان
+        if self._view == "failed":
+            self._btn_edit.setEnabled(False)
+            self._btn_retrans.setEnabled(count > 0)
+        else:
+            self._btn_edit.setEnabled(count == 1)
+            self._btn_retrans.setEnabled(count > 0 and self._engine is not None)
         self._btn_delete.setEnabled(count > 0)
         if count > 0:
             self._chip_sel.setText(f"{count} محدد")
@@ -827,9 +1004,11 @@ class CachePage(QWidget):
 
     def _get_selected_entries(self) -> list:
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        # عمود الـ UserRole مختلف بين العرضين
+        data_col = 1 if self._view == "failed" else 2
         out  = []
         for r in rows:
-            item = self._table.item(r, 2)
+            item = self._table.item(r, data_col)
             if item:
                 data = item.data(Qt.UserRole)
                 if data:
@@ -852,48 +1031,111 @@ class CachePage(QWidget):
         if not entries:
             return
         n = len(entries)
+        what = "إدخال فاشل" if self._view == "failed" else "عنصر"
         if QMessageBox.question(
             self, "تأكيد الحذف",
-            f"حذف {n} {'عنصر' if n == 1 else 'عناصر'}؟\nلا يمكن التراجع.",
+            f"حذف {n} {what}{'' if n == 1 else 'اً'}؟\nلا يمكن التراجع.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         ) != QMessageBox.Yes:
             return
         for e in entries:
-            self._cache.delete_entry(e.get("game", self._game), e["original"])
+            if self._view == "failed":
+                self._cache.delete_failed(e.get("game", self._game), e["original"])
+            else:
+                self._cache.delete_entry(e.get("game", self._game), e["original"])
         self._load_table()
         self._load_selectors()
-        self.status_message.emit(f"✓  حُذف {n} {'عنصر' if n == 1 else 'عناصر'}")
+        self.status_message.emit(f"✓  حُذف {n}")
 
     def _delete_all(self):
         game  = self._game
-        if game == "All Games":
-            msg = "حذف كل ترجمات جميع الألعاب؟\n\nهذا سيحذف كل قواعد البيانات."
+        model = self._model   # "All Models"  أو اسم موديل محدد
+
+        # ── بناء رسالة التأكيد حسب الفلاتر الحالية ──────────────────────
+        games_list = (self._cache.get_all_games()
+                      if game == "All Games" else [game])
+
+        if model == "All Models":
+            total = sum(self._cache.count_entries(g) for g in games_list)
+            if game == "All Games":
+                msg = f"حذف كل {total:,} ترجمة من جميع الألعاب؟"
+            else:
+                msg = f"حذف كل {total:,} ترجمة للعبة «{game}»؟"
         else:
-            cnt = self._cache.count_entries(game)
-            msg = f"حذف كل {cnt:,} ترجمة للعبة «{game}»؟"
+            total = sum(
+                self._cache.count_entries(g, model_filter=model)
+                for g in games_list
+            )
+            if game == "All Games":
+                msg = f"حذف {total:,} ترجمة للموديل «{model}» من جميع الألعاب؟"
+            else:
+                msg = f"حذف {total:,} ترجمة للموديل «{model}» في لعبة «{game}»؟"
+
+        if total == 0:
+            if game != "All Games":
+                reply = QMessageBox.question(
+                    self, "قاعدة البيانات فارغة",
+                    f"اللعبة «{game}» لا تحتوي على ترجمات.\n"
+                    "هل تريد إزالتها من قائمة الكاش نهائياً؟",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self._cache.delete_game(game)
+                    self._game = "All Games"
+                    self._page = 0
+                    self.refresh()
+                    self.status_message.emit(f"✓  تم حذف «{game}» من الكاش")
+            else:
+                QMessageBox.information(self, "لا يوجد شيء", "لا توجد ترجمات مطابقة للحذف.")
+            return
+
         if QMessageBox.question(
-            self, "تأكيد الحذف الكامل", msg,
+            self, "تأكيد الحذف", msg,
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         ) != QMessageBox.Yes:
             return
-        if game == "All Games":
-            self._cache.delete_all()
-        else:
-            self._cache.delete_game(game)
-        self._game  = "All Games"
-        self._page  = 0
+
+        # ── تنفيذ الحذف ──────────────────────────────────────────────────
+        for g in games_list:
+            if model == "All Models":
+                self._cache.delete_game(g)   # يمسح البيانات ويحذف الملف
+            else:
+                self._cache.delete_by_model(g, model)
+
+        if game != "All Games":
+            self._game = "All Games"
+        self._page = 0
         self.refresh()
         self.status_message.emit("✓  تم حذف الكاش")
 
     def _retranslate_selected(self):
-        if not self._engine:
-            QMessageBox.warning(self, "لا يوجد موديل",
-                                "فعّل موديل الترجمة أولاً.")
-            return
         entries = self._get_selected_entries()
         if not entries:
             return
         n = len(entries)
+
+        # في وضع failed: فقط نحذف من جدول الفاشلة (لا نُترجم الآن)
+        # — الطلب التالي من اللعبة سيستدعي الـ AI من جديد
+        if self._view == "failed":
+            if QMessageBox.question(
+                self, "أعد المحاولة",
+                f"إزالة {n} {'إدخال' if n == 1 else 'إدخالات'} من قائمة الفاشلة؟\n\n"
+                "سيستدعي البروكسي الـ AI مرة أخرى عند الطلب التالي من اللعبة.\n"
+                "غيّر إعدادات المهلة/التاقات في صفحة اللعبة قبل ذلك إن لزم.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            ) != QMessageBox.Yes:
+                return
+            for e in entries:
+                self._cache.delete_failed(e.get("game", self._game), e["original"])
+            self._load_table()
+            self._load_selectors()
+            self.status_message.emit(f"✓  أُزيل {n} من الفاشلة — الـ AI سيُجرّب مرة أخرى")
+            return
+
+        if not self._engine:
+            QMessageBox.warning(self, "لا يوجد موديل",
+                                "فعّل موديل الترجمة أولاً.")
+            return
         if QMessageBox.question(
             self, "إعادة ترجمة",
             f"إعادة ترجمة {n} {'عنصر' if n == 1 else 'عناصر'} بالموديل النشط؟\n\n"

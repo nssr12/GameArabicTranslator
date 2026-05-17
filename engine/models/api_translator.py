@@ -14,10 +14,11 @@ def _default_ollama_system_prompt() -> str:
         "Modern Standard Arabic (فصحى خفيفة) suitable for games.\n\n"
         "CORE RULES — never break these:\n"
         "1. Output ONLY the Arabic translation. No explanations. No alternatives. No comments. No transliteration.\n"
-        "2. Preserve ALL formatting tokens exactly as-is: {0} {1} {playerName} \\n <color=#ff0000> </color> [b] [/b] %s %d — never translate or modify them.\n"
-        "3. Preserve punctuation structure that matches the original (ellipsis, exclamation marks, etc.).\n"
+        "2. Preserve ALL formatting tokens and special characters exactly as-is: {0} {1} {playerName} \\n <color=#ff0000> </color> [b] [/b] %s %d — never translate, remove, or modify them. This includes any unusual Unicode characters or symbols in the input.\n"
+        "3. Preserve punctuation EXACTLY as in the original. Do NOT add a period (.) at the end unless the original text itself ends with a period. Do NOT add or remove any punctuation mark.\n"
         "4. Never add content that is not in the original text.\n"
-        "5. If the input is already Arabic or is untranslatable (a proper noun, a code), return it unchanged.\n\n"
+        "5. If the input is already Arabic, is a non-English language name (日本語, Русский, Türkçe …), or contains non-Latin script: return it UNCHANGED — no comment, no explanation.\n"
+        "6. NEVER refuse. NEVER apologize. NEVER ask for more input. NEVER explain what you're doing. Output ONLY the translation.\n\n"
         "TRANSLATION QUALITY STANDARDS:\n"
         "- Use terminology consistent with major Arabic game localizations: المهمة، المخزون، المهارة، الصحة، الدرع، الخصم، الحليف، المكافأة، الخريطة، المستوى، النقاط، الذخيرة، التعديلات.\n"
         "- Match tone: dramatic for story/combat, clear for UI/menus, imperative for tutorials (اضغط، حرك، اختر).\n"
@@ -134,92 +135,187 @@ def _load_ollama_options(config_path: str = "config.json") -> dict:
 
 class OllamaTranslator(BaseTranslator):
 
-    def __init__(self, name: str, description: str, model: str = "llama3", url: str = "http://localhost:11434",
-                 config_path: str = "config.json"):
+    def __init__(self, name: str, description: str, model: str = "llama3",
+                 url: str = "http://localhost:11434", config_path: str = "config.json"):
         super().__init__(name, description)
-        self.model = model
-        self.url = url.rstrip("/")
+        self.model       = model
+        self.url         = url.rstrip("/")
         self.config_path = config_path
-        self._session = None
-        self._available_models = []
+        self._session: requests.Session | None = None
+        self._available_models: list = []
+        self._opts:    dict  = {}
+        self._timeout: float = 60.0
+        self._last_error: str = ""
         self.system_prompt = _default_ollama_system_prompt()
-    
+
+    # ── Model discovery ───────────────────────────────────────────────────────
+
     def list_models(self) -> list:
+        """جلب النماذج المثبتة من الخادم — لا يحتاج load()."""
         try:
-            if not self._session:
-                self._session = requests.Session()
-            resp = self._session.get(f"{self.url}/api/tags", timeout=5)
+            sess = self._session or requests.Session()
+            resp = sess.get(f"{self.url}/api/tags", timeout=5)
             if resp.status_code == 200:
-                data = resp.json()
-                models = data.get("models", [])
+                models = resp.json().get("models", [])
                 self._available_models = [
                     {
-                        "name": m.get("name", ""),
-                        "size": m.get("size", 0),
-                        "size_gb": round(m.get("size", 0) / (1024**3), 1),
-                        "family": m.get("details", {}).get("family", ""),
+                        "name":           m.get("name", ""),
+                        "size_gb":        round(m.get("size", 0) / (1024 ** 3), 1),
                         "parameter_size": m.get("details", {}).get("parameter_size", ""),
-                        "quantization": m.get("details", {}).get("quantization_level", ""),
-                        "modified": m.get("modified_at", "")[:10],
+                        "quantization":   m.get("details", {}).get("quantization_level", ""),
+                        "family":         m.get("details", {}).get("family", ""),
                     }
                     for m in models
                 ]
                 return self._available_models
-            return []
         except Exception as e:
-            print(f"[Ollama] Failed to list models: {e}")
-            return []
-    
+            print(f"[Ollama] list_models: {e}")
+        return []
+
     def set_model(self, model_name: str):
         self.model = model_name
-        print(f"[Ollama] Model set to: {model_name}")
-    
+        print(f"[Ollama] model → {model_name}")
+
+    # ── Load / connect ────────────────────────────────────────────────────────
+
     def load(self) -> bool:
+        self._last_error = ""
         try:
             self._session = requests.Session()
+
+            # Check server is reachable
             resp = self._session.get(f"{self.url}/api/tags", timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                models = data.get("models", [])
-                self._available_models = [
-                    {"name": m.get("name", ""), "size": m.get("size", 0)}
-                    for m in models
-                ]
-                self._is_loaded = True
-                opts = _load_ollama_options(self.config_path)
-                print(f"[Ollama] Connected → {self.url}  model: {self.model}")
-                print(f"[Ollama] Options → gpu={opts.get('num_gpu')}  ctx={opts.get('num_ctx')}  "
-                      f"batch={opts.get('num_batch')}  predict={opts.get('num_predict')}  "
-                      f"temp={opts.get('temperature')}  timeout={opts.get('timeout', 60)}s")
-                return True
-            else:
-                print(f"[Ollama] Server responded with status {resp.status_code}")
+            if resp.status_code != 200:
+                self._last_error = f"الخادم أعاد {resp.status_code}"
+                print(f"[Ollama] server status {resp.status_code}")
                 return False
-        except Exception as e:
-            print(f"[Ollama] Failed to connect: {e}")
+
+            raw_models = resp.json().get("models", [])
+            available  = [m.get("name", "") for m in raw_models]
+
+            # Verify the selected model is installed
+            if self.model and self.model not in available:
+                self._last_error = (
+                    f"النموذج '{self.model}' غير مثبت.\n"
+                    f"المتاح: {', '.join(available) or 'لا يوجد'}"
+                )
+                print(f"[Ollama] model '{self.model}' not found. available: {available}")
+                return False
+
+            # Cache options (done once, not per-translation)
+            opts = _load_ollama_options(self.config_path)
+            self._timeout = float(opts.pop("timeout", 120))
+            self._opts    = opts
+            self._available_models = [
+                {"name": m.get("name", ""), "size_gb": round(m.get("size", 0) / (1024 ** 3), 1)}
+                for m in raw_models
+            ]
+
+            self._is_loaded = True
+            print(f"[Ollama] connected → {self.url}  model: {self.model}  "
+                  f"ctx={self._opts.get('num_ctx')}  predict={self._opts.get('num_predict')}  "
+                  f"temp={self._opts.get('temperature')}  timeout={self._timeout}s")
+            return True
+
+        except requests.exceptions.ConnectionError:
+            self._last_error = "تعذّر الاتصال بـ Ollama — تأكد أن الخادم يعمل"
+            print(f"[Ollama] connection refused: {self.url}")
             return False
-    
+        except requests.exceptions.Timeout:
+            self._last_error = "انتهت مهلة الاتصال — الخادم بطيء أو غير موجود"
+            print(f"[Ollama] tags request timed out: {self.url}")
+            return False
+        except Exception as e:
+            self._last_error = str(e)
+            print(f"[Ollama] load failed: {e}")
+            return False
+
+    # ── Translation ───────────────────────────────────────────────────────────
+
     def _raw_translate(self, text: str) -> Optional[str]:
-        opts = _load_ollama_options(self.config_path)
-        timeout = opts.pop("timeout", 60)
-        payload = {
-            "model": self.model,
-            "prompt": f'English: "{text}"\nArabic:',
-            "system": self.system_prompt,
-            "stream": False,
-            "options": opts,
-        }
-        response = self._session.post(f"{self.url}/api/generate", json=payload, timeout=timeout)
-        if response.status_code == 200:
-            data = response.json()
-            raw = data.get("response", "").strip().strip('"').strip("'").strip()
-            if raw and raw != text:
-                return raw
+        """Translate via /api/chat."""
+        self._last_error = ""
+        try:
+            payload = {
+                "model":   self.model,
+                "stream":  False,
+                "messages": [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user",   "content": text},
+                ],
+                "options": self._opts,
+            }
+            resp = self._session.post(
+                f"{self.url}/api/chat", json=payload, timeout=self._timeout
+            )
+            if resp.status_code == 200:
+                raw = resp.json().get("message", {}).get("content", "").strip().strip('"\'').strip()
+                if raw and raw != text:
+                    if self._is_valid_translation(text, raw):
+                        return raw
+                    self._last_error = "رد غير صالح (رفض أو هلوسة)"
+                    print(f"[Ollama] rejected response for {text[:30]!r}: {raw[:60]!r}")
+                elif not raw:
+                    self._last_error = "استجابة فارغة من النموذج"
+                    print(f"[Ollama] empty response for: {text[:40]!r}")
+                else:
+                    self._last_error = "النموذج أعاد النص دون ترجمة"
+                    print(f"[Ollama] identity response: {raw[:40]!r}")
+            else:
+                try:
+                    err_body = resp.json().get("error", resp.text)
+                except Exception:
+                    err_body = resp.text
+                self._last_error = f"خطأ {resp.status_code}: {str(err_body)[:150]}"
+                print(f"[Ollama] HTTP {resp.status_code}: {err_body}")
+
+        except requests.exceptions.Timeout:
+            self._last_error = f"انتهت مهلة الانتظار ({int(self._timeout)}ث)"
+            print(f"[Ollama] timeout ({self._timeout}s) for: {text[:40]!r}")
+
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = "انقطع الاتصال بـ Ollama"
+            self._is_loaded = False
+            print(f"[Ollama] connection error: {e}")
+
+        except Exception as e:
+            self._last_error = str(e)
+            print(f"[Ollama] _raw_translate: {type(e).__name__}: {e}")
+
         return None
+
+    # ── Response validators ───────────────────────────────────────────────────
+
+    _REFUSAL_PATTERNS = (
+        'أعتذر', 'أنا آسف', 'لا يمكنني', 'يرجى تزويدي', 'يرجى تقديم',
+        'أعتقد أنك تقصد', 'يرجى توفير', 'I cannot', "I'm sorry", 'I apologize',
+        'Please provide', 'Sure, here is',
+    )
+
+    @staticmethod
+    def _is_valid_translation(original: str, result: str) -> bool:
+        """يتحقق أن الرد ترجمة حقيقية وليس رفضاً أو هلوسة."""
+        import re
+        # يجب أن يحتوي على عربي
+        if not re.search(r'[؀-ۿ]', result):
+            return False
+        # أنماط رفض معروفة
+        for pat in OllamaTranslator._REFUSAL_PATTERNS:
+            if pat in result:
+                return False
+        # هلوسة طولية: نص قصير أعطى ردّاً أطول بكثير
+        if len(original.strip()) <= 30 and len(result) > max(len(original) * 5, 120):
+            return False
+        # هلوسة بالتوكنات: الرد يحوي {} لكن الأصل لا يحويها
+        if '{' in result and '{' not in original:
+            return False
+        return True
 
     def translate(self, text: str, source_lang: str = "en", target_lang: str = "ar") -> Optional[str]:
         if not self._is_loaded or not self._session:
+            self._last_error = "النموذج غير محمّل أو الجلسة منتهية"
             return None
+        self._last_error = ""
         try:
             text = self._preprocess(text)
             if not text or len(text) < 2:
@@ -227,11 +323,11 @@ class OllamaTranslator(BaseTranslator):
             result = translate_preserving_tokens(text, self._raw_translate)
             return self._postprocess(result) if result else None
         except Exception as e:
-            print(f"[Ollama] Translation error: {e}")
+            self._last_error = str(e)
+            print(f"[Ollama] translate error: {e}")
             return None
 
     def cancel_current_request(self):
-        """Close session to interrupt any in-flight request, then recreate it."""
         if self._session:
             try:
                 self._session.close()
@@ -242,7 +338,7 @@ class OllamaTranslator(BaseTranslator):
     def unload(self):
         if self._session:
             self._session.close()
-        self._session = None
+        self._session  = None
         self._is_loaded = False
 
 

@@ -8,8 +8,9 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QScrollArea, QSizePolicy, QMessageBox, QSpacerItem, QProgressBar,
+    QSplitter, QPlainTextEdit, QCheckBox, QSpinBox,
 )
-from PySide6.QtCore  import Qt, Signal, QThread
+from PySide6.QtCore  import Qt, Signal, QThread, QTimer
 from PySide6.QtGui   import QCursor, QFont
 
 from gui.qt.theme              import theme
@@ -128,6 +129,60 @@ _ENGINE_LABEL = {
 }
 
 
+# ── Locres translation worker ─────────────────────────────────────────────────
+
+class LocresWorker(QThread):
+    progress = Signal(int, int, str)   # done, total, filename
+    finished = Signal(bool, int, int)  # success, replaced, total
+
+    def __init__(self, locres_folder: str, engine, cache, game_id: str):
+        super().__init__()
+        self._folder  = locres_folder
+        self._engine  = engine
+        self._cache   = cache
+        self._game_id = game_id
+
+    def run(self):
+        try:
+            from games.locres_patcher import LocresPatcher
+            files = LocresPatcher.find_locres_files(self._folder)
+            total_replaced = 0
+            total_count    = 0
+            for fi, path in enumerate(files):
+                entries = LocresPatcher.read(path)
+                if not entries:
+                    continue
+                unique_texts = list(dict.fromkeys(
+                    e.value.strip() for e in entries if e.value.strip()
+                ))
+                translations: dict[str, str] = {}
+                if self._cache and self._game_id:
+                    for txt in unique_texts:
+                        ar = self._cache.get(self._game_id, txt)
+                        if ar:
+                            translations[txt] = ar
+                missing = [t for t in unique_texts if t not in translations]
+                if missing and self._engine:
+                    for i, txt in enumerate(missing):
+                        self.progress.emit(i, len(missing),
+                                           os.path.basename(path))
+                        try:
+                            ar = self._engine.translate(txt)
+                            if ar and ar != txt:
+                                translations[txt] = ar
+                                if self._cache and self._game_id:
+                                    self._cache.put(self._game_id, txt, ar)
+                        except Exception:
+                            pass
+                replaced, count = LocresPatcher.patch(path, path, translations)
+                total_replaced += replaced
+                total_count    += count
+            self.finished.emit(True, total_replaced, total_count)
+        except Exception as e:
+            print(f"[LocresWorker] {e}")
+            self.finished.emit(False, 0, 0)
+
+
 # ── Compact list card ─────────────────────────────────────────────────────────
 
 class GameListItem(QFrame):
@@ -166,12 +221,14 @@ class GameListItem(QFrame):
             f"font-size: 13px; font-weight: bold; color: {c['primary']};"
             " background: transparent; border: none;"
         )
+        name_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         proc = self._cfg.get("process_name", "")
         proc_lbl = QLabel(proc if proc else "—")
         proc_lbl.setStyleSheet(
             f"font-size: 10px; color: {c['muted']};"
             " background: transparent; border: none;"
         )
+        proc_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         info.addWidget(name_lbl)
         info.addWidget(proc_lbl)
         lay.addLayout(info, 1)
@@ -185,7 +242,7 @@ class GameListItem(QFrame):
         eng_color = c.get(_ENGINE_COLOR.get(eng_key, "muted"), c["muted"])
         badge = QLabel(_ENGINE_LABEL.get(eng_key, eng_raw))
         badge.setStyleSheet(f"""
-            background: rgba(0,0,0,0.25);
+            background: rgba(0,0,0,64);
             color: {eng_color};
             border: 1px solid {eng_color};
             border-radius: 6px;
@@ -234,14 +291,25 @@ class GameListItem(QFrame):
 class GameDetailPanel(QFrame):
     """لوحة تفاصيل اللعبة المُحددة (يمين)."""
 
-    edit_requested      = Signal(str)        # game_id
-    delete_requested    = Signal(str)        # game_id
-    translate_requested = Signal(str)        # game_id
-    iostore_requested   = Signal(str, dict)  # game_id, cfg
-    install_requested   = Signal(str, str)   # game_id, game_path
-    uninstall_requested = Signal(str, str)   # game_id, game_path
-    download_requested       = Signal(str)   # game_id
+    edit_requested        = Signal(str)        # game_id
+    delete_requested      = Signal(str)        # game_id
+    translate_requested   = Signal(str)        # game_id
+    iostore_requested     = Signal(str, dict)  # game_id, cfg
+    install_requested     = Signal(str, str)   # game_id, game_path
+    uninstall_requested   = Signal(str, str)   # game_id, game_path
+    download_requested    = Signal(str)        # game_id
     check_registry_requested = Signal()
+    locres_requested      = Signal(str, str)   # game_id, folder_path
+    font_requested        = Signal(str, str)   # game_id, game_path
+    bepinex_install_requested    = Signal(str, str)  # game_id, game_path
+    bepinex_uninstall_requested  = Signal(str, str)  # game_id, game_path
+    bepinex_update_requested     = Signal(str, str)  # game_id, game_path
+    bepinex_import_requested        = Signal(str, str)       # game_id, game_path
+    bepinex_import_from_requested   = Signal(str, str, str)  # game_id, game_path, source_path
+    bepinex_copy_dll_requested   = Signal(str, str)  # game_id, game_path
+    bepinex_collect_requested      = Signal(str, str)  # game_id, game_path
+    bepinex_collect_from_requested = Signal(str, str)  # game_id, source_path
+    proxy_server_toggle_requested  = Signal(str, str)  # game_id, game_name
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -251,42 +319,58 @@ class GameDetailPanel(QFrame):
         self._registry_loaded: bool = False
         self._dl_progress   = None
         self._dl_lbl        = None
+        self._proxy_server  = None
         self._build_empty()
+
+    def set_proxy_server(self, proxy):
+        self._proxy_server = proxy
 
     def _build_empty(self):
         c   = theme.c
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setStyleSheet("QScrollArea { border: none; } QScrollArea > QWidget { background: transparent; }")
+        outer.addWidget(self._scroll)
+
+        # Placeholder content
+        ph = QWidget()
+        ph.setObjectName("games_placeholder")
+        ph.setStyleSheet("QWidget#games_placeholder { background: transparent; }")
+        ph_lay = QVBoxLayout(ph)
         placeholder = QLabel("اختر لعبة من القائمة لعرض تفاصيلها")
         placeholder.setAlignment(Qt.AlignCenter)
         placeholder.setStyleSheet(
             f"color: {c['muted']}; font-size: 14px;"
             " background: transparent; border: none;"
         )
-        lay.addStretch()
-        lay.addWidget(placeholder)
-        lay.addStretch()
-        self._placeholder_lay = lay
+        ph_lay.addStretch()
+        ph_lay.addWidget(placeholder)
+        ph_lay.addStretch()
+        self._scroll.setWidget(ph)
 
     def load(self, game_id: str, cfg: dict, cache=None):
         self._game_id  = game_id
         self._game_cfg = cfg
+        self._dl_progress = None
+        self._dl_lbl      = None
 
-        # Clear existing layout — setParent(None) hides immediately, deleteLater frees memory
-        while self.layout().count():
-            item = self.layout().takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-                w.deleteLater()
+        # Replace scroll content entirely — QScrollArea deletes the old widget automatically
+        content = QWidget()
+        content.setObjectName("games_detail_content")
+        content.setStyleSheet("QWidget#games_detail_content { background: transparent; }")
+        QVBoxLayout(content)   # empty layout; _render() will populate it
+        self._scroll.setWidget(content)
 
         self._render(cfg, cache)
 
     def _render(self, cfg: dict, cache):
         c   = theme.c
-        lay = self.layout()
+        lay = self._scroll.widget().layout()
         lay.setContentsMargins(28, 24, 28, 24)
         lay.setSpacing(18)
 
@@ -367,6 +451,22 @@ class GameDetailPanel(QFrame):
 
         lay.addWidget(info_card)
 
+        # ── Feature visibility (from admin panel) ────────────────────────────
+        hidden = set(cfg.get("hidden_features", []))
+        shown  = set(cfg.get("shown_features",  []))
+        gid_lower = (self._game_id or "").lower().replace(" ", "").replace("_", "")
+        is_moe    = "myth" in gid_lower or "empires" in gid_lower or "moe" in gid_lower
+
+        show_translate  = "translate"       not in hidden
+        show_edit       = "edit_config"     not in hidden
+        show_font       = "font_section"    not in hidden
+        show_iostore    = ("iostore_section" in shown) and eng_key in ("ue4", "ue5", "unreal")
+        if is_moe:
+            show_locres = "locres_section" not in hidden
+        else:
+            show_locres = "locres_section" in shown
+        show_pkg = "cache_section" not in hidden
+
         # ── Action buttons ────────────────────────────────────────────────────
         act_lbl = QLabel("الإجراءات")
         act_lbl.setStyleSheet(
@@ -387,7 +487,7 @@ class GameDetailPanel(QFrame):
             clr = c.get(color_key, c["accent"])
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    background: rgba(0,0,0,0.15);
+                    background: rgba(0,0,0,38);
                     color: {clr};
                     border: 1px solid {clr};
                     border-radius: 8px;
@@ -403,22 +503,38 @@ class GameDetailPanel(QFrame):
             btn.clicked.connect(slot)
             return btn
 
-        actions_lay.addWidget(
-            _btn("ترجمة ملفات اللعبة", "accent",
-                 lambda: self.translate_requested.emit(self._game_id), "🌐")
-        )
+        if show_translate:
+            actions_lay.addWidget(
+                _btn("ترجمة ملفات اللعبة", "accent",
+                     lambda: self.translate_requested.emit(self._game_id), "🌐")
+            )
 
-        # IoStore wizard — only for Unreal games
-        if eng_key in ("ue4", "ue5", "unreal"):
+        if show_iostore:
             actions_lay.addWidget(
                 _btn("📦  IoStore / UAsset Wizard", "purple",
                      lambda gid=self._game_id, c=cfg: self.iostore_requested.emit(gid, c), "")
             )
 
-        actions_lay.addWidget(
-            _btn("تعديل الإعدادات", "blue",
-                 lambda: self.edit_requested.emit(self._game_id), "✏️")
-        )
+        if show_locres:
+            actions_lay.addWidget(
+                _btn("📄  ترجمة .locres", "teal",
+                     lambda: self.locres_requested.emit(
+                         self._game_id, cfg.get("game_path", "")), "")
+            )
+
+        if show_font:
+            actions_lay.addWidget(
+                _btn("🔤  استبدال الخط", "orange",
+                     lambda: self.font_requested.emit(
+                         self._game_id, cfg.get("game_path", "")), "")
+            )
+
+        if show_edit:
+            actions_lay.addWidget(
+                _btn("تعديل الإعدادات", "blue",
+                     lambda: self.edit_requested.emit(self._game_id), "✏️")
+            )
+
         actions_lay.addWidget(
             _btn("حذف اللعبة", "accent",
                  lambda: self.delete_requested.emit(self._game_id), "🗑️")
@@ -426,10 +542,280 @@ class GameDetailPanel(QFrame):
 
         lay.addWidget(actions_card)
 
-        # ── Translation package card ──────────────────────────────────────────
-        self._render_package_card(lay, cfg)
-
         lay.addStretch()
+
+    def _render_bepinex_card(self, lay, cfg: dict):
+        """بطاقة تثبيت BepInEx+XUnity (Method 2) أو plugin خاص (Method 1)."""
+        try:
+            from games.bepinex_mod import BepInExMod
+        except ImportError:
+            return
+        mod = BepInExMod()
+        if not mod.is_supported(cfg):
+            return
+
+        c         = theme.c
+        game_path = cfg.get("game_path", "")
+        bm        = cfg.get("bepinex_mod", {})
+        dll_name  = bm.get("dll_name", "")
+        is_xunity_mode = not dll_name   # Method 2: XUnity proxy, no custom DLL
+
+        resolved_src    = mod._resolve_bepinex_source(cfg)
+        has_bepinex_src = bool(resolved_src)
+        src_label       = os.path.basename(resolved_src) if resolved_src else ""
+        installed       = mod.get_install_status(cfg, game_path)
+        bepinex_in_game = mod.is_bepinex_installed(game_path) if game_path else False
+
+        # حالة المكونات في اللعبة (لـ Method 2)
+        xunity_ok     = mod.is_xunity_installed(game_path) if game_path else False
+        font_fixer_ok = mod.is_font_fixer_installed(game_path) if game_path else False
+        # حالة DLL / JSON (لـ Method 1)
+        dll_ok        = mod.dll_src_exists(cfg) if dll_name else False
+        json_ok       = mod.get_json_status(cfg, game_path) if dll_name else None
+
+        # ── حالة عامة ────────────────────────────────────────────────────────
+        if installed is True:
+            status_text, status_color = "● مُثبَّت", c["green"]
+        elif installed is False:
+            status_text, status_color = "● غير مُثبَّت", c["yellow"]
+        else:
+            status_text, status_color = (
+                ("● غير مُثبَّت", c["yellow"]) if game_path
+                else ("● حدد مسار اللعبة", c["muted"])
+            )
+
+        card = self._card()
+        cl   = QVBoxLayout(card)
+        cl.setContentsMargins(16, 14, 16, 14)
+        cl.setSpacing(8)
+
+        # ── رأس البطاقة ───────────────────────────────────────────────────────
+        hdr_row = QHBoxLayout()
+        title   = "🔌  BepInEx + XUnity AutoTranslator" if is_xunity_mode else "🔌  BepInEx Runtime Mod"
+        ttl = QLabel(title)
+        ttl.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {c['primary']};"
+            " background: transparent; border: none;"
+        )
+        st_lbl = QLabel(status_text)
+        st_lbl.setStyleSheet(
+            f"color: {status_color}; font-size: 11px;"
+            " background: transparent; border: none;"
+        )
+        hdr_row.addWidget(ttl)
+        hdr_row.addStretch()
+        hdr_row.addWidget(st_lbl)
+        cl.addLayout(hdr_row)
+
+        # ── حالة مكونات الحزمة ───────────────────────────────────────────────
+        def _status_line(icon, text, color):
+            lbl = QLabel(f"{icon} {text}")
+            lbl.setStyleSheet(
+                f"color: {color}; font-size: 10px;"
+                " background: transparent; border: none;"
+            )
+            cl.addWidget(lbl)
+
+        # مصدر BepInEx
+        if has_bepinex_src:
+            _status_line("✓", f"BepInEx — جاهز ({src_label})", c["green"])
+        else:
+            _status_line("✗", "BepInEx — غير موجود في mods/_bepinex_base/", c["accent"])
+
+        if is_xunity_mode:
+            # Method 2: أظهر حالة XUnity + ArabicFontFixer + الكاش
+            if game_path:
+                _status_line(
+                    "✓" if xunity_ok else ("○" if not bepinex_in_game else "✗"),
+                    "XUnity.AutoTranslator" + (" — مثبَّت" if xunity_ok else " — لم يُثبَّت بعد"),
+                    c["green"] if xunity_ok else (c["muted"] if not bepinex_in_game else c["yellow"]),
+                )
+                _status_line(
+                    "✓" if font_fixer_ok else ("○" if not bepinex_in_game else "✗"),
+                    "ArabicFontFixer — " + ("خط عربي مثبَّت" if font_fixer_ok else "لم يُثبَّت بعد"),
+                    c["green"] if font_fixer_ok else (c["muted"] if not bepinex_in_game else c["yellow"]),
+                )
+        else:
+            # Method 1: أظهر حالة DLL + JSON
+            _status_line(
+                "✓" if dll_ok else "✗",
+                dll_name + (" — موجود في mods/" if dll_ok else " — مفقود من mods/"),
+                c["green"] if dll_ok else c["accent"],
+            )
+            if json_ok is not None:
+                _status_line(
+                    "✓" if json_ok else "✗",
+                    "ملف الترجمات" + (" — موجود في اللعبة" if json_ok else " — غير موجود"),
+                    c["green"] if json_ok else c["muted"],
+                )
+
+        # ── أزرار الإجراءات ───────────────────────────────────────────────────
+        def _mini_btn(label, color_key, signal_emitter):
+            btn = QPushButton(label)
+            btn.setFixedHeight(34)
+            btn.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent; color: {clr};
+                    border: 1px solid {clr}; border-radius: 7px;
+                    font-weight: bold; font-size: 11px; padding: 0 12px;
+                }}
+                QPushButton:hover {{ background: {clr}; color: #fff; }}
+            """)
+            btn.clicked.connect(signal_emitter)
+            return btn
+
+        if not game_path:
+            hint = QLabel("حدد مسار اللعبة من «تعديل الإعدادات» لتتمكن من التثبيت")
+            hint.setWordWrap(True)
+            hint.setStyleSheet(f"color: {c['muted']}; font-size: 11px; background: transparent; border: none;")
+            cl.addWidget(hint)
+        else:
+            row1 = QHBoxLayout(); row1.setSpacing(6)
+            if installed is False or installed is None:
+                can_install = has_bepinex_src
+                lbl = "✅  تثبيت BepInEx + XUnity" if is_xunity_mode else "✅  تثبيت المود الكامل"
+                inst_btn = QPushButton(lbl)
+                inst_btn.setFixedHeight(36)
+                inst_btn.setEnabled(can_install)
+                inst_btn.setCursor(QCursor(Qt.PointingHandCursor))
+                inst_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {c['green'] if can_install else c['border']};
+                        color: {'#fff' if can_install else c['muted']};
+                        border: none; border-radius: 8px;
+                        font-weight: bold; font-size: 12px; padding: 0 18px;
+                    }}
+                    QPushButton:hover {{ background: {'#2e7d32' if can_install else c['border']}; }}
+                """)
+                inst_btn.clicked.connect(
+                    lambda: self.bepinex_install_requested.emit(self._game_id, game_path)
+                )
+                row1.addWidget(inst_btn)
+
+            elif installed is True:
+                if is_xunity_mode:
+                    # Method 2: تحديث plugins + تصدير translations.txt + إلغاء
+                    row1.addWidget(_mini_btn(
+                        "🔄  تحديث الترجمات", "teal",
+                        lambda: self.bepinex_update_requested.emit(self._game_id, game_path)
+                    ))
+                    row1.addWidget(_mini_btn(
+                        "🔄  تحديث plugins", "blue",
+                        lambda: self.bepinex_install_requested.emit(self._game_id, game_path)
+                    ))
+                    row1.addWidget(_mini_btn(
+                        "🗑️  إلغاء التثبيت", "accent",
+                        lambda: self.bepinex_uninstall_requested.emit(self._game_id, game_path)
+                    ))
+                else:
+                    # Method 1: الأزرار الكاملة
+                    row1.addWidget(_mini_btn(
+                        "📥  استيراد الترجمات", "blue",
+                        lambda: self.bepinex_import_requested.emit(self._game_id, game_path)
+                    ))
+                    row1.addWidget(_mini_btn(
+                        "📁  استيراد من مجلد", "muted",
+                        lambda: self.bepinex_import_from_requested.emit(self._game_id, game_path, "")
+                    ))
+                    row1.addWidget(_mini_btn(
+                        "🔄  تحديث الترجمات", "teal",
+                        lambda: self.bepinex_update_requested.emit(self._game_id, game_path)
+                    ))
+                    row1.addWidget(_mini_btn(
+                        "🗑️  إلغاء التثبيت", "accent",
+                        lambda: self.bepinex_uninstall_requested.emit(self._game_id, game_path)
+                    ))
+
+            row1.addStretch()
+            cl.addLayout(row1)
+
+            # ── خادم الترجمة الفورية ──────────────────────────────────────────
+            if installed is True:
+                proxy   = self._proxy_server
+                p_run   = proxy is not None and proxy.is_running
+                p_this  = p_run and proxy.game_name == self._game_id
+                p_other = p_run and not p_this
+
+                row_srv = QHBoxLayout(); row_srv.setSpacing(8)
+
+                if p_this:
+                    srv_badge = QLabel("🟢  خادم الترجمة الفورية يعمل")
+                    srv_badge.setStyleSheet(
+                        f"color: {c['green']}; font-size: 11px;"
+                        " background: transparent; border: none; font-weight: bold;"
+                    )
+                    row_srv.addWidget(srv_badge)
+                    stop_btn = QPushButton("⏹  إيقاف الخادم")
+                    stop_btn.setFixedHeight(32)
+                    stop_btn.setCursor(QCursor(Qt.PointingHandCursor))
+                    stop_btn.setStyleSheet(f"""
+                        QPushButton {{
+                            background: transparent; color: {c['accent']};
+                            border: 1px solid {c['accent']}; border-radius: 7px;
+                            font-weight: bold; font-size: 11px; padding: 0 12px;
+                        }}
+                        QPushButton:hover {{ background: {c['accent']}; color: #fff; }}
+                    """)
+                    stop_btn.clicked.connect(
+                        lambda: self.proxy_server_toggle_requested.emit(self._game_id, cfg.get("name", self._game_id))
+                    )
+                    row_srv.addWidget(stop_btn)
+                else:
+                    if p_other:
+                        other_lbl = QLabel(f"⚠️  الخادم يعمل للعبة «{proxy.game_name}»")
+                        other_lbl.setStyleSheet(
+                            f"color: {c['yellow']}; font-size: 10px;"
+                            " background: transparent; border: none;"
+                        )
+                        row_srv.addWidget(other_lbl)
+                    lbl_start = "▶  تشغيل الخادم — شغّله قبل فتح اللعبة" if is_xunity_mode else "▶  تشغيل خادم الترجمة الفورية"
+                    start_btn = QPushButton(lbl_start)
+                    start_btn.setFixedHeight(32)
+                    start_btn.setCursor(QCursor(Qt.PointingHandCursor))
+                    start_btn.setStyleSheet(f"""
+                        QPushButton {{
+                            background: transparent; color: {c['green']};
+                            border: 1px solid {c['green']}; border-radius: 7px;
+                            font-weight: bold; font-size: 11px; padding: 0 12px;
+                        }}
+                        QPushButton:hover {{ background: {c['green']}; color: #fff; }}
+                    """)
+                    start_btn.clicked.connect(
+                        lambda: self.proxy_server_toggle_requested.emit(self._game_id, cfg.get("name", self._game_id))
+                    )
+                    row_srv.addWidget(start_btn)
+
+                row_srv.addStretch()
+                cl.addLayout(row_srv)
+
+            # ── صف أزرار الجمع (عند غياب ملفات المصدر) ──────────────────────
+            row2 = QHBoxLayout(); row2.setSpacing(6)
+            has_collect = False
+            if not has_bepinex_src and bepinex_in_game:
+                row2.addWidget(_mini_btn(
+                    "📦  جمع BepInEx من اللعبة", "muted",
+                    lambda: self.bepinex_collect_requested.emit(self._game_id, game_path)
+                ))
+                has_collect = True
+            if not has_bepinex_src:
+                row2.addWidget(_mini_btn(
+                    "📁  جمع من مجلد آخر", "muted",
+                    lambda: self.bepinex_collect_from_requested.emit(self._game_id, game_path)
+                ))
+                has_collect = True
+            if dll_name and not dll_ok and installed is True:
+                row2.addWidget(_mini_btn(
+                    "📋  نسخ DLL للمشروع", "muted",
+                    lambda: self.bepinex_copy_dll_requested.emit(self._game_id, game_path)
+                ))
+                has_collect = True
+            if has_collect:
+                row2.addStretch()
+                cl.addLayout(row2)
+
+        lay.addWidget(card)
 
     def _render_package_card(self, lay, cfg: dict):
         """بطاقة تحميل/تثبيت/إلغاء الترجمة."""
@@ -618,18 +1004,215 @@ class GameDetailPanel(QFrame):
         return f
 
 
+# ── Log panel ─────────────────────────────────────────────────────────────────
+
+class LogPanel(QWidget):
+    """لوح سجل الترجمة والبروكسي — قابل للتمدد عبر QSplitter."""
+
+    log_message = Signal(str)   # thread-safe: يُستدعى من خيط البروكسي
+    stats_signal = Signal(dict) # thread-safe: لتحديث عدّاد الإحصاءات
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        c = theme.c
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 6, 10, 8)
+        lay.setSpacing(4)
+
+        # Header
+        hdr = QHBoxLayout()
+        title = QLabel("📋  سجل الترجمة والبروكسي")
+        title.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {c['muted']};"
+            " background: transparent; border: none;"
+        )
+        clear_btn = QPushButton("مسح")
+        clear_btn.setFixedSize(48, 22)
+        clear_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        clear_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {c['muted']};"
+            f" border: 1px solid {c['border']}; border-radius: 4px; font-size: 10px; }}"
+            f"QPushButton:hover {{ color: {c['primary']}; border-color: {c['primary']}; }}"
+        )
+        hdr.addWidget(title)
+        hdr.addStretch()
+        hdr.addWidget(clear_btn)
+        lay.addLayout(hdr)
+
+        # شريط إحصاءات الترجمة الفورية — يُظهر العدّ والمعدل قبل الـ log
+        self._stats_bar = QFrame()
+        self._stats_bar.setStyleSheet(
+            f"QFrame {{ background: {c['card']}; border: 1px solid {c['border']};"
+            f"          border-radius: 6px; padding: 4px 8px; }}"
+            f"QLabel  {{ background: transparent; border: none; font-size: 11px; }}"
+        )
+        sb_lay = QHBoxLayout(self._stats_bar)
+        sb_lay.setContentsMargins(8, 2, 8, 2)
+        sb_lay.setSpacing(14)
+
+        self._pending_lbl = QLabel("⏳  في الانتظار: 0")
+        self._pending_lbl.setStyleSheet(f"color: {c['accent']};")
+        self._rate_lbl    = QLabel("⚡  المعدل: 0/ث")
+        self._rate_lbl.setStyleSheet(f"color: {c['primary']};")
+        self._engine_lbl  = QLabel("🔄  مترجَم: 0")
+        self._engine_lbl.setStyleSheet(f"color: {c['secondary']};")
+        self._cache_lbl   = QLabel("📦  من الكاش: 0")
+        self._cache_lbl.setStyleSheet(f"color: {c['secondary']};")
+        self._unchanged_lbl = QLabel("⏭  بلا تغيير: 0")
+        self._unchanged_lbl.setStyleSheet(f"color: {c['muted']};")
+        self._unchanged_lbl.setToolTip(
+            "نصوص أعادها الـ AI كما هي (أسماء أعلام، أرقام، اختصارات).\n"
+            "تُحفظ تلقائياً لتجنّب استدعاء الـ AI لها مرة أخرى."
+        )
+
+        sb_lay.addWidget(self._pending_lbl)
+        sb_lay.addWidget(self._rate_lbl)
+        sb_lay.addWidget(self._engine_lbl)
+        sb_lay.addWidget(self._cache_lbl)
+        sb_lay.addWidget(self._unchanged_lbl)
+        sb_lay.addStretch()
+        lay.addWidget(self._stats_bar)
+
+        # شريط ضوابط الترجمة — يُطبَّق فوراً (بدون إعادة تشغيل الخادم)
+        self._ctrl_bar = QFrame()
+        self._ctrl_bar.setStyleSheet(
+            f"QFrame    {{ background: {c['card']}; border: 1px solid {c['border']};"
+            f"             border-radius: 6px; padding: 4px 8px; }}"
+            f"QLabel    {{ background: transparent; border: none; font-size: 11px;"
+            f"             color: {c['secondary']}; }}"
+            f"QCheckBox {{ background: transparent; border: none; font-size: 11px;"
+            f"             color: {c['secondary']}; }}"
+            f"QSpinBox  {{ background: {c['bg']}; color: {c['secondary']};"
+            f"             border: 1px solid {c['border']}; border-radius: 4px;"
+            f"             padding: 2px 4px; font-size: 11px; max-width: 70px; }}"
+        )
+        cb_lay = QHBoxLayout(self._ctrl_bar)
+        cb_lay.setContentsMargins(8, 2, 8, 2)
+        cb_lay.setSpacing(14)
+
+        self._strip_tags_cb = QCheckBox("🏷  جرّد التاقات قبل إرسالها للـ AI")
+        self._strip_tags_cb.setToolTip(
+            "عند التفعيل: تُحذف <b>, <color>, <size> ... قبل إرسال النص للـ AI "
+            "ثم تُعاد لموضعها بعد الترجمة.\n"
+            "مفيد إذا كان الـ AI يفشل أو يُعيد نصاً بدون ترجمة بسبب التاقات.\n"
+            "الجانب السلبي: المودل يفقد سياق الجملة الكامل (قد تقل جودة الترجمة)."
+        )
+        self._strip_tags_cb.stateChanged.connect(self._on_strip_tags_changed)
+
+        timeout_lbl = QLabel("⏱  مهلة الـ AI (ث):")
+        self._timeout_spin = QSpinBox()
+        self._timeout_spin.setRange(10, 600)
+        self._timeout_spin.setValue(60)
+        self._timeout_spin.setSingleStep(10)
+        self._timeout_spin.setToolTip(
+            "المهلة بالثواني قبل اعتبار الترجمة فاشلة.\n"
+            "زِدها إذا كان النموذج بطيئاً (نموذج كبير، CPU، الخ).\n"
+            "تُطبَّق فوراً على الطلبات الجديدة."
+        )
+        self._timeout_spin.valueChanged.connect(self._on_timeout_changed)
+
+        cb_lay.addWidget(self._strip_tags_cb)
+        cb_lay.addStretch()
+        cb_lay.addWidget(timeout_lbl)
+        cb_lay.addWidget(self._timeout_spin)
+        lay.addWidget(self._ctrl_bar)
+
+        self._txt = QPlainTextEdit()
+        self._txt.setReadOnly(True)
+        self._txt.setMaximumBlockCount(600)
+        self._txt.setStyleSheet(
+            f"QPlainTextEdit {{"
+            f"  background: {c['card']}; color: {c['secondary']};"
+            f"  border: 1px solid {c['border']}; border-radius: 6px;"
+            f"  font-family: 'Consolas', 'Courier New', monospace; font-size: 10px;"
+            f"  padding: 6px;"
+            f"}}"
+        )
+        lay.addWidget(self._txt)
+
+        self.setStyleSheet(
+            f"LogPanel {{ background: {c['surface']};"
+            f" border-top: 1px solid {c['border']}; }}"
+        )
+
+        clear_btn.clicked.connect(self._txt.clear)
+        self.log_message.connect(self._append)
+        self.stats_signal.connect(self._on_stats)
+
+        # مؤقّت يُحدّث المعدل كل نصف ثانية حتى لو لم تصل ترجمات جديدة
+        self._proxy_ref = None
+        self._stats_timer = QTimer(self)
+        self._stats_timer.setInterval(500)
+        self._stats_timer.timeout.connect(self._poll_stats)
+        self._stats_timer.start()
+
+    def _append(self, msg: str):
+        self._txt.appendPlainText(msg)
+        sb = self._txt.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def append(self, msg: str):
+        """واجهة عامة — آمنة من أي خيط (تستخدم Signal داخلياً)."""
+        self.log_message.emit(msg)
+
+    def attach_proxy(self, proxy):
+        """يربط البروكسي لتحديث الإحصاءات وعرض الإعدادات الحالية."""
+        self._proxy_ref = proxy
+        if proxy:
+            proxy.stats_callback = self.stats_signal.emit
+            self._on_stats(proxy.get_stats())
+            # زامن الواجهة مع حالة البروكسي الحالية
+            self._strip_tags_cb.blockSignals(True)
+            self._strip_tags_cb.setChecked(getattr(proxy, "_strip_tags", False))
+            self._strip_tags_cb.blockSignals(False)
+            self._timeout_spin.blockSignals(True)
+            self._timeout_spin.setValue(int(proxy.get_timeout()))
+            self._timeout_spin.blockSignals(False)
+        else:
+            self._on_stats({"pending": 0, "engine_count": 0, "cache_count": 0, "rate_per_sec": 0})
+
+    def _poll_stats(self):
+        if self._proxy_ref and self._proxy_ref.is_running:
+            self._on_stats(self._proxy_ref.get_stats())
+
+    def _on_strip_tags_changed(self, state: int):
+        if not self._proxy_ref:
+            return
+        try:
+            self._proxy_ref.set_strip_tags(state == Qt.Checked.value if hasattr(Qt.Checked, "value") else bool(state))
+        except Exception:
+            pass
+
+    def _on_timeout_changed(self, value: int):
+        if not self._proxy_ref:
+            return
+        try:
+            self._proxy_ref.set_timeout(float(value))
+        except Exception:
+            pass
+
+    def _on_stats(self, s: dict):
+        self._pending_lbl.setText(f"⏳  في الانتظار: {s.get('pending', 0)}")
+        self._rate_lbl.setText(f"⚡  المعدل: {s.get('rate_per_sec', 0)}/ث")
+        self._engine_lbl.setText(f"🔄  مترجَم: {s.get('engine_count', 0)}")
+        self._cache_lbl.setText(f"📦  من الكاش: {s.get('cache_count', 0)}")
+        self._unchanged_lbl.setText(f"⏭  بلا تغيير: {s.get('unchanged_count', 0)}")
+
+
 # ── Games page ────────────────────────────────────────────────────────────────
 
 class GamesPage(QWidget):
     """صفحة إدارة الألعاب — قائمة يسار + تفاصيل يمين."""
 
     status_message = Signal(str)
+    games_changed  = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._engine       = None
         self._cache        = None
         self._game_manager = None
+        self._proxy_server = None
         self._items: dict[str, GameListItem] = {}
         self._selected_id: str | None = None
         self._build()
@@ -652,6 +1235,7 @@ class GamesPage(QWidget):
         # Left: game list
         left = QFrame()
         left.setFixedWidth(300)
+        self._left_panel = left
         left.setStyleSheet(
             f"QFrame {{ background: {c['card']}; border-right: 1px solid {c['border']}; }}"
         )
@@ -675,9 +1259,11 @@ class GamesPage(QWidget):
         self._scroll.setWidget(self._list_widget)
         left_lay.addWidget(self._scroll)
 
-        # Right: detail panel
+        # Right: detail panel + log (vertical splitter)
         right = QWidget()
+        self._right_panel = right
         right.setStyleSheet(f"background: {c['bg']};")
+
         self._detail = GameDetailPanel(right)
         self._detail.setStyleSheet(f"background: transparent;")
         self._detail.edit_requested.connect(self._on_edit)
@@ -688,12 +1274,36 @@ class GamesPage(QWidget):
         self._detail.uninstall_requested.connect(self._on_uninstall)
         self._detail.download_requested.connect(self._on_download)
         self._detail.check_registry_requested.connect(self.retry_registry)
+        self._detail.locres_requested.connect(self._on_locres_translate)
+        self._detail.font_requested.connect(self._on_font_replace)
+        self._detail.bepinex_install_requested.connect(self._on_bepinex_install)
+        self._detail.bepinex_uninstall_requested.connect(self._on_bepinex_uninstall)
+        self._detail.bepinex_update_requested.connect(self._on_bepinex_update)
+        self._detail.bepinex_import_requested.connect(self._on_bepinex_import)
+        self._detail.bepinex_import_from_requested.connect(self._on_bepinex_import_from)
+        self._detail.bepinex_copy_dll_requested.connect(self._on_bepinex_copy_dll)
+        self._detail.bepinex_collect_requested.connect(self._on_bepinex_collect)
+        self._detail.bepinex_collect_from_requested.connect(self._on_bepinex_collect_from)
+        self._detail.proxy_server_toggle_requested.connect(self._on_proxy_server_toggle)
         self._dl_worker: DownloadWorker | None = None
+
+        self._log_panel = LogPanel()
+
+        right_splitter = QSplitter(Qt.Vertical)
+        right_splitter.setChildrenCollapsible(False)
+        right_splitter.setHandleWidth(6)
+        right_splitter.setStyleSheet(
+            "QSplitter::handle { background: " + c['border'] + "; }"
+            "QSplitter::handle:hover { background: " + c['primary'] + "; }"
+        )
+        right_splitter.addWidget(self._detail)
+        right_splitter.addWidget(self._log_panel)
+        right_splitter.setSizes([600, 160])
 
         right_lay = QVBoxLayout(right)
         right_lay.setContentsMargins(0, 0, 0, 0)
         right_lay.setSpacing(0)
-        right_lay.addWidget(self._detail)
+        right_lay.addWidget(right_splitter)
 
         body.addWidget(left)
         body.addWidget(right, 1)
@@ -733,6 +1343,13 @@ class GamesPage(QWidget):
         self._game_manager = game_manager
         self.refresh()
 
+    def set_proxy_server(self, proxy):
+        self._proxy_server = proxy
+        self._detail.set_proxy_server(proxy)
+        if proxy:
+            proxy.log_callback = self._log_panel.log_message.emit
+        self._log_panel.attach_proxy(proxy)
+
     def set_registry(self, registry_info: dict):
         """Pass {game_id: translation_info} from TranslationRegistry to detail panel."""
         self._detail._registry_info   = registry_info
@@ -756,6 +1373,14 @@ class GamesPage(QWidget):
         else:
             msg = f"❌  {error}" if error else "❌  تعذّر الاتصال"
             self.status_message.emit(msg)
+
+    def refresh_theme(self):
+        c = theme.c
+        self._left_panel.setStyleSheet(
+            f"QFrame {{ background: {c['card']}; border-right: 1px solid {c['border']}; }}"
+        )
+        self._right_panel.setStyleSheet(f"background: {c['bg']};")
+        self.refresh()
 
     # ── Refresh list ──────────────────────────────────────────────────────────
 
@@ -796,6 +1421,22 @@ class GamesPage(QWidget):
             self._select_game(prev_selected)
         elif games:
             self._select_game(next(iter(games)))
+
+    def refresh_game(self, game_id: str):
+        """تحديث لوحة التفاصيل للعبة محددة بعد حفظ الإعدادات من لوحة الإدارة."""
+        if not self._game_manager:
+            return
+        try:
+            cfg = self._game_manager.get_game(game_id) or {}
+        except Exception:
+            return
+        # Deactivate old selection
+        if self._selected_id and self._selected_id != game_id and self._selected_id in self._items:
+            self._items[self._selected_id].set_active(False)
+        self._selected_id = game_id
+        if game_id in self._items:
+            self._items[game_id].set_active(True)
+        self._detail.load(game_id, cfg, self._cache)
 
     def _select_game(self, game_id: str):
         # Deactivate previous
@@ -848,6 +1489,7 @@ class GamesPage(QWidget):
             self._game_manager.delete_game(game_id)
         self.status_message.emit(f"✓  تم حذف: {name}")
         self.refresh()
+        self.games_changed.emit()
 
     def _on_translate(self, game_id: str):
         if not self._engine:
@@ -971,6 +1613,211 @@ class GamesPage(QWidget):
         self._dl_worker.start()
         self.status_message.emit(f"⬇️  بدء تحميل ترجمة {game_id}…")
 
+    def _on_bepinex_install(self, game_id: str, game_path: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, log = BepInExMod().install(cfg, game_path, self._cache)
+        msg = "\n".join(log)
+        if ok:
+            warnings = [l for l in log if l.startswith("⚠")]
+            if warnings:
+                self.status_message.emit(f"⚠  مود BepInEx مُثبَّت مع تحذيرات: {game_id}")
+            else:
+                self.status_message.emit(f"✅  مود BepInEx مُثبَّت: {game_id}")
+            QMessageBox.information(self, "✅  تثبيت ناجح", f"تم تثبيت المود:\n\n{msg}")
+        else:
+            QMessageBox.critical(self, "❌  فشل التثبيت", msg)
+        self.refresh()
+
+    def _on_bepinex_uninstall(self, game_id: str, game_path: str):
+        reply = QMessageBox.question(
+            self, "تأكيد الإلغاء",
+            "هل تريد إزالة مود BepInEx وملف الترجمات من مجلد اللعبة؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, log = BepInExMod().uninstall(cfg, game_path)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(f"🗑  تم إلغاء مود BepInEx: {game_id}")
+            QMessageBox.information(self, "تم الإلغاء", f"تم إلغاء التثبيت:\n\n{msg}")
+        else:
+            QMessageBox.warning(self, "خطأ في الإلغاء", msg)
+        self.refresh()
+
+    def _on_bepinex_update(self, game_id: str, game_path: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, log = BepInExMod().update_translations(cfg, game_path, self._cache)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(log[0] if log else "✅  تم تحديث الترجمات")
+            QMessageBox.information(self, "✅  تم التحديث", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في التحديث", msg)
+        self.refresh()
+
+    def _on_bepinex_import(self, game_id: str, game_path: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, msg, count = BepInExMod().import_translations_from_game(cfg, game_path, self._cache)
+        if ok:
+            self.status_message.emit(f"📥  {msg}")
+            QMessageBox.information(self, "✅  استيراد ناجح", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في الاستيراد", msg)
+        self.refresh()
+
+    def _on_bepinex_import_from(self, game_id: str, game_path: str, _src: str):
+        from PySide6.QtWidgets import QFileDialog
+        src = QFileDialog.getExistingDirectory(
+            self, "اختر مجلد اللعبة التي تحتوي على ترجمات جاهزة",
+            "C:/Program Files (x86)/Steam/steamapps/common"
+        )
+        if not src:
+            return
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, msg, count = BepInExMod().import_translations_from_game(
+            cfg, game_path, self._cache, source_path=src
+        )
+        if ok:
+            self.status_message.emit(f"📥  {msg}")
+            reply = QMessageBox.question(
+                self, "✅  استيراد ناجح",
+                f"{msg}\n\nهل تريد تحديث ملف الترجمات في اللعبة الآن؟",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                ok2, log = BepInExMod().update_translations(cfg, game_path, self._cache)
+                if ok2:
+                    self.status_message.emit(log[0] if log else "✅ تم تحديث الترجمات")
+        else:
+            QMessageBox.warning(self, "خطأ في الاستيراد", msg)
+        self.refresh()
+
+    def _on_bepinex_copy_dll(self, game_id: str, game_path: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, msg = BepInExMod().copy_dll_from_game(cfg, game_path)
+        if ok:
+            self.status_message.emit(f"📋  {msg}")
+            QMessageBox.information(self, "✅  تم النسخ", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في النسخ", msg)
+        self.refresh()
+
+    def _on_bepinex_collect(self, game_id: str, game_path: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, msg = BepInExMod().collect_bepinex_from_game(cfg, game_path)
+        if ok:
+            self.status_message.emit("📦  تم جمع ملفات BepInEx")
+            QMessageBox.information(self, "✅  تم الجمع", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في الجمع", msg)
+        self.refresh()
+
+    def _on_bepinex_collect_from(self, game_id: str, _game_path: str):
+        from PySide6.QtWidgets import QFileDialog
+        src = QFileDialog.getExistingDirectory(
+            self, "اختر مجلد اللعبة التي تحتوي على BepInEx",
+            "C:/Program Files (x86)/Steam/steamapps/common"
+        )
+        if not src:
+            return
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.bepinex_mod import BepInExMod
+        ok, msg = BepInExMod().collect_bepinex_from_game(cfg, cfg.get("game_path",""), source_path=src)
+        if ok:
+            self.status_message.emit("📦  تم جمع ملفات BepInEx")
+            QMessageBox.information(self, "✅  تم الجمع", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في الجمع", msg)
+        self.refresh()
+
+    def _on_proxy_server_toggle(self, game_id: str, game_name: str):
+        proxy = self._proxy_server
+        if proxy is None:
+            self.status_message.emit("❌  خادم الترجمة غير متاح — أعد تشغيل التطبيق")
+            return
+
+        if proxy.is_running and proxy.game_name == game_id:
+            msg = proxy.stop()
+            self.status_message.emit(msg)
+            # توليد translations.txt تلقائياً بعد إيقاف الـ proxy
+            self._auto_export_translations(game_id)
+        else:
+            game_cfg = self._game_manager.get_game(game_id) if self._game_manager else {}
+            ok, msg  = proxy.start(game_id, cfg=game_cfg or {})
+            self.status_message.emit(msg)
+            if not ok:
+                QMessageBox.warning(self, "خطأ في الخادم", msg)
+
+        # تحديث البطاقة لتعكس الحالة الجديدة
+        if self._detail._game_id == game_id:
+            self._detail.load(game_id, self._detail._game_cfg)
+
+    def _auto_export_translations(self, game_id: str):
+        """يُولِّد translations.txt من الكاش بعد جلسة الترجمة — صامت، لا يُظهر رسائل خطأ."""
+        try:
+            if not self._game_manager or not self._cache:
+                return
+            cfg = self._game_manager.get_game(game_id) or {}
+            if "bepinex_mod" not in cfg:
+                return
+            game_path = cfg.get("game_path", "")
+            if not game_path or not os.path.isdir(game_path):
+                return
+            from games.bepinex_mod import BepInExMod
+            ok, msg, count = BepInExMod().export_static_translations_txt(cfg, game_path, self._cache)
+            if ok and count:
+                self.status_message.emit(f"📝  تم تحديث translations.txt  ({count:,} ترجمة)")
+        except Exception as e:
+            print(f"[auto_export] {e}")
+
+
     def _after_save(self, game_id: str, cfg: dict):
         self.status_message.emit(f"✓  تم حفظ: {cfg.get('name', game_id)}")
         self.refresh()
+        self.games_changed.emit()
+
+    def _on_font_replace(self, game_id: str, game_path: str):
+        cfg       = self._game_manager.get_game(game_id) if self._game_manager else {}
+        game_name = (cfg or {}).get("name", game_id)
+        from gui.qt.dialogs.font_wizard import FontWizard
+        win = FontWizard(game_name=game_name, game_path=game_path, parent=self)
+        win.done.connect(
+            lambda n: self.status_message.emit(
+                f"🔤  تم استبدال {n} ملف خط في: {game_name}"
+            )
+        )
+        self._font_win = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _on_locres_translate(self, game_id: str, folder: str):
+        cfg       = self._game_manager.get_game(game_id) if self._game_manager else {}
+        game_name = (cfg or {}).get("name", game_id)
+        from gui.qt.dialogs.locres_wizard import LocresWizard
+        win = LocresWizard(
+            folder=folder,
+            engine=self._engine,
+            cache=self._cache,
+            game_id=game_id,
+            game_name=game_name,
+            parent=self,
+        )
+        win.done.connect(
+            lambda rep, tot: self.status_message.emit(
+                f"✅  .locres: تمت ترجمة {rep:,} من أصل {tot:,} نص"
+            )
+        )
+        self._locres_win = win
+        win.show()
+        win.raise_()
+        win.activateWindow()

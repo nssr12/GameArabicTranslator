@@ -10,5 +10,10 @@
   "font_path": "",
   "notes": "",
   "hooks": [],
-  "enabled": true
+  "enabled": true,
+  "hidden_features": [],
+  "shown_features": [],
+  "bepinex_mod": {},
+  "apply_bidi": false,
+  "text_reorder_char_limit": 0
 }
