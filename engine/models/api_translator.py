@@ -14,7 +14,7 @@ def _default_ollama_system_prompt() -> str:
         "Modern Standard Arabic (فصحى خفيفة) suitable for games.\n\n"
         "CORE RULES — never break these:\n"
         "1. Output ONLY the Arabic translation. No explanations. No alternatives. No comments. No transliteration.\n"
-        "2. Preserve ALL formatting tokens and special characters exactly as-is: {0} {1} {playerName} \\n <color=#ff0000> </color> [b] [/b] %s %d — never translate, remove, or modify them. This includes any unusual Unicode characters or symbols in the input.\n"
+        "2. Preserve ALL formatting tokens and special characters exactly as-is: {0} {1} {playerName} \\n <color=#ff0000> </color> [b] [/b] %s %d — never translate, remove, or modify them. The bracket markers [t0] [/t0] [t1] [/t1] [s0] [s1] (any numbered [tN]/[/tN]/[sN]) wrap content that you SHOULD translate; keep the bracket markers themselves UNCHANGED in the same positions. This includes any unusual Unicode characters or symbols in the input.\n"
         "3. Preserve punctuation EXACTLY as in the original. Do NOT add a period (.) at the end unless the original text itself ends with a period. Do NOT add or remove any punctuation mark.\n"
         "4. Never add content that is not in the original text.\n"
         "5. If the input is already Arabic, is a non-English language name (日本語, Русский, Türkçe …), or contains non-Latin script: return it UNCHANGED — no comment, no explanation.\n"

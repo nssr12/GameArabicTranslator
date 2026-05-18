@@ -9,6 +9,8 @@ import urllib.parse
 import threading
 from collections import deque
 
+from .tag_filter import TieredTagFilter
+
 
 def _needs_translation(text: str) -> bool:
     """يعيد False للأرقام والرموز والنصوص غير القابلة للترجمة."""
@@ -179,7 +181,9 @@ class ProxyServer:
         self._game_name    = ""
         self._apply_bidi   = True   # False for games with built-in RTL mod (BepInEx)
         self._char_limit   = 0      # >0 → pre-wrap at this char count before bidi
-        self._strip_tags   = False  # True → احذف تاقات HTML قبل إرسالها للـ AI، ثم أعدها
+        self._strip_tags   = False  # ⚠ deprecated — يُحوَّل لـ tag_mode='strip' لو True
+        self._tag_mode     = "inline"  # "inline" | "strip" | "tiered"
+        self._tiered_filter = TieredTagFilter()
         self._timeout      = 0      # >0 → سيُطبَّق على المحرّك عند start()
         self._server: http.server.HTTPServer | None = None
         self._thread: threading.Thread | None       = None
@@ -208,8 +212,20 @@ class ProxyServer:
         self._cache  = cache
 
     def set_strip_tags(self, value: bool):
-        """تبديل وضع تجريد التاقات قبل الإرسال للـ AI أثناء التشغيل."""
+        """⚠ Deprecated: استخدم set_tag_mode بدلاً منها.
+        يُحافظ على التوافق: True → 'strip'، False → 'inline'."""
         self._strip_tags = bool(value)
+        self._tag_mode = "strip" if value else "inline"
+
+    def set_tag_mode(self, mode: str):
+        """تبديل وضع معالجة التاقات. القيم: 'inline' | 'strip' | 'tiered'."""
+        if mode not in ("inline", "strip", "tiered"):
+            mode = "inline"
+        self._tag_mode = mode
+        self._strip_tags = (mode == "strip")  # توافق رجعي
+
+    def get_tag_mode(self) -> str:
+        return self._tag_mode
 
     def set_timeout(self, seconds: float):
         """تغيير مهلة المحرّك أثناء التشغيل."""
@@ -235,7 +251,12 @@ class ProxyServer:
         _cfg = cfg or {}
         self._apply_bidi  = _cfg.get("apply_bidi", True)
         self._char_limit  = int(_cfg.get("text_reorder_char_limit", 0))
-        self._strip_tags  = bool(_cfg.get("strip_tags_before_translate", False))
+        # tag_mode: المفضّل. strip_tags_before_translate: قديم — للتوافق
+        tag_mode_cfg = _cfg.get("tag_mode")
+        if tag_mode_cfg in ("inline", "strip", "tiered"):
+            self.set_tag_mode(tag_mode_cfg)
+        else:
+            self.set_strip_tags(bool(_cfg.get("strip_tags_before_translate", False)))
         self._timeout     = float(_cfg.get("translate_timeout", 0) or 0)
         # طبّق المهلة على المحرّك إن أمكن
         if self._timeout > 0 and self._engine is not None:
@@ -355,6 +376,28 @@ class ProxyServer:
             translated = translated.replace(chr(0xE000 + idx), tag)
         return translated
 
+    def _translate_with_tiered_tags(self, text: str):
+        """ترجمة بنظام Tiered: تاقات بسيطة inline، معقدة بـ [tN]، مستقلة بـ [sN].
+        يُعيد None إذا تلف أحد markers في رد المودل (نُسجّل فشلاً للمحاولة لاحقاً)."""
+        cleaned, tokens = self._tiered_filter.strip(text)
+        if not tokens:
+            # لا توجد تاقات معقدة → ترجمة عادية
+            return self._engine.translate(text)
+        translated = self._engine.translate(cleaned)
+        if not translated:
+            return None
+        restored = self._tiered_filter.restore(translated, tokens)
+        if restored is None:
+            # المودل أتلف markers — نُسجّل سبب فشل واضح
+            try:
+                self._engine._last_error = (
+                    "تلف markers Tiered Tag في رد المودل — جرّب وضع inline أو strip"
+                )
+            except Exception:
+                pass
+            return None
+        return restored
+
     def _translate(self, text: str) -> tuple[str | None, bool, bool]:
         """Cache-first translation. Returns (result, from_cache, was_unchanged).
         - from_cache=True   → ترجمة فعلية مسترجَعة من الكاش
@@ -373,7 +416,9 @@ class ProxyServer:
 
         result = None
         if self._engine:
-            if self._strip_tags:
+            if self._tag_mode == "tiered":
+                result = self._translate_with_tiered_tags(text)
+            elif self._tag_mode == "strip" or self._strip_tags:
                 result = self._translate_with_tag_stripping(text)
             else:
                 result = self._engine.translate(text)

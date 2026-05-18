@@ -15,5 +15,7 @@
   "shown_features": [],
   "bepinex_mod": {},
   "apply_bidi": false,
-  "text_reorder_char_limit": 0
+  "text_reorder_char_limit": 0,
+  "tag_mode": "tiered",
+  "translate_timeout": 60
 }

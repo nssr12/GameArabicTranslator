@@ -8,7 +8,7 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QScrollArea, QSizePolicy, QMessageBox, QSpacerItem, QProgressBar,
-    QSplitter, QPlainTextEdit, QCheckBox, QSpinBox,
+    QSplitter, QPlainTextEdit, QCheckBox, QSpinBox, QComboBox,
 )
 from PySide6.QtCore  import Qt, Signal, QThread, QTimer
 from PySide6.QtGui   import QCursor, QFont
@@ -1090,14 +1090,23 @@ class LogPanel(QWidget):
         cb_lay.setContentsMargins(8, 2, 8, 2)
         cb_lay.setSpacing(14)
 
-        self._strip_tags_cb = QCheckBox("🏷  جرّد التاقات قبل إرسالها للـ AI")
-        self._strip_tags_cb.setToolTip(
-            "عند التفعيل: تُحذف <b>, <color>, <size> ... قبل إرسال النص للـ AI "
-            "ثم تُعاد لموضعها بعد الترجمة.\n"
-            "مفيد إذا كان الـ AI يفشل أو يُعيد نصاً بدون ترجمة بسبب التاقات.\n"
-            "الجانب السلبي: المودل يفقد سياق الجملة الكامل (قد تقل جودة الترجمة)."
+        tag_lbl = QLabel("🏷  معالجة التاقات:")
+        self._tag_mode_combo = QComboBox()
+        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص (الافتراضي)", "inline")
+        self._tag_mode_combo.addItem("🔒 Strip — تجريد كامل بـ PUA (للنماذج الصغيرة)", "strip")
+        self._tag_mode_combo.addItem("🎯 Tiered — متدرّج (موصى به)", "tiered")
+        self._tag_mode_combo.setToolTip(
+            "Inline: تُترك التاقات داخل النص للمودل (سياق كامل، لكن قد يفشل مع تاقات معقدة).\n"
+            "Strip: كل التاقات تُستبدل بمحارف PUA — قد يحذفها بعض المودلات.\n"
+            "Tiered: <b>/<i> تبقى inline، <color>/<size>/<sprite> تُستبدل بـ [tN]/[sN] (أحرف عادية يصعب تحريفها)."
         )
-        self._strip_tags_cb.stateChanged.connect(self._on_strip_tags_changed)
+        self._tag_mode_combo.currentIndexChanged.connect(self._on_tag_mode_changed)
+        # نسق ColorBox مع الـ theme
+        self._tag_mode_combo.setStyleSheet(
+            f"QComboBox {{ background: {c['bg']}; color: {c['secondary']};"
+            f"             border: 1px solid {c['border']}; border-radius: 4px;"
+            f"             padding: 2px 4px; font-size: 11px; min-width: 220px; }}"
+        )
 
         timeout_lbl = QLabel("⏱  مهلة الـ AI (ث):")
         self._timeout_spin = QSpinBox()
@@ -1111,7 +1120,8 @@ class LogPanel(QWidget):
         )
         self._timeout_spin.valueChanged.connect(self._on_timeout_changed)
 
-        cb_lay.addWidget(self._strip_tags_cb)
+        cb_lay.addWidget(tag_lbl)
+        cb_lay.addWidget(self._tag_mode_combo)
         cb_lay.addStretch()
         cb_lay.addWidget(timeout_lbl)
         cb_lay.addWidget(self._timeout_spin)
@@ -1161,10 +1171,13 @@ class LogPanel(QWidget):
         if proxy:
             proxy.stats_callback = self.stats_signal.emit
             self._on_stats(proxy.get_stats())
-            # زامن الواجهة مع حالة البروكسي الحالية
-            self._strip_tags_cb.blockSignals(True)
-            self._strip_tags_cb.setChecked(getattr(proxy, "_strip_tags", False))
-            self._strip_tags_cb.blockSignals(False)
+            # زامن واجهة tag_mode مع البروكسي
+            current = proxy.get_tag_mode() if hasattr(proxy, "get_tag_mode") else "inline"
+            idx = self._tag_mode_combo.findData(current)
+            if idx >= 0:
+                self._tag_mode_combo.blockSignals(True)
+                self._tag_mode_combo.setCurrentIndex(idx)
+                self._tag_mode_combo.blockSignals(False)
             self._timeout_spin.blockSignals(True)
             self._timeout_spin.setValue(int(proxy.get_timeout()))
             self._timeout_spin.blockSignals(False)
@@ -1175,11 +1188,12 @@ class LogPanel(QWidget):
         if self._proxy_ref and self._proxy_ref.is_running:
             self._on_stats(self._proxy_ref.get_stats())
 
-    def _on_strip_tags_changed(self, state: int):
+    def _on_tag_mode_changed(self, index: int):
         if not self._proxy_ref:
             return
+        mode = self._tag_mode_combo.itemData(index) or "inline"
         try:
-            self._proxy_ref.set_strip_tags(state == Qt.Checked.value if hasattr(Qt.Checked, "value") else bool(state))
+            self._proxy_ref.set_tag_mode(mode)
         except Exception:
             pass
 
