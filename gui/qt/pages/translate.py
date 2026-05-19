@@ -33,14 +33,16 @@ LANG_OPTIONS = [
 # ── Translation worker ────────────────────────────────────────────────────────
 
 class SingleTranslateWorker(QThread):
-    done = Signal(str, str, bool)   # result, model_key, success
+    done = Signal(str, str, bool, str)   # result, model_key, success, sent_to_engine
 
-    def __init__(self, text: str, engine, src_lang: str = "en", tgt_lang: str = "ar"):
+    def __init__(self, text: str, engine, src_lang: str = "en", tgt_lang: str = "ar",
+                 tag_mode: str = "inline"):
         super().__init__()
         self._text      = text
         self._engine    = engine
         self._src       = src_lang
         self._tgt       = tgt_lang
+        self._tag_mode  = tag_mode  # "inline" | "strip" | "tiered"
         self._cancelled = False
 
     def cancel(self):
@@ -55,26 +57,66 @@ class SingleTranslateWorker(QThread):
         except Exception:
             pass
 
+    def _apply_tag_filter(self):
+        """يطبّق فلتر التاقات حسب الوضع. يُرجع (نص_للمحرّك، callback_للاستعادة)."""
+        if self._tag_mode == "tiered":
+            from engine.tag_filter import TieredTagFilter
+            flt = TieredTagFilter()
+            cleaned, tokens = flt.strip(self._text)
+            if not tokens:
+                return self._text, lambda r: r
+            def restore(translated):
+                if not translated:
+                    return translated
+                r = flt.restore(translated, tokens)
+                return r if r is not None else translated  # fallback إذا تلف marker
+            return cleaned, restore
+
+        if self._tag_mode == "strip":
+            import re
+            HTML_RE = re.compile(r"</?[a-zA-Z][^<>]{0,120}>")
+            tags: list = []
+            def replace(m):
+                ph = chr(0xE000 + len(tags))
+                tags.append(m.group(0))
+                return ph
+            cleaned = HTML_RE.sub(replace, self._text)
+            def restore(translated):
+                if not translated:
+                    return translated
+                for idx, tag in enumerate(tags):
+                    translated = translated.replace(chr(0xE000 + idx), tag)
+                return translated
+            return cleaned, restore
+
+        # inline (default)
+        return self._text, lambda r: r
+
     def run(self):
         try:
+            cleaned_text, restore_fn = self._apply_tag_filter()
+
             result = self._engine.translate(
-                self._text,
+                cleaned_text,
                 source_lang=self._src,
                 target_lang=self._tgt,
             )
             if self._cancelled:
-                self.done.emit("", "", False)
+                self.done.emit("", "", False, "")
                 return
             model = self._engine.get_active_model() or ""
             if result:
-                self.done.emit(result, model, True)
+                restored = restore_fn(result)
+                self.done.emit(restored, model, True, cleaned_text)
             else:
-                self.done.emit("", model, False)
+                tr  = self._engine.get_translator(model) if model else None
+                err = getattr(tr, "_last_error", "") or "فشلت الترجمة"
+                self.done.emit(err, model, False, cleaned_text)
         except Exception as e:
             if self._cancelled:
-                self.done.emit("", "", False)
+                self.done.emit("", "", False, "")
             else:
-                self.done.emit(str(e), "", False)
+                self.done.emit(str(e), "", False, "")
 
 
 # ── History entry ─────────────────────────────────────────────────────────────
@@ -85,7 +127,8 @@ class HistoryEntry(QFrame):
     copy_requested = Signal(str)   # text to copy
 
     def __init__(self, original: str, translated: str,
-                 model: str, success: bool, parent=None):
+                 model: str, success: bool, tag_mode: str = "",
+                 sent_to_engine: str = "", parent=None):
         super().__init__(parent)
         c = theme.c
         self.setStyleSheet(f"""
@@ -99,7 +142,7 @@ class HistoryEntry(QFrame):
         lay.setContentsMargins(14, 10, 14, 10)
         lay.setSpacing(6)
 
-        # Top: original + model badge
+        # Top: original + tag mode badge + model badge
         top = QHBoxLayout()
         orig_lbl = QLabel(original if len(original) < 100 else original[:97] + "…")
         orig_lbl.setStyleSheet(
@@ -109,10 +152,22 @@ class HistoryEntry(QFrame):
         orig_lbl.setWordWrap(True)
         top.addWidget(orig_lbl, 1)
 
+        if tag_mode:
+            tag_badge = QLabel(tag_mode)
+            tag_badge.setStyleSheet(f"""
+                background: rgba(0,0,0,51);
+                color: {c['yellow']};
+                border: 1px solid {c['yellow']};
+                border-radius: 6px;
+                padding: 1px 7px;
+                font-size: 9px;
+            """)
+            top.addWidget(tag_badge)
+
         if model:
             model_badge = QLabel(model)
             model_badge.setStyleSheet(f"""
-                background: rgba(0,0,0,0.2);
+                background: rgba(0,0,0,51);
                 color: {c['blue']};
                 border: 1px solid {c['blue']};
                 border-radius: 6px;
@@ -122,6 +177,16 @@ class HistoryEntry(QFrame):
             top.addWidget(model_badge)
 
         lay.addLayout(top)
+
+        # أُرسِل للمحرّك (إذا اختلف عن الأصل بسبب الفلتر)
+        if sent_to_engine and sent_to_engine != original:
+            sent_lbl = QLabel(f"📤 للمحرّك: {sent_to_engine if len(sent_to_engine) < 120 else sent_to_engine[:117]+'…'}")
+            sent_lbl.setStyleSheet(
+                f"color: {c['teal']}; font-size: 10px; font-family: Consolas, monospace;"
+                " background: transparent; border: none;"
+            )
+            sent_lbl.setWordWrap(True)
+            lay.addWidget(sent_lbl)
 
         # Translation text
         if success and translated:
@@ -187,7 +252,40 @@ class TranslatePage(QWidget):
         lay.addWidget(self._build_main_area(), 1)
 
     def _build_topbar(self) -> QFrame:
+        c = theme.c
         bar, lay = make_topbar("🌐", "الترجمة الفورية")
+
+        # Tag mode selector — لاختبار الفلاتر قبل اللعبة
+        tag_lbl = QLabel("🏷  معالجة التاقات:")
+        tag_lbl.setStyleSheet(
+            f"color: {c['muted']}; font-size: 11px;"
+            " background: transparent; border: none;"
+        )
+        self._tag_mode_combo = QComboBox()
+        self._tag_mode_combo.setFixedHeight(30)
+        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص", "inline")
+        self._tag_mode_combo.addItem("🔒 Strip — تجريد PUA", "strip")
+        self._tag_mode_combo.addItem("🎯 Tiered — متدرّج", "tiered")
+        self._tag_mode_combo.setCurrentIndex(2)  # افتراضي Tiered
+        self._tag_mode_combo.setToolTip(
+            "اختر طريقة معالجة التاقات قبل إرسال النص للمودل:\n"
+            "Inline: النص الكامل مع التاقات الخام\n"
+            "Strip: كل التاقات → PUA chars (للنماذج الصغيرة)\n"
+            "Tiered: بسيطة inline، معقدة → [tN]/[sN]"
+        )
+        self._tag_mode_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {c['surface']}; color: {c['primary']};
+                border: 1px solid {c['border']}; border-radius: 6px;
+                padding: 2px 8px; min-width: 200px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {c['surface']}; color: {c['primary']};
+                selection-background-color: {c['accent']};
+            }}
+        """)
+        lay.addWidget(tag_lbl)
+        lay.addWidget(self._tag_mode_combo)
 
         clear_btn = QPushButton("🗑️  مسح السجل")
         clear_btn.setObjectName("btn_secondary")
@@ -201,7 +299,7 @@ class TranslatePage(QWidget):
     def _build_main_area(self) -> QWidget:
         c   = theme.c
         w   = QWidget()
-        w.setStyleSheet(f"background: {c['bg']};")
+        w.setObjectName("translate_main_area")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(16)
@@ -214,13 +312,7 @@ class TranslatePage(QWidget):
     def _build_translator_card(self) -> QFrame:
         c     = theme.c
         card  = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{
-                background: {c['card']};
-                border: 1px solid {c['border']};
-                border-radius: 12px;
-            }}
-        """)
+        card.setObjectName("translator_card")
         card_lay = QVBoxLayout(card)
         card_lay.setContentsMargins(20, 16, 20, 16)
         card_lay.setSpacing(12)
@@ -258,6 +350,7 @@ class TranslatePage(QWidget):
             return cb
 
         self._src_combo = _lang_combo()
+        theme.style_combo(self._src_combo)
         self._src_combo.setCurrentIndex(0)   # en
 
         swap_btn = QPushButton("⇄")
@@ -274,6 +367,7 @@ class TranslatePage(QWidget):
         swap_btn.clicked.connect(self._swap_langs)
 
         self._tgt_combo = _lang_combo()
+        theme.style_combo(self._tgt_combo)
         self._tgt_combo.setCurrentIndex(1)   # ar
 
         lang_row.addWidget(_lang_lbl("من:"))
@@ -286,7 +380,7 @@ class TranslatePage(QWidget):
         # Model indicator
         self._model_badge = QLabel("—")
         self._model_badge.setStyleSheet(f"""
-            background: rgba(0,0,0,0.2);
+            background: rgba(0,0,0,51);
             color: {c['blue']};
             border: 1px solid {c['blue']};
             border-radius: 6px;
@@ -305,13 +399,7 @@ class TranslatePage(QWidget):
 
         # Input
         in_frame = QFrame()
-        in_frame.setStyleSheet(f"""
-            QFrame {{
-                background: {c['surface']};
-                border: 1px solid {c['border']};
-                border-radius: 8px;
-            }}
-        """)
+        in_frame.setObjectName("input_panel")
         in_lay = QVBoxLayout(in_frame)
         in_lay.setContentsMargins(0, 0, 0, 0)
         in_lay.setSpacing(0)
@@ -319,7 +407,7 @@ class TranslatePage(QWidget):
         in_hdr = QLabel("النص الأصلي")
         in_hdr.setStyleSheet(
             f"color: {c['muted']}; font-size: 10px; padding: 8px 12px 4px 12px;"
-            " background: transparent; border: none; border-bottom: 1px solid {c['border']};"
+            f" background: transparent; border: none; border-bottom: 1px solid {c['border']};"
         )
         in_lay.addWidget(in_hdr)
 
@@ -360,13 +448,7 @@ class TranslatePage(QWidget):
 
         # Output
         out_frame = QFrame()
-        out_frame.setStyleSheet(f"""
-            QFrame {{
-                background: {c['surface']};
-                border: 1px solid {c['border']};
-                border-radius: 8px;
-            }}
-        """)
+        out_frame.setObjectName("output_panel")
         out_lay = QVBoxLayout(out_frame)
         out_lay.setContentsMargins(0, 0, 0, 0)
         out_lay.setSpacing(0)
@@ -395,9 +477,7 @@ class TranslatePage(QWidget):
         out_hdr.addWidget(self._copy_btn)
 
         out_hdr_frame = QFrame()
-        out_hdr_frame.setStyleSheet(
-            f"border-bottom: 1px solid {c['border']}; background: transparent;"
-        )
+        out_hdr_frame.setObjectName("output_header")
         out_hdr_frame.setLayout(out_hdr)
         out_lay.addWidget(out_hdr_frame)
 
@@ -476,7 +556,6 @@ class TranslatePage(QWidget):
     def _build_history_section(self) -> QWidget:
         c   = theme.c
         w   = QWidget()
-        w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
@@ -494,10 +573,10 @@ class TranslatePage(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet(f"background: transparent; border: none;")
+        scroll.setStyleSheet("QScrollArea { border: none; } QScrollArea > QWidget { background: transparent; }")
 
         self._history_widget = QWidget()
-        self._history_widget.setStyleSheet("background: transparent;")
+        self._history_widget.setObjectName("history_widget")
         self._history_lay = QVBoxLayout(self._history_widget)
         self._history_lay.setContentsMargins(0, 0, 0, 0)
         self._history_lay.setSpacing(8)
@@ -514,6 +593,25 @@ class TranslatePage(QWidget):
         scroll.setWidget(self._history_widget)
         lay.addWidget(scroll, 1)
         return w
+
+    def refresh_theme(self):
+        c = theme.c
+        self._input.setStyleSheet(f"""
+            QTextEdit {{
+                background: transparent; color: {c['primary']};
+                border: none; padding: 10px 12px; font-size: 13px;
+                selection-background-color: {c['accent']};
+            }}
+        """)
+        self._output.setStyleSheet(f"""
+            QTextEdit {{
+                background: transparent; color: {c['green']};
+                border: none; padding: 10px 12px; font-size: 13px;
+                selection-background-color: {c['accent']};
+            }}
+        """)
+        theme.style_combo(self._src_combo)
+        theme.style_combo(self._tgt_combo)
 
     # ── Backend injection ─────────────────────────────────────────────────────
 
@@ -591,8 +689,9 @@ class TranslatePage(QWidget):
 
         src = self._src_combo.currentData()
         tgt = self._tgt_combo.currentData()
+        tag_mode = self._tag_mode_combo.currentData() or "inline"
 
-        w = SingleTranslateWorker(text, self._engine, src, tgt)
+        w = SingleTranslateWorker(text, self._engine, src, tgt, tag_mode=tag_mode)
         w.done.connect(self._on_translate_done)
         w.done.connect(w.deleteLater)
         self._worker = w
@@ -609,27 +708,40 @@ class TranslatePage(QWidget):
         self._cancel_btn.setVisible(False)
         self._set_status("تم الإلغاء", None)
 
-    def _on_translate_done(self, result: str, model: str, success: bool):
+    def _on_translate_done(self, result: str, model: str, success: bool, sent_to_engine: str = ""):
         self._worker = None
         self._cancel_btn.setVisible(False)
         self._translate_btn.setEnabled(True)
         self._translate_btn.setText("🌐  ترجمة  (Ctrl+Enter)")
 
+        original = self._input.toPlainText().strip()
+        # ضمّ "الذي أُرسِل للمحرّك" إذا كان مختلفاً عن الأصل (يظهر فعل الفلتر)
+        if sent_to_engine and sent_to_engine != original:
+            extra = f"\n\n📤 أُرسِل للمحرّك:\n{sent_to_engine}"
+            self._set_extra_info(extra)
+        else:
+            self._set_extra_info("")
+
+        mode = self._tag_mode_combo.currentData() or "inline"
         if success and result:
             self._output.setPlainText(result)
             self._copy_btn.setEnabled(True)
-            self._set_status(f"✓  الترجمة اكتملت — النموذج: {model}", True)
+            self._set_status(f"✓  الترجمة اكتملت — النموذج: {model}  •  وضع التاقات: {mode}", True)
             self.status_message.emit(f"✓  ترجمة ناجحة عبر: {model}")
             self.session_count.emit(1)
-            self._add_history(
-                self._input.toPlainText().strip(), result, model, True
-            )
+            self._add_history(original, result, model, True,
+                              tag_mode=mode, sent_to_engine=sent_to_engine)
         else:
             self._output.setPlainText("")
             self._set_status(f"✗  {result or 'فشلت الترجمة'}", False)
-            self._add_history(
-                self._input.toPlainText().strip(), result, model, False
-            )
+            self._add_history(original, result, model, False,
+                              tag_mode=mode, sent_to_engine=sent_to_engine)
+
+    def _set_extra_info(self, text: str):
+        """يعرض معلومات إضافية (مثل ما أُرسِل للمحرّك بعد الفلترة)."""
+        # نستخدم status label أو نُضيف لـ output. للبساطة نتخطى عرض دائم
+        # ونعتمد على history للمراجعة.
+        pass
 
         self._refresh_model_badge()
 
@@ -647,12 +759,15 @@ class TranslatePage(QWidget):
         self._status_lbl.setText(msg)
 
     def _add_history(self, original: str, translated: str,
-                     model: str, success: bool):
+                     model: str, success: bool,
+                     tag_mode: str = "", sent_to_engine: str = ""):
         self._history.append({
             "original":   original,
             "translated": translated,
             "model":      model,
             "success":    success,
+            "tag_mode":   tag_mode,
+            "sent":       sent_to_engine,
         })
 
         try:
@@ -662,7 +777,8 @@ class TranslatePage(QWidget):
         except RuntimeError:
             pass
 
-        entry = HistoryEntry(original, translated, model, success)
+        entry = HistoryEntry(original, translated, model, success,
+                             tag_mode=tag_mode, sent_to_engine=sent_to_engine)
         entry.copy_requested.connect(
             lambda t: QApplication.clipboard().setText(t) or
                       self.status_message.emit("✓  تم نسخ الترجمة")
