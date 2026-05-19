@@ -365,13 +365,15 @@ class BepInExMod:
             return text
 
     def export_static_translations_txt(
-        self, game_cfg: dict, game_path: str, cache
+        self, game_cfg: dict, game_path: str, cache, model_filter: str = ""
     ) -> Tuple[bool, str, int]:
         """
         يكتب ملف translations.txt بصيغة  key=value  إلى
         BepInEx/config/ArabicGameTranslator/translations.txt
-        يُقرأ من ArabicFontFixer v1.2+ مباشرة.
-        القيم العربية تمر عبر arabic_reshaper+bidi لضمان العرض الصحيح في TMP.
+
+        model_filter:
+          - "" (افتراضي): يصدّر كل ترجمات اللعبة من جميع النماذج
+          - "ollama" / "llama3:8b" / "google_free": يصدّر فقط ترجمات هذا النموذج
         """
         if not game_path or not cache:
             return False, "مسار اللعبة غير محدد أو الكاش غير متاح", 0
@@ -381,12 +383,16 @@ class BepInExMod:
             return False, "اسم اللعبة غير محدد", 0
 
         try:
-            all_t = cache.get_all_for_game(game_name)
+            if model_filter:
+                all_t = cache.get_by_model(game_name, model_filter)
+            else:
+                all_t = cache.get_all_for_game(game_name)
         except Exception as e:
             return False, f"خطأ في قراءة الكاش: {e}", 0
 
         if not all_t:
-            return False, "لا توجد ترجمات في الكاش لهذه اللعبة", 0
+            label = f" للنموذج «{model_filter}»" if model_filter else ""
+            return False, f"لا توجد ترجمات في الكاش{label}", 0
 
         dest_dir  = self._config_dir(game_path)
         dest_path = os.path.join(dest_dir, "translations.txt")
@@ -403,7 +409,8 @@ class BepInExMod:
             return False, f"خطأ في كتابة translations.txt: {e}", 0
 
         count = len(all_t)
-        return True, f"صُدِّرت {count:,} ترجمة → BepInEx/config/ArabicGameTranslator/translations.txt", count
+        suffix = f" (نموذج: {model_filter})" if model_filter else ""
+        return True, f"صُدِّرت {count:,} ترجمة{suffix} → translations.txt", count
 
     # ── تثبيت كامل ───────────────────────────────────────────────────────────
 
@@ -587,16 +594,23 @@ class BepInExMod:
     # ── تحديث الترجمات فقط ───────────────────────────────────────────────────
 
     def update_translations(
-        self, game_cfg: dict, game_path: str, cache
+        self, game_cfg: dict, game_path: str, cache, model_filter: str = ""
     ) -> Tuple[bool, List[str]]:
-        """يعيد تصدير الترجمات دون المساس بالـ DLL أو BepInEx."""
+        """يعيد تصدير الترجمات دون المساس بالـ DLL أو BepInEx.
+
+        model_filter:
+          - "" = كل الترجمات
+          - اسم نموذج = فقط ترجمات هذا النموذج
+        """
         bm       = game_cfg.get("bepinex_mod", {})
         dll_name = bm.get("dll_name", "")
         if not dll_name:
             # وضع XUnity/ArabicFontFixer — صدِّر translations.txt
-            ok, msg, count = self.export_static_translations_txt(game_cfg, game_path, cache)
+            ok, msg, count = self.export_static_translations_txt(
+                game_cfg, game_path, cache, model_filter=model_filter,
+            )
             if ok:
-                return True, [f"✓ تم تحديث {count:,} ترجمة → translations.txt"]
+                return True, [f"✓ {msg}"]
             return False, [f"✗ {msg}"]
         # وضع Method 1 — صدِّر JSON
         ok, msg, count = self.export_translations(game_cfg, game_path, cache)
