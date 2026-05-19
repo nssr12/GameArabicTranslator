@@ -404,6 +404,24 @@ class ProxyServer:
 
         يُرجع (translated, mode_succeeded) أو (None, modes_tried_csv)
         """
+        # في cascade نُقسّم الوقت على 3 محاولات حتى لا يتجاوز مهلة XUnity
+        # نحفظ التايم آوت الأصلي ونستعيده في finally
+        original_timeout = getattr(self._engine, "_timeout", 60.0)
+        cascade_per_attempt = max(25.0, original_timeout / 3)
+        try:
+            try:
+                self._engine._timeout = cascade_per_attempt
+            except Exception:
+                pass
+            return self._do_bulletproof_cascade(text)
+        finally:
+            try:
+                self._engine._timeout = original_timeout
+            except Exception:
+                pass
+
+    def _do_bulletproof_cascade(self, text: str):
+        """التنفيذ الفعلي لـ cascade — مفصول لتمكين try/finally على timeout."""
         # محاولة 1: bulletproof
         cleaned, tokens = self._bulletproof_filter.strip(text)
         modes_tried: list = []
