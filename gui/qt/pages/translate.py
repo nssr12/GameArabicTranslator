@@ -33,7 +33,8 @@ LANG_OPTIONS = [
 # ── Translation worker ────────────────────────────────────────────────────────
 
 class SingleTranslateWorker(QThread):
-    done = Signal(str, str, bool, str)   # result, model_key, success, sent_to_engine
+    # result, model_key, success, sent_to_engine, mode_used, attempts_log
+    done = Signal(str, str, bool, str, str, str)
 
     def __init__(self, text: str, engine, src_lang: str = "en", tgt_lang: str = "ar",
                  tag_mode: str = "inline"):
@@ -42,7 +43,7 @@ class SingleTranslateWorker(QThread):
         self._engine    = engine
         self._src       = src_lang
         self._tgt       = tgt_lang
-        self._tag_mode  = tag_mode  # "inline" | "strip" | "tiered"
+        self._tag_mode  = tag_mode  # "inline" | "strip" | "tiered" | "bulletproof"
         self._cancelled = False
 
     def cancel(self):
@@ -121,32 +122,114 @@ class SingleTranslateWorker(QThread):
         actual = getattr(tr, "model", None)
         return actual or key
 
-    def run(self):
+    def _try_mode(self, mode: str):
+        """يحاول وضعاً واحداً. يُرجع (نتيجة | None، نص_للمحرّك، رسالة_فشل)."""
+        old_mode = self._tag_mode
+        self._tag_mode = mode
         try:
             cleaned_text, restore_fn = self._apply_tag_filter()
+        finally:
+            self._tag_mode = old_mode
 
+        response = self._engine.translate(
+            cleaned_text,
+            source_lang=self._src,
+            target_lang=self._tgt,
+        )
+        if not response:
+            return None, cleaned_text, "engine returned None"
+
+        # في وضع bulletproof/tiered، restore_fn يُرجع None لو فشل validation
+        # لكن في النسخة الحالية، restore_fn يُلحق تحذيراً بدل None.
+        # نتفقد التحقق مباشرة:
+        if mode == "bulletproof":
+            from engine.tag_filter import BulletproofTagFilter
+            from engine.tag_validator import validate_bulletproof_markers
+            flt = BulletproofTagFilter()
+            _, tokens = flt.strip(self._text)
+            if tokens:
+                val = validate_bulletproof_markers(response, tokens)
+                if not val.valid:
+                    return None, cleaned_text, f"validation: {val.severity}"
+                restored = flt.restore(response, tokens)
+                return restored, cleaned_text, "ok"
+            return response, cleaned_text, "ok (no tags)"
+
+        if mode == "tiered":
+            from engine.tag_filter import TieredTagFilter
+            flt = TieredTagFilter()
+            _, tokens = flt.strip(self._text)
+            if tokens:
+                restored = flt.restore(response, tokens)
+                if restored is None:
+                    return None, cleaned_text, "tiered markers corrupted"
+                return restored, cleaned_text, "ok"
+            return response, cleaned_text, "ok (no tags)"
+
+        # inline / strip: استخدم restore_fn العادية
+        return restore_fn(response), cleaned_text, "ok"
+
+    def _run_cascade(self):
+        """ينفّذ cascade fallback لوضع bulletproof.
+        يُرجع (result, mode_used, attempts_log, sent_to_engine)."""
+        attempts: list[str] = []
+        sent_seen = ""
+        modes_chain = ["bulletproof", "tiered", "strip"]
+
+        for mode in modes_chain:
+            if self._cancelled:
+                return None, "", "; ".join(attempts), sent_seen
+            result, sent, msg = self._try_mode(mode)
+            attempts.append(f"{mode}: {msg}")
+            if mode == "bulletproof":
+                sent_seen = sent  # نُظهر ما رآه المحرّك في أول محاولة
+            if result:
+                return result, mode, "; ".join(attempts), sent_seen
+        return None, "", "; ".join(attempts), sent_seen
+
+    def run(self):
+        try:
+            display_model = self._model_display_name()
+            key = self._engine.get_active_model() or ""
+
+            if self._tag_mode == "bulletproof":
+                # نفّذ cascade كامل: bulletproof → tiered → strip → fail
+                result, mode_used, log, sent = self._run_cascade()
+                if self._cancelled:
+                    self.done.emit("", "", False, "", "", "")
+                    return
+                if result:
+                    self.done.emit(result, display_model, True, sent, mode_used, log)
+                else:
+                    tr = self._engine.get_translator(key) if key else None
+                    err = getattr(tr, "_last_error", "") or "كل الأوضاع فشلت"
+                    self.done.emit(err, display_model, False, sent, "", log)
+                return
+
+            # أوضاع غير-bulletproof: محاولة واحدة بدون cascade
+            cleaned_text, restore_fn = self._apply_tag_filter()
             result = self._engine.translate(
                 cleaned_text,
                 source_lang=self._src,
                 target_lang=self._tgt,
             )
             if self._cancelled:
-                self.done.emit("", "", False, "")
+                self.done.emit("", "", False, "", "", "")
                 return
-            display_model = self._model_display_name()
-            key = self._engine.get_active_model() or ""
             if result:
                 restored = restore_fn(result)
-                self.done.emit(restored, display_model, True, cleaned_text)
+                self.done.emit(restored, display_model, True, cleaned_text,
+                               self._tag_mode, f"{self._tag_mode}: ok")
             else:
                 tr  = self._engine.get_translator(key) if key else None
                 err = getattr(tr, "_last_error", "") or "فشلت الترجمة"
-                self.done.emit(err, display_model, False, cleaned_text)
+                self.done.emit(err, display_model, False, cleaned_text,
+                               "", f"{self._tag_mode}: failed")
         except Exception as e:
             if self._cancelled:
-                self.done.emit("", "", False, "")
+                self.done.emit("", "", False, "", "", "")
             else:
-                self.done.emit(str(e), "", False, "")
+                self.done.emit(str(e), "", False, "", "", f"exception: {e}")
 
 
 # ── History entry ─────────────────────────────────────────────────────────────
@@ -158,7 +241,8 @@ class HistoryEntry(QFrame):
 
     def __init__(self, original: str, translated: str,
                  model: str, success: bool, tag_mode: str = "",
-                 sent_to_engine: str = "", parent=None):
+                 sent_to_engine: str = "", attempts_log: str = "",
+                 parent=None):
         super().__init__(parent)
         c = theme.c
         self.setStyleSheet(f"""
@@ -219,6 +303,17 @@ class HistoryEntry(QFrame):
             )
             sent_lbl.setWordWrap(True)
             lay.addWidget(sent_lbl)
+
+        # سجلّ محاولات الـ cascade
+        if attempts_log:
+            chain_lbl = QLabel(f"🔁 cascade: {attempts_log}")
+            chain_lbl.setTextFormat(Qt.PlainText)
+            chain_lbl.setStyleSheet(
+                f"color: {c['muted']}; font-size: 10px; font-family: Consolas, monospace;"
+                " background: transparent; border: none;"
+            )
+            chain_lbl.setWordWrap(True)
+            lay.addWidget(chain_lbl)
 
         # Translation text — LTR + PlainText لعرض النص الخام كما رجع من المحرّك
         if success and translated:
@@ -757,34 +852,40 @@ class TranslatePage(QWidget):
         self._cancel_btn.setVisible(False)
         self._set_status("تم الإلغاء", None)
 
-    def _on_translate_done(self, result: str, model: str, success: bool, sent_to_engine: str = ""):
+    def _on_translate_done(self, result: str, model: str, success: bool,
+                           sent_to_engine: str = "", mode_used: str = "",
+                           attempts_log: str = ""):
         self._worker = None
         self._cancel_btn.setVisible(False)
         self._translate_btn.setEnabled(True)
         self._translate_btn.setText("🌐  ترجمة  (Ctrl+Enter)")
 
         original = self._input.toPlainText().strip()
-        # ضمّ "الذي أُرسِل للمحرّك" إذا كان مختلفاً عن الأصل (يظهر فعل الفلتر)
-        if sent_to_engine and sent_to_engine != original:
-            extra = f"\n\n📤 أُرسِل للمحرّك:\n{sent_to_engine}"
-            self._set_extra_info(extra)
-        else:
-            self._set_extra_info("")
+        selected_mode = self._tag_mode_combo.currentData() or "inline"
+        # في cascade، mode_used قد يختلف عن selected_mode (مثلاً bulletproof → strip)
+        display_mode = mode_used or selected_mode
 
-        mode = self._tag_mode_combo.currentData() or "inline"
         if success and result:
             self._output.setPlainText(result)
             self._copy_btn.setEnabled(True)
-            self._set_status(f"✓  الترجمة اكتملت — النموذج: {model}  •  وضع التاقات: {mode}", True)
+            mode_label = f"{display_mode}"
+            if mode_used and mode_used != selected_mode:
+                mode_label = f"{selected_mode}→{mode_used} (fallback)"
+            self._set_status(
+                f"✓  الترجمة اكتملت — النموذج: {model}  •  {mode_label}",
+                True,
+            )
             self.status_message.emit(f"✓  ترجمة ناجحة عبر: {model}")
             self.session_count.emit(1)
             self._add_history(original, result, model, True,
-                              tag_mode=mode, sent_to_engine=sent_to_engine)
+                              tag_mode=display_mode, sent_to_engine=sent_to_engine,
+                              attempts_log=attempts_log)
         else:
             self._output.setPlainText("")
             self._set_status(f"✗  {result or 'فشلت الترجمة'}", False)
             self._add_history(original, result, model, False,
-                              tag_mode=mode, sent_to_engine=sent_to_engine)
+                              tag_mode=selected_mode, sent_to_engine=sent_to_engine,
+                              attempts_log=attempts_log)
 
     def _set_extra_info(self, text: str):
         """يعرض معلومات إضافية (مثل ما أُرسِل للمحرّك بعد الفلترة)."""
@@ -809,7 +910,8 @@ class TranslatePage(QWidget):
 
     def _add_history(self, original: str, translated: str,
                      model: str, success: bool,
-                     tag_mode: str = "", sent_to_engine: str = ""):
+                     tag_mode: str = "", sent_to_engine: str = "",
+                     attempts_log: str = ""):
         self._history.append({
             "original":   original,
             "translated": translated,
@@ -817,6 +919,7 @@ class TranslatePage(QWidget):
             "success":    success,
             "tag_mode":   tag_mode,
             "sent":       sent_to_engine,
+            "attempts":   attempts_log,
         })
 
         try:
@@ -827,7 +930,8 @@ class TranslatePage(QWidget):
             pass
 
         entry = HistoryEntry(original, translated, model, success,
-                             tag_mode=tag_mode, sent_to_engine=sent_to_engine)
+                             tag_mode=tag_mode, sent_to_engine=sent_to_engine,
+                             attempts_log=attempts_log)
         entry.copy_requested.connect(
             lambda t: QApplication.clipboard().setText(t) or
                       self.status_message.emit("✓  تم نسخ الترجمة")

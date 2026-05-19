@@ -61,7 +61,7 @@ def validate_bulletproof_markers(translated: str, tokens: list) -> ValidationRes
                     issues.append(f"closer {cl} appears before opener {op}")
 
         elif kind == "self":
-            mk = f"{_BP_OPEN}*{idx}{_BP_CLOSE}"
+            mk = f"{_BP_OPEN}s{idx}{_BP_CLOSE}"
             mk_count = translated.count(mk)
             if mk_count == 0:
                 issues.append(f"missing self-closing {mk}")

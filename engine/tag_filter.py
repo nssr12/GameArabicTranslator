@@ -211,7 +211,7 @@ class BulletproofTagFilter:
                 if translated.count(op) != 1 or translated.count(cl) != 1:
                     return None
             elif kind == "self":
-                mk = f"{_BP_OPEN}*{idx}{_BP_CLOSE}"
+                mk = f"{_BP_OPEN}s{idx}{_BP_CLOSE}"
                 if translated.count(mk) != 1:
                     return None
 
@@ -233,7 +233,7 @@ class BulletproofTagFilter:
                 translated = translated.replace(f"{_BP_OPEN}/{idx}{_BP_CLOSE}", closer)
             elif kind == "self":
                 fulltag = f"<{name}{attrs}>"
-                translated = translated.replace(f"{_BP_OPEN}*{idx}{_BP_CLOSE}", fulltag)
+                translated = translated.replace(f"{_BP_OPEN}s{idx}{_BP_CLOSE}", fulltag)
 
         return translated
 
@@ -248,6 +248,7 @@ class BulletproofTagFilter:
         return f"{_BP_OPEN}{idx}{_BP_CLOSE}{inner}{_BP_OPEN}/{idx}{_BP_CLOSE}"
 
     def _handle_selfclose(self, m: re.Match, tokens: list) -> str:
+        # نستخدم ⟦sN⟧ بدل ⟦*N⟧ — الـ * كان يُفسَّر كـ markdown emphasis ويُحذف
         idx = len(tokens)
         tokens.append(("self", m.group("name"), m.group("attrs") or "", None))
-        return f"{_BP_OPEN}*{idx}{_BP_CLOSE}"
+        return f"{_BP_OPEN}s{idx}{_BP_CLOSE}"
