@@ -199,7 +199,7 @@ class HistoryEntry(QFrame):
             sent_lbl.setWordWrap(True)
             lay.addWidget(sent_lbl)
 
-        # Translation text
+        # Translation text — LTR لعرض النص الخام كما رجع من المحرّك بدون إعادة ترتيب BiDi
         if success and translated:
             trans_lbl = QLabel(translated if len(translated) < 200 else translated[:197] + "…")
             trans_lbl.setStyleSheet(
@@ -207,7 +207,7 @@ class HistoryEntry(QFrame):
                 " background: transparent; border: none;"
             )
             trans_lbl.setWordWrap(True)
-            trans_lbl.setLayoutDirection(Qt.RightToLeft)
+            trans_lbl.setLayoutDirection(Qt.LeftToRight)
             lay.addWidget(trans_lbl)
 
             # Copy button
@@ -425,6 +425,11 @@ class TranslatePage(QWidget):
         self._input = QTextEdit()
         self._input.setPlaceholderText("اكتب النص هنا… (Ctrl+Enter للترجمة)")
         self._input.setMinimumHeight(130)
+        # LTR لإظهار النص الإنجليزي والتاقات بترتيبها الفعلي بدون إعادة ترتيب BiDi
+        self._input.setLayoutDirection(Qt.LeftToRight)
+        _opt_in = QTextOption()
+        _opt_in.setTextDirection(Qt.LeftToRight)
+        self._input.document().setDefaultTextOption(_opt_in)
         self._input.setStyleSheet(f"""
             QTextEdit {{
                 background: transparent; color: {c['primary']};
@@ -496,9 +501,11 @@ class TranslatePage(QWidget):
         self._output.setReadOnly(True)
         self._output.setPlaceholderText("ستظهر الترجمة هنا…")
         self._output.setMinimumHeight(130)
-        self._output.setLayoutDirection(Qt.RightToLeft)
+        # هذا المربع للاختبار — نعرض النص بترتيبه الفعلي بدون إعادة ترتيب BiDi
+        # فالنص يظهر تماماً كما يُرسله الـ AI، ليتأكد المستخدم من سلامة الفلتر
+        self._output.setLayoutDirection(Qt.LeftToRight)
         opt = QTextOption()
-        opt.setTextDirection(Qt.RightToLeft)
+        opt.setTextDirection(Qt.LeftToRight)
         self._output.document().setDefaultTextOption(opt)
         self._output.setStyleSheet(f"""
             QTextEdit {{
