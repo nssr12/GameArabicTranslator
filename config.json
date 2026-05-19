@@ -68,9 +68,11 @@
     "window_height": 750
   },
   "tools": {
-    "unrealpak_path": "d:\\GameArabicTranslator\\tools\\UnrealPak.exe",
+    "unrealpak_path": "D:/Program Files/Epic Games/UE_5.7/Engine/Binaries/Win64/UnrealPak.exe",
     "retoc_path": "D:/GameArabicTranslator/tools/retoc/retoc.exe",
-    "uassetgui_path": "D:/GameArabicTranslator/tools/UAssetGUI/UAssetGUI.exe"
+    "uassetgui_path": "D:/GameArabicTranslator/tools/UAssetGUI/UAssetGUI.exe",
+    "ue4loc_tool": "D:/GameArabicTranslator/tools/UE4localizationsTool/UE4localizationsTool.exe",
+    "unrealpak_aes": "0x5F430BF9FEF2B0B91B7C79C313BDAF291BA076A1DAB5045974186333AA16CFAE"
   },
   "ollama_options": {
     "_comment_section": "=== إعدادات Ollama للترجمة — يمكن تعديلها بدون إعادة تشغيل البرنامج ===",
@@ -82,8 +84,8 @@
     "num_ctx": 512,
     "_comment_num_batch": "عدد tokens تُعالج معاً في الـprompt | كبّره للسرعة | 512 مثالي لـ4080S | لا يؤثر على الجودة",
     "num_batch": 512,
-    "_comment_num_predict": "أقصى عدد tokens في الرد | نصوص الألعاب نادراً تتجاوز 60 token | صغّره للسرعة",
-    "num_predict": 80,
+    "_comment_num_predict": "أقصى عدد tokens في الرد | العربية تحتاج tokens أكثر من الإنجليزية | 256 يكفي معظم النصوص | 80 يقطع الترجمات الطويلة",
+    "num_predict": 256,
     "_comment_temperature": "درجة الإبداع | 0.0 = حتمي تماماً | 0.1 = شبه حتمي (أفضل للترجمة) | 1.0 = إبداعي جداً",
     "temperature": 0.1,
     "_comment_top_k": "يأخذ أفضل K كلمة فقط عند التوليد | صغّره للسرعة والدقة | 20 مثالي للترجمة",
