@@ -297,16 +297,17 @@ class EditDialog(QWidget):
         div.setFrameShape(QFrame.VLine)
         div.setStyleSheet(f"color: {c['border']};")
 
-        # Arabic (editable, RTL)
+        # Arabic (editable) — LTR لعرض النص الخام كما هو مُخزَّن
+        # (حتى لا يُعيد BiDi ترتيب التاقات بشكل مختلف عن صفحة الترجمة الفورية)
         rp = QVBoxLayout()
         rp.setSpacing(6)
         rl = QLabel("🌐  الترجمة العربية — قابل للتعديل")
         rl.setObjectName("field_label")
         self._trans = QTextEdit()
-        self._trans.setLayoutDirection(Qt.RightToLeft)
+        self._trans.setLayoutDirection(Qt.LeftToRight)
         from PySide6.QtGui import QTextOption
         opt = QTextOption()
-        opt.setTextDirection(Qt.RightToLeft)
+        opt.setTextDirection(Qt.LeftToRight)
         self._trans.document().setDefaultTextOption(opt)
         self._trans.setPlainText(self._normalize(entry.get("translated", "")))
         self._trans.setMinimumWidth(340)
