@@ -92,6 +92,16 @@ class SingleTranslateWorker(QThread):
         # inline (default)
         return self._text, lambda r: r
 
+    def _model_display_name(self) -> str:
+        """يُرجع اسم المودل الفعلي (مثل llama3:8b) بدل مفتاح المحرّك (ollama)."""
+        key = self._engine.get_active_model() or ""
+        if not key:
+            return ""
+        tr = self._engine.get_translator(key)
+        # OllamaTranslator يحفظ اسم المودل الفعلي في self.model
+        actual = getattr(tr, "model", None)
+        return actual or key
+
     def run(self):
         try:
             cleaned_text, restore_fn = self._apply_tag_filter()
@@ -104,14 +114,15 @@ class SingleTranslateWorker(QThread):
             if self._cancelled:
                 self.done.emit("", "", False, "")
                 return
-            model = self._engine.get_active_model() or ""
+            display_model = self._model_display_name()
+            key = self._engine.get_active_model() or ""
             if result:
                 restored = restore_fn(result)
-                self.done.emit(restored, model, True, cleaned_text)
+                self.done.emit(restored, display_model, True, cleaned_text)
             else:
-                tr  = self._engine.get_translator(model) if model else None
+                tr  = self._engine.get_translator(key) if key else None
                 err = getattr(tr, "_last_error", "") or "فشلت الترجمة"
-                self.done.emit(err, model, False, cleaned_text)
+                self.done.emit(err, display_model, False, cleaned_text)
         except Exception as e:
             if self._cancelled:
                 self.done.emit("", "", False, "")
@@ -625,7 +636,13 @@ class TranslatePage(QWidget):
             active = self._engine.get_active_model()
             if active:
                 from gui.qt.pages.models import _meta
-                self._model_badge.setText(_meta(active)["ar"])
+                label = _meta(active)["ar"]
+                # أضف اسم المودل الفعلي بين أقواس (مثل llama3:8b)
+                tr = self._engine.get_translator(active)
+                actual = getattr(tr, "model", None)
+                if actual and actual != active:
+                    label = f"{label} — {actual}"
+                self._model_badge.setText(label)
                 return
         self._model_badge.setText("لا يوجد نموذج")
 

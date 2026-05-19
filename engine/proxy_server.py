@@ -358,6 +358,19 @@ class ProxyServer:
 
     _HTML_TAG_RE_PROXY = _re.compile(r"</?[a-zA-Z][^<>]{0,120}>")
 
+    def _resolve_model_name(self) -> str:
+        """يُرجع اسم المودل الفعلي (مثل llama3:8b) بدل المفتاح (ollama).
+        OllamaTranslator يحفظ الاسم الحقيقي في self.model."""
+        if not self._engine:
+            return "unknown"
+        try:
+            key = self._engine.get_active_model() or "unknown"
+            tr = self._engine.get_translator(key) if hasattr(self._engine, "get_translator") else None
+            actual = getattr(tr, "model", None) if tr else None
+            return actual or key
+        except Exception:
+            return "unknown"
+
     def _translate_with_tag_stripping(self, text: str):
         """ينزع تاقات HTML قبل إرسال النص للمحرّك ثم يُعيدها لموضعها.
         نستخدم محارف PUA كعلامات لأن المودل عادةً لا يلمسها."""
@@ -431,7 +444,7 @@ class ProxyServer:
                 except Exception:
                     pass
                 return result, False, True
-            model = self._engine.get_active_model() if self._engine else "unknown"
+            model = self._resolve_model_name()
             self._cache.put(self._game_name, text, result, model)
         elif result is None and self._cache and self._game_name and self._engine:
             # الـ AI فشل (None) → نُسجّل سبب الفشل ونمنع إعادة المحاولة كل مرة
