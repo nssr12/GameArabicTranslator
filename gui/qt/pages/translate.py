@@ -59,6 +59,25 @@ class SingleTranslateWorker(QThread):
 
     def _apply_tag_filter(self):
         """يطبّق فلتر التاقات حسب الوضع. يُرجع (نص_للمحرّك، callback_للاستعادة)."""
+        if self._tag_mode == "bulletproof":
+            from engine.tag_filter import BulletproofTagFilter
+            from engine.tag_validator import validate_bulletproof_markers
+            flt = BulletproofTagFilter()
+            cleaned, tokens = flt.strip(self._text)
+            if not tokens:
+                return self._text, lambda r: r
+            def restore(translated):
+                if not translated:
+                    return translated
+                val = validate_bulletproof_markers(translated, tokens)
+                if not val.valid:
+                    # نُضيف رسالة تشخيصية في النهاية للمستخدم
+                    from engine.tag_validator import summarize_issues
+                    return translated + f"\n\n⚠ تحقق فشل: {summarize_issues(val)}"
+                r = flt.restore(translated, tokens)
+                return r if r is not None else translated
+            return cleaned, restore
+
         if self._tag_mode == "tiered":
             from engine.tag_filter import TieredTagFilter
             flt = TieredTagFilter()
@@ -281,12 +300,14 @@ class TranslatePage(QWidget):
         self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص", "inline")
         self._tag_mode_combo.addItem("🔒 Strip — تجريد PUA", "strip")
         self._tag_mode_combo.addItem("🎯 Tiered — متدرّج", "tiered")
-        self._tag_mode_combo.setCurrentIndex(2)  # افتراضي Tiered
+        self._tag_mode_combo.addItem("🛡 Bulletproof — ⟦N⟧ + fallback", "bulletproof")
+        self._tag_mode_combo.setCurrentIndex(3)  # افتراضي Bulletproof
         self._tag_mode_combo.setToolTip(
             "اختر طريقة معالجة التاقات قبل إرسال النص للمودل:\n"
             "Inline: النص الكامل مع التاقات الخام\n"
-            "Strip: كل التاقات → PUA chars (للنماذج الصغيرة)\n"
-            "Tiered: بسيطة inline، معقدة → [tN]/[sN]"
+            "Strip: كل التاقات → PUA chars\n"
+            "Tiered: بسيطة inline، معقدة → [tN]/[sN]\n"
+            "🛡 Bulletproof: ⟦N⟧ + تحقق صارم + cascade fallback تلقائي"
         )
         self._tag_mode_combo.setStyleSheet(f"""
             QComboBox {{

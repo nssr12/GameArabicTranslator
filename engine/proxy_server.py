@@ -9,7 +9,8 @@ import urllib.parse
 import threading
 from collections import deque
 
-from .tag_filter import TieredTagFilter
+from .tag_filter import TieredTagFilter, BulletproofTagFilter
+from .tag_validator import validate_bulletproof_markers, summarize_issues
 
 
 def _needs_translation(text: str) -> bool:
@@ -182,8 +183,9 @@ class ProxyServer:
         self._apply_bidi   = True   # False for games with built-in RTL mod (BepInEx)
         self._char_limit   = 0      # >0 → pre-wrap at this char count before bidi
         self._strip_tags   = False  # ⚠ deprecated — يُحوَّل لـ tag_mode='strip' لو True
-        self._tag_mode     = "inline"  # "inline" | "strip" | "tiered"
-        self._tiered_filter = TieredTagFilter()
+        self._tag_mode     = "inline"  # "inline" | "strip" | "tiered" | "bulletproof"
+        self._tiered_filter      = TieredTagFilter()
+        self._bulletproof_filter = BulletproofTagFilter()
         self._timeout      = 0      # >0 → سيُطبَّق على المحرّك عند start()
         self._server: http.server.HTTPServer | None = None
         self._thread: threading.Thread | None       = None
@@ -218,8 +220,9 @@ class ProxyServer:
         self._tag_mode = "strip" if value else "inline"
 
     def set_tag_mode(self, mode: str):
-        """تبديل وضع معالجة التاقات. القيم: 'inline' | 'strip' | 'tiered'."""
-        if mode not in ("inline", "strip", "tiered"):
+        """تبديل وضع معالجة التاقات.
+        القيم: 'inline' | 'strip' | 'tiered' | 'bulletproof'"""
+        if mode not in ("inline", "strip", "tiered", "bulletproof"):
             mode = "inline"
         self._tag_mode = mode
         self._strip_tags = (mode == "strip")  # توافق رجعي
@@ -389,6 +392,61 @@ class ProxyServer:
             translated = translated.replace(chr(0xE000 + idx), tag)
         return translated
 
+    def _translate_with_bulletproof(self, text: str):
+        """ترجمة بنظام Bulletproof: علامات ⟦N⟧ + تحقق صارم + cascade fallback.
+
+        السلسلة:
+          1. جرّب bulletproof (⟦N⟧)         ← الأقوى
+          2. عند الفشل: جرّب tiered ([tN])  ← أقل صرامة
+          3. عند الفشل: جرّب strip (PUA)   ← آخر محاولة
+          4. عند الفشل النهائي: أعد النص الأصلي (لإعادة محاولة لاحقة)
+                                            ← الضمان 100% للتاقات
+
+        يُرجع (translated, mode_succeeded) أو (None, modes_tried_csv)
+        """
+        # محاولة 1: bulletproof
+        cleaned, tokens = self._bulletproof_filter.strip(text)
+        modes_tried: list = []
+        if tokens:
+            modes_tried.append("bulletproof")
+            response = self._engine.translate(cleaned)
+            if response:
+                val = validate_bulletproof_markers(response, tokens)
+                if val.valid:
+                    restored = self._bulletproof_filter.restore(response, tokens)
+                    if restored is not None:
+                        return restored, "bulletproof"
+                # سجّل سبب الفشل للـ log
+                if self.log_callback:
+                    try:
+                        self.log_callback(f"⚠ bulletproof فشل: {summarize_issues(val)}")
+                    except Exception:
+                        pass
+        else:
+            # لا تاقات معقدة → ترجمة عادية مع تاقات inline
+            response = self._engine.translate(text)
+            if response:
+                return response, "bulletproof"
+
+        # محاولة 2: tiered ([tN])
+        modes_tried.append("tiered")
+        cleaned2, tokens2 = self._tiered_filter.strip(text)
+        if tokens2:
+            response = self._engine.translate(cleaned2)
+            if response:
+                restored = self._tiered_filter.restore(response, tokens2)
+                if restored is not None:
+                    return restored, "tiered"
+
+        # محاولة 3: strip (PUA)
+        modes_tried.append("strip")
+        response = self._translate_with_tag_stripping(text)
+        if response:
+            return response, "strip"
+
+        # كل المحاولات فشلت → نُسجّل ونُرجع المحاولات للـ caller
+        return None, ",".join(modes_tried)
+
     def _translate_with_tiered_tags(self, text: str):
         """ترجمة بنظام Tiered: تاقات بسيطة inline، معقدة بـ [tN]، مستقلة بـ [sN].
         يُعيد None إذا تلف أحد markers في رد المودل (نُسجّل فشلاً للمحاولة لاحقاً)."""
@@ -428,8 +486,16 @@ class ProxyServer:
                 pass
 
         result = None
+        succeeded_mode = self._tag_mode  # سنُحدّثها لو bulletproof fallback نشط
+        modes_attempted = ""             # للـ failed_translations لو فشل كل شيء
         if self._engine:
-            if self._tag_mode == "tiered":
+            if self._tag_mode == "bulletproof":
+                result, info = self._translate_with_bulletproof(text)
+                if result:
+                    succeeded_mode = info  # bulletproof | tiered | strip
+                else:
+                    modes_attempted = info  # CSV من الأوضاع المُجرَّبة
+            elif self._tag_mode == "tiered":
                 result = self._translate_with_tiered_tags(text)
             elif self._tag_mode == "strip" or self._strip_tags:
                 result = self._translate_with_tag_stripping(text)
@@ -445,13 +511,25 @@ class ProxyServer:
                     pass
                 return result, False, True
             model = self._resolve_model_name()
-            self._cache.put(self._game_name, text, result, model)
+            self._cache.put(self._game_name, text, result, model, mode_used=succeeded_mode)
+            # Learning cache: سجّل نجاح هذا الـ mode
+            try:
+                self._cache.record_mode_success(self._game_name, succeeded_mode)
+            except Exception:
+                pass
         elif result is None and self._cache and self._game_name and self._engine:
             # الـ AI فشل (None) → نُسجّل سبب الفشل ونمنع إعادة المحاولة كل مرة
             # وإلا نظل نستدعي AI لنفس النص الفاشل بلا انقطاع
             try:
                 reason = getattr(self._engine, "_last_error", "") or "engine_failed"
+                # في وضع bulletproof نُلحق الأوضاع المُجرَّبة بالسبب
+                if modes_attempted:
+                    reason = f"{reason} [tried: {modes_attempted}]"
                 self._cache.mark_failed(self._game_name, text, reason[:200])
+                # سجّل فشل كل وضع جرَّبناه في Learning cache
+                for mode in (modes_attempted.split(",") if modes_attempted else [self._tag_mode]):
+                    if mode:
+                        self._cache.record_mode_failure(self._game_name, mode.strip())
                 if self.log_callback:
                     self.log_callback(f"⚠  فشلت ترجمة: {text[:40]}  →  {reason[:60]}")
             except Exception:

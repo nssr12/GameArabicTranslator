@@ -1092,13 +1092,16 @@ class LogPanel(QWidget):
 
         tag_lbl = QLabel("🏷  معالجة التاقات:")
         self._tag_mode_combo = QComboBox()
-        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص (الافتراضي)", "inline")
-        self._tag_mode_combo.addItem("🔒 Strip — تجريد كامل بـ PUA (للنماذج الصغيرة)", "strip")
-        self._tag_mode_combo.addItem("🎯 Tiered — متدرّج (موصى به)", "tiered")
+        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص", "inline")
+        self._tag_mode_combo.addItem("🔒 Strip — تجريد كامل بـ PUA", "strip")
+        self._tag_mode_combo.addItem("🎯 Tiered — متدرّج", "tiered")
+        self._tag_mode_combo.addItem("🛡 Bulletproof — ⟦N⟧ + تحقق + fallback (موصى به)", "bulletproof")
         self._tag_mode_combo.setToolTip(
             "Inline: تُترك التاقات داخل النص للمودل (سياق كامل، لكن قد يفشل مع تاقات معقدة).\n"
             "Strip: كل التاقات تُستبدل بمحارف PUA — قد يحذفها بعض المودلات.\n"
-            "Tiered: <b>/<i> تبقى inline، <color>/<size>/<sprite> تُستبدل بـ [tN]/[sN] (أحرف عادية يصعب تحريفها)."
+            "Tiered: <b>/<i> تبقى inline، <color>/<size>/<sprite> تُستبدل بـ [tN]/[sN].\n"
+            "🛡 Bulletproof: علامات ⟦N⟧ + تحقق صارم + سلسلة fallback (bulletproof→tiered→strip).\n"
+            "  عند فشل كل المحاولات، يُعاد النص الأصلي ويُسجَّل كـ failed لإعادة المحاولة بمودل آخر."
         )
         self._tag_mode_combo.currentIndexChanged.connect(self._on_tag_mode_changed)
         # نسق ColorBox مع الـ theme

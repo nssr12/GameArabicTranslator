@@ -110,6 +110,7 @@ class TranslationCache:
             ("hit_count", "ALTER TABLE translations ADD COLUMN hit_count INTEGER DEFAULT 0"),
             ("updated_at", "ALTER TABLE translations ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
             ("model_used", "ALTER TABLE translations ADD COLUMN model_used TEXT DEFAULT 'unknown'"),
+            ("mode_used",  "ALTER TABLE translations ADD COLUMN mode_used TEXT DEFAULT ''"),  # learning cache
         ]:
             if col not in existing:
                 try:
@@ -117,6 +118,28 @@ class TranslationCache:
                     conn.commit()
                 except Exception:
                     pass
+        # نفس الترقية لجدول failed_translations
+        existing_failed = {row[1] for row in conn.execute("PRAGMA table_info(failed_translations)")}
+        for col, ddl in [
+            ("modes_tried", "ALTER TABLE failed_translations ADD COLUMN modes_tried TEXT DEFAULT ''"),
+        ]:
+            if col not in existing_failed:
+                try:
+                    conn.execute(ddl)
+                    conn.commit()
+                except Exception:
+                    pass
+
+        # جدول إحصاءات الـ mode (Learning cache على مستوى اللعبة)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mode_stats (
+                mode          TEXT PRIMARY KEY,
+                success_count INTEGER DEFAULT 0,
+                failure_count INTEGER DEFAULT 0,
+                last_used_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
 
     # ------------------------------------------------------------------
     # Public API  (same signatures as before — no breaking changes)
@@ -138,21 +161,73 @@ class TranslationCache:
             return row[0]
         return None
 
-    def put(self, game_name: str, original_text: str, translated_text: str, model: str = "unknown"):
+    def put(self, game_name: str, original_text: str, translated_text: str,
+            model: str = "unknown", mode_used: str = ""):
         if not translated_text or translated_text == original_text:
             return
         # If this game was soft-deleted but data is being written again, make it visible
         self._soft_deleted.discard(game_name)
         conn = self._get_conn(game_name)
         conn.execute("""
-            INSERT INTO translations (original_text, translated_text, model_used)
-            VALUES (?, ?, ?)
+            INSERT INTO translations (original_text, translated_text, model_used, mode_used)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(original_text) DO UPDATE SET
                 translated_text = excluded.translated_text,
                 model_used      = excluded.model_used,
+                mode_used       = excluded.mode_used,
                 updated_at      = CURRENT_TIMESTAMP
-        """, (original_text, translated_text, model))
+        """, (original_text, translated_text, model, mode_used))
         conn.commit()
+
+    # ── Learning cache ────────────────────────────────────────────────────
+
+    def record_mode_success(self, game_name: str, mode: str):
+        """يُحدّث إحصاء نجاح لـ mode محدد. للـ Learning cache."""
+        conn = self._get_conn(game_name)
+        conn.execute("""
+            INSERT INTO mode_stats (mode, success_count, last_used_at)
+            VALUES (?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(mode) DO UPDATE SET
+                success_count = success_count + 1,
+                last_used_at  = CURRENT_TIMESTAMP
+        """, (mode,))
+        conn.commit()
+
+    def record_mode_failure(self, game_name: str, mode: str):
+        conn = self._get_conn(game_name)
+        conn.execute("""
+            INSERT INTO mode_stats (mode, failure_count, last_used_at)
+            VALUES (?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(mode) DO UPDATE SET
+                failure_count = failure_count + 1,
+                last_used_at  = CURRENT_TIMESTAMP
+        """, (mode,))
+        conn.commit()
+
+    def get_mode_stats(self, game_name: str) -> list[dict]:
+        """يُرجع إحصاءات الأوضاع مرتّبة بمعدل النجاح."""
+        conn = self._get_conn(game_name)
+        rows = conn.execute("""
+            SELECT mode, success_count, failure_count,
+                   CAST(success_count AS REAL) / (success_count + failure_count + 0.001) AS rate,
+                   last_used_at
+            FROM mode_stats
+            ORDER BY rate DESC, success_count DESC
+        """).fetchall()
+        return [{
+            "mode": r[0], "success": r[1], "failure": r[2],
+            "rate": float(r[3]), "last_used": r[4],
+        } for r in rows]
+
+    def get_best_mode(self, game_name: str, default: str = "tiered") -> str:
+        """يُرجع الـ mode الذي نجح أكثر تاريخياً (للاقتراح الذكي)."""
+        stats = self.get_mode_stats(game_name)
+        if not stats:
+            return default
+        # أكثر من 5 محاولات على الأقل، وإلا يبقى الافتراضي
+        if stats[0]["success"] + stats[0]["failure"] < 5:
+            return default
+        return stats[0]["mode"]
 
     def mark_failed(self, game_name: str, original_text: str, reason: str = ""):
         conn = self._get_conn(game_name)

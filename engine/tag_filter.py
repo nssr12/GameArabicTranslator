@@ -140,4 +140,114 @@ class TieredTagFilter:
         return f"[s{idx}]"
 
 
-__all__ = ["TieredTagFilter"]
+__all__ = ["TieredTagFilter", "BulletproofTagFilter"]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# BulletproofTagFilter — علامات Unicode رياضية ⟦1⟧/⟦/1⟧ مع التحقق الصارم
+# ═════════════════════════════════════════════════════════════════════════════
+
+# U+27E6 ⟦ MATHEMATICAL LEFT WHITE SQUARE BRACKET
+# U+27E7 ⟧ MATHEMATICAL RIGHT WHITE SQUARE BRACKET
+# هذه الأقواس:
+#   - نادرة جداً في النص العادي (لا تتداخل مع محتوى المستخدم)
+#   - مرئية (تشخيص أسهل عند الفشل)
+#   - ليست HTML/XML → النموذج لن يحاول إصلاحها
+#   - شائعة في تدريب LLM (LaTeX, math notation)
+_BP_OPEN  = "⟦"   # ⟦
+_BP_CLOSE = "⟧"   # ⟧
+
+
+class BulletproofTagFilter:
+    """
+    نسخة محسّنة من TieredTagFilter باستخدام علامات Unicode رياضية.
+
+    الميزات الإضافية:
+      - علامات ⟦N⟧ بدل [tN] (أعلى احتمال للحفاظ من النموذج)
+      - تمييز بين paired (⟦N⟧...⟦/N⟧) و self-closing (⟦*N⟧)
+      - متوافق مع TagValidator للفحص الصارم
+    """
+
+    def __init__(self, inline_tags: frozenset = _INLINE_TAGS):
+        self.inline_tags = inline_tags
+
+    def strip(self, text: str) -> tuple[str, list]:
+        if not text or '<' not in text:
+            return text, []
+
+        tokens: list = []
+        result = text
+
+        # paired tags (تكرار للمتشعّب)
+        for _ in range(12):
+            new_result = _PAIRED_TAG_RE.sub(
+                lambda m: self._handle_paired(m, tokens),
+                result,
+            )
+            if new_result == result:
+                break
+            result = new_result
+
+        # self-closing
+        result = _SELFCLOSE_RE.sub(
+            lambda m: self._handle_selfclose(m, tokens),
+            result,
+        )
+
+        return result, tokens
+
+    def restore(self, translated: str, tokens: list) -> Optional[str]:
+        """يستعيد التاقات. يُرجع None إذا فُقد marker (التحقق أصرم)."""
+        if not tokens:
+            return translated
+        if translated is None:
+            return None
+
+        # تحقق دقيق: كل marker موجود مرة واحدة بالضبط
+        for idx, (kind, name, attrs, _inner) in enumerate(tokens):
+            if kind == "paired":
+                op = f"{_BP_OPEN}{idx}{_BP_CLOSE}"
+                cl = f"{_BP_OPEN}/{idx}{_BP_CLOSE}"
+                if translated.count(op) != 1 or translated.count(cl) != 1:
+                    return None
+            elif kind == "self":
+                mk = f"{_BP_OPEN}*{idx}{_BP_CLOSE}"
+                if translated.count(mk) != 1:
+                    return None
+
+        # تحقق ترتيب: ⟦/N⟧ يأتي بعد ⟦N⟧ لكل paired
+        for idx, (kind, _name, _attrs, _inner) in enumerate(tokens):
+            if kind == "paired":
+                op = f"{_BP_OPEN}{idx}{_BP_CLOSE}"
+                cl = f"{_BP_OPEN}/{idx}{_BP_CLOSE}"
+                if translated.index(op) >= translated.index(cl):
+                    return None
+
+        # استعد بترتيب عكسي لتجنّب prefix collisions
+        for idx in range(len(tokens) - 1, -1, -1):
+            kind, name, attrs, _inner = tokens[idx]
+            if kind == "paired":
+                opener = f"<{name}{attrs}>"
+                closer = f"</{name}>"
+                translated = translated.replace(f"{_BP_OPEN}{idx}{_BP_CLOSE}", opener)
+                translated = translated.replace(f"{_BP_OPEN}/{idx}{_BP_CLOSE}", closer)
+            elif kind == "self":
+                fulltag = f"<{name}{attrs}>"
+                translated = translated.replace(f"{_BP_OPEN}*{idx}{_BP_CLOSE}", fulltag)
+
+        return translated
+
+    def _handle_paired(self, m: re.Match, tokens: list) -> str:
+        name = m.group("name").lower()
+        attrs = m.group("attrs") or ""
+        inner = m.group("inner") or ""
+        if name in self.inline_tags and not attrs.strip():
+            return m.group(0)
+        idx = len(tokens)
+        tokens.append(("paired", m.group("name"), attrs, None))
+        return f"{_BP_OPEN}{idx}{_BP_CLOSE}{inner}{_BP_OPEN}/{idx}{_BP_CLOSE}"
+
+    def _handle_selfclose(self, m: re.Match, tokens: list) -> str:
+        idx = len(tokens)
+        tokens.append(("self", m.group("name"), m.group("attrs") or "", None))
+        return f"{_BP_OPEN}*{idx}{_BP_CLOSE}"

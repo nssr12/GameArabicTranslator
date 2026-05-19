@@ -16,6 +16,6 @@
   "bepinex_mod": {},
   "apply_bidi": false,
   "text_reorder_char_limit": 0,
-  "tag_mode": "tiered",
+  "tag_mode": "bulletproof",
   "translate_timeout": 60
 }
