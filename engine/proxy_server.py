@@ -150,12 +150,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     pass
             if srv:
                 srv._stat_request_finished(from_cache, unchanged=was_unchanged)
-            self._respond(200, arabic.encode("utf-8"), "text/plain; charset=utf-8")
+            try:
+                self._respond(200, arabic.encode("utf-8"), "text/plain; charset=utf-8")
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                # XUnity أنهى الاتصال قبل أن نُجيب (تأخّر AI أو إغلاق اللعبة)
+                pass
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # تجاهل صامت — العميل اختفى
+            if srv:
+                srv._stat_request_finished(False, failed=True)
         except Exception as e:
             print(f"[Proxy] Error: {e}")
             if srv:
                 srv._stat_request_finished(False, failed=True)
-            self._respond(200, text.encode("utf-8"), "text/plain; charset=utf-8")
+            try:
+                self._respond(200, text.encode("utf-8"), "text/plain; charset=utf-8")
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
 
     def _respond(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
@@ -187,8 +198,9 @@ class ProxyServer:
         self._tiered_filter      = TieredTagFilter()
         self._bulletproof_filter = BulletproofTagFilter()
         self._timeout      = 0      # >0 → سيُطبَّق على المحرّك عند start()
-        self._server: http.server.HTTPServer | None = None
+        self._server: http.server.ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None       = None
+        self._engine_lock  = threading.Lock()   # يسلسل استدعاءات المحرّك (Ollama single-instance)
         self.log_callback  = None   # callable(str) | None — thread-safe via Qt Signal
         # إحصاءات الترجمة (Thread-safe عبر Lock)
         self._stats_lock     = threading.Lock()
@@ -275,7 +287,10 @@ class ProxyServer:
         _Handler.proxy  = self
 
         try:
-            self._server = http.server.HTTPServer(("127.0.0.1", self.PORT), _Handler)
+            # ThreadingHTTPServer: كل طلب في خيط مستقل
+            # → cache hits سريعة، لا تنتظر AI calls الطويلة في خيوط أخرى
+            self._server = http.server.ThreadingHTTPServer(("127.0.0.1", self.PORT), _Handler)
+            self._server.daemon_threads = True  # لا تمنع إغلاق التطبيق
         except OSError as e:
             return False, f"تعذّر فتح المنفذ {self.PORT}: {e}"
 
@@ -507,18 +522,27 @@ class ProxyServer:
         succeeded_mode = self._tag_mode  # سنُحدّثها لو bulletproof fallback نشط
         modes_attempted = ""             # للـ failed_translations لو فشل كل شيء
         if self._engine:
-            if self._tag_mode == "bulletproof":
-                result, info = self._translate_with_bulletproof(text)
-                if result:
-                    succeeded_mode = info  # bulletproof | tiered | strip
+            # Lock يمنع استدعاءين متوازيين للمحرّك (Ollama instance واحد)
+            # cache lookup فوقه تَمَّ بدون lock → cache hits تظل سريعة
+            with self._engine_lock:
+                # تحقق من الكاش مرة أخرى داخل الـ lock — قد يكون thread آخر
+                # ترجم نفس النص بينما كنا ننتظر
+                if self._cache and self._game_name:
+                    cached2 = self._cache.get(self._game_name, text)
+                    if cached2:
+                        return cached2, True, False
+                if self._tag_mode == "bulletproof":
+                    result, info = self._translate_with_bulletproof(text)
+                    if result:
+                        succeeded_mode = info  # bulletproof | tiered | strip
+                    else:
+                        modes_attempted = info
+                elif self._tag_mode == "tiered":
+                    result = self._translate_with_tiered_tags(text)
+                elif self._tag_mode == "strip" or self._strip_tags:
+                    result = self._translate_with_tag_stripping(text)
                 else:
-                    modes_attempted = info  # CSV من الأوضاع المُجرَّبة
-            elif self._tag_mode == "tiered":
-                result = self._translate_with_tiered_tags(text)
-            elif self._tag_mode == "strip" or self._strip_tags:
-                result = self._translate_with_tag_stripping(text)
-            else:
-                result = self._engine.translate(text)
+                    result = self._engine.translate(text)
 
         if result and self._cache and self._game_name:
             if result == text:
