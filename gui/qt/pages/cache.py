@@ -297,12 +297,38 @@ class EditDialog(QWidget):
         div.setFrameShape(QFrame.VLine)
         div.setStyleSheet(f"color: {c['border']};")
 
-        # Arabic (editable) — LTR لعرض النص الخام كما هو مُخزَّن
-        # (حتى لا يُعيد BiDi ترتيب التاقات بشكل مختلف عن صفحة الترجمة الفورية)
+        # Arabic (editable) — يبدأ بـ LTR، قابل للتبديل عبر زر 🔁
         rp = QVBoxLayout()
         rp.setSpacing(6)
+
+        # Header: عنوان + زر تبديل الاتجاه
+        rh = QHBoxLayout()
+        rh.setContentsMargins(0, 0, 0, 0)
         rl = QLabel("🌐  الترجمة العربية — قابل للتعديل")
         rl.setObjectName("field_label")
+        rh.addWidget(rl)
+        rh.addStretch()
+
+        self._trans_dir = "LTR"
+        self._trans_dir_btn = QPushButton("🔁 LTR")
+        self._trans_dir_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._trans_dir_btn.setToolTip(
+            "تبديل اتجاه العرض:\n"
+            "LTR: نص خام بترتيبه الفعلي\n"
+            "RTL: BiDi كما يظهر باللعبة"
+        )
+        self._trans_dir_btn.setFixedHeight(22)
+        self._trans_dir_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {c['muted']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                padding: 2px 8px; font-size: 10px;
+            }}
+            QPushButton:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
+        """)
+        self._trans_dir_btn.clicked.connect(self._toggle_trans_direction)
+        rh.addWidget(self._trans_dir_btn)
+
         self._trans = QTextEdit()
         self._trans.setLayoutDirection(Qt.LeftToRight)
         from PySide6.QtGui import QTextOption
@@ -323,7 +349,7 @@ class EditDialog(QWidget):
             }}
             QTextEdit:focus {{ border-color: {c['teal']}; }}
         """)
-        rp.addWidget(rl)
+        rp.addLayout(rh)
         rp.addWidget(self._trans)
 
         bl.addLayout(lp, 1)
@@ -441,6 +467,17 @@ class EditDialog(QWidget):
         self._cache.update_translation(self._game, self._entry["original"], raw)
         self.saved.emit()
         self._dlg.accept()
+
+    def _toggle_trans_direction(self):
+        """يبدّل اتجاه عرض حقل تعديل الترجمة بين LTR و RTL."""
+        from PySide6.QtGui import QTextOption
+        self._trans_dir = "RTL" if self._trans_dir == "LTR" else "LTR"
+        self._trans_dir_btn.setText(f"🔁 {self._trans_dir}")
+        qt_dir = Qt.RightToLeft if self._trans_dir == "RTL" else Qt.LeftToRight
+        self._trans.setLayoutDirection(qt_dir)
+        opt = QTextOption()
+        opt.setTextDirection(qt_dir)
+        self._trans.document().setDefaultTextOption(opt)
 
     def exec(self) -> bool:
         return self._dlg.exec() == 1

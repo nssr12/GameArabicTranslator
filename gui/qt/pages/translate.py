@@ -256,15 +256,20 @@ class HistoryEntry(QFrame):
         lay.setContentsMargins(14, 10, 14, 10)
         lay.setSpacing(6)
 
+        # نخزّن مراجع للـ labels التي يجب أن تتبع اتجاه العرض
+        self._direction_labels: list = []
+
         # Top: original + tag mode badge + model badge
         top = QHBoxLayout()
         orig_lbl = QLabel(original if len(original) < 100 else original[:97] + "…")
         orig_lbl.setTextFormat(Qt.PlainText)  # اعرض <b>, <color> كنص خام لا HTML
+        orig_lbl.setLayoutDirection(Qt.LeftToRight)
         orig_lbl.setStyleSheet(
             f"color: {c['muted']}; font-size: 11px;"
             " background: transparent; border: none;"
         )
         orig_lbl.setWordWrap(True)
+        self._direction_labels.append(orig_lbl)
         top.addWidget(orig_lbl, 1)
 
         if tag_mode:
@@ -297,11 +302,13 @@ class HistoryEntry(QFrame):
         if sent_to_engine and sent_to_engine != original:
             sent_lbl = QLabel(f"📤 للمحرّك: {sent_to_engine if len(sent_to_engine) < 120 else sent_to_engine[:117]+'…'}")
             sent_lbl.setTextFormat(Qt.PlainText)  # نص خام لإظهار <b>, <color> حرفياً
+            sent_lbl.setLayoutDirection(Qt.LeftToRight)
             sent_lbl.setStyleSheet(
                 f"color: {c['teal']}; font-size: 10px; font-family: Consolas, monospace;"
                 " background: transparent; border: none;"
             )
             sent_lbl.setWordWrap(True)
+            self._direction_labels.append(sent_lbl)
             lay.addWidget(sent_lbl)
 
         # سجلّ محاولات الـ cascade
@@ -325,6 +332,7 @@ class HistoryEntry(QFrame):
             )
             trans_lbl.setWordWrap(True)
             trans_lbl.setLayoutDirection(Qt.LeftToRight)
+            self._direction_labels.append(trans_lbl)
             lay.addWidget(trans_lbl)
 
             # Copy button
@@ -351,6 +359,14 @@ class HistoryEntry(QFrame):
                 " background: transparent; border: none;"
             )
             lay.addWidget(err_lbl)
+
+    def set_display_direction(self, qt_dir):
+        """يُحدّث اتجاه عرض كل النصوص في هذا العنصر."""
+        for lbl in self._direction_labels:
+            try:
+                lbl.setLayoutDirection(qt_dir)
+            except Exception:
+                pass
 
 
 # ── Translate page ────────────────────────────────────────────────────────────
@@ -595,6 +611,27 @@ class TranslatePage(QWidget):
         out_hdr_lbl.setStyleSheet(
             f"color: {c['muted']}; font-size: 10px; background: transparent; border: none;"
         )
+
+        # 🔁 زر تبديل الاتجاه — يُحاكي ما يظهر باللعبة (RTL) أو نص خام (LTR)
+        self._direction = "LTR"   # حالة افتراضية
+        self._dir_btn = QToolButton()
+        self._dir_btn.setText("🔁 LTR")
+        self._dir_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._dir_btn.setToolTip(
+            "تبديل اتجاه العرض:\n"
+            "LTR: نص خام بترتيبه الفعلي (للاختبار التقني)\n"
+            "RTL: ترتيب BiDi كما يظهر باللعبة (لمشاهدة النتيجة النهائية)"
+        )
+        self._dir_btn.setStyleSheet(f"""
+            QToolButton {{
+                background: transparent; border: 1px solid {c['border']};
+                border-radius: 4px; color: {c['muted']};
+                font-size: 10px; padding: 2px 8px;
+            }}
+            QToolButton:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
+        """)
+        self._dir_btn.clicked.connect(self._toggle_direction)
+
         self._copy_btn = QToolButton()
         self._copy_btn.setText("📋 نسخ")
         self._copy_btn.setEnabled(False)
@@ -610,6 +647,7 @@ class TranslatePage(QWidget):
         self._copy_btn.clicked.connect(self._copy_output)
         out_hdr.addWidget(out_hdr_lbl)
         out_hdr.addStretch()
+        out_hdr.addWidget(self._dir_btn)
         out_hdr.addWidget(self._copy_btn)
 
         out_hdr_frame = QFrame()
@@ -798,6 +836,28 @@ class TranslatePage(QWidget):
             QApplication.clipboard().setText(txt)
             self.status_message.emit("✓  تم نسخ النص")
 
+    def _toggle_direction(self):
+        """يبدّل اتجاه عرض حقول الإدخال/الإخراج والسجل بأكمله."""
+        self._direction = "RTL" if self._direction == "LTR" else "LTR"
+        self._dir_btn.setText(f"🔁 {self._direction}")
+        qt_dir = Qt.RightToLeft if self._direction == "RTL" else Qt.LeftToRight
+        # حقول الإدخال والإخراج
+        for w in (self._input, self._output):
+            w.setLayoutDirection(qt_dir)
+            opt = QTextOption()
+            opt.setTextDirection(qt_dir)
+            w.document().setDefaultTextOption(opt)
+        # كل عناصر السجل
+        self._apply_direction_to_history(qt_dir)
+
+    def _apply_direction_to_history(self, qt_dir):
+        """يُحدّث اتجاه كل HistoryEntry موجود."""
+        for i in range(self._history_lay.count()):
+            item = self._history_lay.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, HistoryEntry):
+                w.set_display_direction(qt_dir)
+
     def _do_translate(self):
         text = self._input.toPlainText().strip()
         if not text:
@@ -932,6 +992,9 @@ class TranslatePage(QWidget):
         entry = HistoryEntry(original, translated, model, success,
                              tag_mode=tag_mode, sent_to_engine=sent_to_engine,
                              attempts_log=attempts_log)
+        # طبّق الاتجاه الحالي على العنصر الجديد
+        qt_dir = Qt.RightToLeft if self._direction == "RTL" else Qt.LeftToRight
+        entry.set_display_direction(qt_dir)
         entry.copy_requested.connect(
             lambda t: QApplication.clipboard().setText(t) or
                       self.status_message.emit("✓  تم نسخ الترجمة")
