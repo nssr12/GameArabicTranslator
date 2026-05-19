@@ -156,6 +156,7 @@ class HistoryEntry(QFrame):
         # Top: original + tag mode badge + model badge
         top = QHBoxLayout()
         orig_lbl = QLabel(original if len(original) < 100 else original[:97] + "…")
+        orig_lbl.setTextFormat(Qt.PlainText)  # اعرض <b>, <color> كنص خام لا HTML
         orig_lbl.setStyleSheet(
             f"color: {c['muted']}; font-size: 11px;"
             " background: transparent; border: none;"
@@ -192,6 +193,7 @@ class HistoryEntry(QFrame):
         # أُرسِل للمحرّك (إذا اختلف عن الأصل بسبب الفلتر)
         if sent_to_engine and sent_to_engine != original:
             sent_lbl = QLabel(f"📤 للمحرّك: {sent_to_engine if len(sent_to_engine) < 120 else sent_to_engine[:117]+'…'}")
+            sent_lbl.setTextFormat(Qt.PlainText)  # نص خام لإظهار <b>, <color> حرفياً
             sent_lbl.setStyleSheet(
                 f"color: {c['teal']}; font-size: 10px; font-family: Consolas, monospace;"
                 " background: transparent; border: none;"
@@ -199,9 +201,10 @@ class HistoryEntry(QFrame):
             sent_lbl.setWordWrap(True)
             lay.addWidget(sent_lbl)
 
-        # Translation text — LTR لعرض النص الخام كما رجع من المحرّك بدون إعادة ترتيب BiDi
+        # Translation text — LTR + PlainText لعرض النص الخام كما رجع من المحرّك
         if success and translated:
             trans_lbl = QLabel(translated if len(translated) < 200 else translated[:197] + "…")
+            trans_lbl.setTextFormat(Qt.PlainText)
             trans_lbl.setStyleSheet(
                 f"color: {c['green']}; font-size: 13px; font-weight: bold;"
                 " background: transparent; border: none;"
@@ -228,6 +231,7 @@ class HistoryEntry(QFrame):
             lay.addLayout(btn_row)
         else:
             err_lbl = QLabel(f"✗  {translated or 'فشلت الترجمة'}")
+            err_lbl.setTextFormat(Qt.PlainText)
             err_lbl.setStyleSheet(
                 f"color: {c['accent']}; font-size: 12px;"
                 " background: transparent; border: none;"
