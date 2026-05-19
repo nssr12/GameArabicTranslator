@@ -361,10 +361,20 @@ class HistoryEntry(QFrame):
             lay.addWidget(err_lbl)
 
     def set_display_direction(self, qt_dir):
-        """يُحدّث اتجاه عرض كل النصوص في هذا العنصر."""
+        """يُحدّث اتجاه عرض كل النصوص في هذا العنصر.
+        setLayoutDirection لوحده لا يكفي لـ QLabel — نضيف Alignment
+        + إعادة رسم لإجبار BiDi reordering على الانعكاس."""
+        align = (Qt.AlignRight | Qt.AlignVCenter) if qt_dir == Qt.RightToLeft \
+                else (Qt.AlignLeft | Qt.AlignVCenter)
         for lbl in self._direction_labels:
             try:
                 lbl.setLayoutDirection(qt_dir)
+                # احفظ Vertical alignment الأصلي
+                cur = lbl.alignment()
+                v_part = cur & Qt.AlignVertical_Mask
+                h_part = Qt.AlignRight if qt_dir == Qt.RightToLeft else Qt.AlignLeft
+                lbl.setAlignment(h_part | v_part)
+                lbl.update()  # أعد الرسم
             except Exception:
                 pass
 
@@ -500,14 +510,16 @@ class TranslatePage(QWidget):
         theme.style_combo(self._src_combo)
         self._src_combo.setCurrentIndex(0)   # en
 
-        swap_btn = QPushButton("⇄")
+        # ↔ (U+2194) أكثر دعماً في الخطوط من ⇄ (U+21C4) الذي يظهر كمربع فارغ
+        swap_btn = QPushButton("↔")
         swap_btn.setFixedSize(30, 30)
         swap_btn.setCursor(QCursor(Qt.PointingHandCursor))
         swap_btn.setToolTip("تبديل اللغتين")
         swap_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {c['surface']}; color: {c['secondary']};
-                border: 1px solid {c['border']}; border-radius: 6px; font-size: 14px;
+                border: 1px solid {c['border']}; border-radius: 6px;
+                font-size: 16px; font-weight: bold;
             }}
             QPushButton:hover {{ background: {c['hover']}; color: {c['accent']}; }}
         """)
