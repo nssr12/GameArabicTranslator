@@ -959,15 +959,8 @@ class GameDetailDialog(QDialog):
         game_name = self._cfg.get("name", self._game_id)
         if proxy.is_running and proxy.game_name == self._game_id:
             proxy.stop()
-            try:
-                if self._game_manager and self._cache:
-                    cfg = self._bepinex_cfg()
-                    game_path = cfg.get("game_path", "")
-                    if game_path and os.path.isdir(game_path) and "bepinex_mod" in cfg:
-                        from games.bepinex_mod import BepInExMod
-                        BepInExMod().export_static_translations_txt(cfg, game_path, self._cache)
-            except Exception:
-                pass
+            # لا نُصدّر translations.txt تلقائياً — يتحكّم المستخدم
+            # عبر زر "🔄 تحديث الترجمات" فقط
         else:
             ok, msg = proxy.start(self._game_id, cfg=self._cfg)
             if not ok:

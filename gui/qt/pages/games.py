@@ -1765,8 +1765,8 @@ class GamesPage(QWidget):
         if proxy.is_running and proxy.game_name == game_id:
             msg = proxy.stop()
             self.status_message.emit(msg)
-            # توليد translations.txt تلقائياً بعد إيقاف الـ proxy
-            self._auto_export_translations(game_id)
+            # ملاحظة: لا نُصدّر translations.txt تلقائياً — المستخدم يتحكم
+            # عبر زر "🔄 تحديث الترجمات" في صفحة تفاصيل اللعبة فقط
         else:
             game_cfg = self._game_manager.get_game(game_id) if self._game_manager else {}
             ok, msg  = proxy.start(game_id, cfg=game_cfg or {})
@@ -1778,23 +1778,9 @@ class GamesPage(QWidget):
         if self._detail._game_id == game_id:
             self._detail.load(game_id, self._detail._game_cfg)
 
-    def _auto_export_translations(self, game_id: str):
-        """يُولِّد translations.txt من الكاش بعد جلسة الترجمة — صامت، لا يُظهر رسائل خطأ."""
-        try:
-            if not self._game_manager or not self._cache:
-                return
-            cfg = self._game_manager.get_game(game_id) or {}
-            if "bepinex_mod" not in cfg:
-                return
-            game_path = cfg.get("game_path", "")
-            if not game_path or not os.path.isdir(game_path):
-                return
-            from games.bepinex_mod import BepInExMod
-            ok, msg, count = BepInExMod().export_static_translations_txt(cfg, game_path, self._cache)
-            if ok and count:
-                self.status_message.emit(f"📝  تم تحديث translations.txt  ({count:,} ترجمة)")
-        except Exception as e:
-            print(f"[auto_export] {e}")
+    # ملاحظة: حُذِفت _auto_export_translations()
+    # المستخدم يتحكّم بإنشاء translations.txt يدوياً عبر زر "🔄 تحديث الترجمات"
+    # في صفحة تفاصيل اللعبة (مع اختيار النموذج).
 
 
     def _after_save(self, game_id: str, cfg: dict):
