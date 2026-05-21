@@ -1506,18 +1506,61 @@ namespace ArabicGameTranslatorMVP.Flotsam
             RegexOptions.Compiled
         );
 
+        // يقلب الأقواس () و[] لتظهر بمواضعها الصحيحة في عرض RTL
+        // (TMP لا يُطبّق Unicode bracket mirroring بشكل موثوق على نصوص مختلطة)
+        private static string SwapBracketsForRtl(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length);
+            foreach (char ch in s)
+            {
+                switch (ch)
+                {
+                    case '(': sb.Append(')'); break;
+                    case ')': sb.Append('('); break;
+                    case '[': sb.Append(']'); break;
+                    case ']': sb.Append('['); break;
+                    case '{': sb.Append('}'); break;
+                    case '}': sb.Append('{'); break;
+                    default:  sb.Append(ch); break;
+                }
+            }
+            return sb.ToString();
+        }
+
         private static string PreReverseLtrRunsForRtl(string text)
         {
-            return TagOrLtrRunRegex.Replace(text, m =>
+            // نتعامل مع 3 أنواع من المقاطع:
+            //   1) تاق <...> → نتركه كما هو (يحتاج TMP يفهمه)
+            //   2) LTR run (حروف/أرقام) → نعكسه (TMP يُعيده لاتجاهه الصحيح)
+            //   3) باقي النص (عربي + رموز) → نُقلب الأقواس () [] {}
+            var result = new System.Text.StringBuilder(text.Length);
+            int pos = 0;
+            foreach (Match m in TagOrLtrRunRegex.Matches(text))
             {
+                // الفجوة قبل الـ match (نص عادي خارج التاقات والـ LTR runs)
+                if (m.Index > pos)
+                {
+                    result.Append(SwapBracketsForRtl(text.Substring(pos, m.Index - pos)));
+                }
+                // الـ match نفسه
                 if (m.Groups[1].Success)
                 {
-                    // تاق كامل <...> — اتركه كما هو حتى يُعالجه TMP
-                    return m.Value;
+                    result.Append(m.Value);              // تاق — verbatim
                 }
-                // LTR run خارج تاق — اعكسه ليُعيده TMP لوضعه الصحيح في RTL
-                return new string(m.Value.Reverse().ToArray());
-            });
+                else
+                {
+                    char[] chars = m.Value.ToCharArray();
+                    System.Array.Reverse(chars);
+                    result.Append(chars);                // LTR run — معكوس
+                }
+                pos = m.Index + m.Length;
+            }
+            // أي نص متبقّي بعد آخر match
+            if (pos < text.Length)
+            {
+                result.Append(SwapBracketsForRtl(text.Substring(pos)));
+            }
+            return result.ToString();
         }
 
         private static void SanitizeTextSetterPrefix(ref string value)
