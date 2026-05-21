@@ -8,7 +8,7 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QScrollArea, QSizePolicy, QMessageBox, QSpacerItem, QProgressBar,
-    QSplitter, QPlainTextEdit, QCheckBox, QSpinBox, QComboBox,
+    QSplitter, QPlainTextEdit, QCheckBox, QSpinBox, QComboBox, QDialog,
 )
 from PySide6.QtCore  import Qt, Signal, QThread, QTimer
 from PySide6.QtGui   import QCursor, QFont
@@ -1111,6 +1111,22 @@ class LogPanel(QWidget):
             f"             padding: 2px 4px; font-size: 11px; min-width: 220px; }}"
         )
 
+        # زر تحرير قائمة التاقات المحمية
+        self._tag_config_btn = QPushButton("⚙")
+        self._tag_config_btn.setFixedSize(24, 24)
+        self._tag_config_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._tag_config_btn.setToolTip(
+            "تحرير قائمة التاقات المحمية\n"
+            "أضف تاقات مخصصة لتُحمى مع Tiered/Bulletproof"
+        )
+        self._tag_config_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {c['muted']};"
+            f"               border: 1px solid {c['border']}; border-radius: 4px;"
+            f"               font-size: 12px; }}"
+            f"QPushButton:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}"
+        )
+        self._tag_config_btn.clicked.connect(self._on_open_tag_config)
+
         timeout_lbl = QLabel("⏱  مهلة الـ AI (ث):")
         self._timeout_spin = QSpinBox()
         self._timeout_spin.setRange(10, 600)
@@ -1125,6 +1141,7 @@ class LogPanel(QWidget):
 
         cb_lay.addWidget(tag_lbl)
         cb_lay.addWidget(self._tag_mode_combo)
+        cb_lay.addWidget(self._tag_config_btn)
         cb_lay.addStretch()
         cb_lay.addWidget(timeout_lbl)
         cb_lay.addWidget(self._timeout_spin)
@@ -1190,6 +1207,13 @@ class LogPanel(QWidget):
     def _poll_stats(self):
         if self._proxy_ref and self._proxy_ref.is_running:
             self._on_stats(self._proxy_ref.get_stats())
+
+    def _on_open_tag_config(self):
+        """يفتح حوار تحرير قائمة التاقات المحمية."""
+        from gui.qt.dialogs.tag_config_dialog import TagConfigDialog
+        dlg = TagConfigDialog(parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.log_message.emit("✓ حُفظت إعدادات التاقات وأُعيد تحميل الفلتر")
 
     def _on_tag_mode_changed(self, index: int):
         if not self._proxy_ref:

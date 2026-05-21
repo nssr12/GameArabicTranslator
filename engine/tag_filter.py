@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from .tag_config import load_config
+
 
 # ── أنماط التعرّف على التاقات ─────────────────────────────────────────────
 # تاقات مزدوجة <tag>...</tag> مع سمات اختيارية.
@@ -29,16 +31,36 @@ _PAIRED_TAG_RE = re.compile(
     re.DOTALL
 )
 
-# تاقات مستقلة self-closing: <br>, <br/>, <sprite ...>, <hr>
-_SELFCLOSE_RE = re.compile(
-    r'<(?P<name>sprite|br|hr|img|page|nobr)'
-    r'(?P<attrs>[^>/]*?)'
-    r'\s*/?>',
-    re.IGNORECASE
-)
 
-# تاقات بسيطة تبقى inline (لا تحتاج سمات معقدة)
-_INLINE_TAGS = frozenset({'b', 'i', 'u', 'em', 'strong', 's', 'mark', 'noparse'})
+def _build_selfclose_re(tags: list[str]) -> re.Pattern:
+    """يبني regex من قائمة تاقات self-closing الحالية."""
+    if not tags:
+        tags = ["sprite", "br", "hr", "img", "page", "nobr"]
+    names = "|".join(re.escape(t) for t in tags)
+    return re.compile(
+        r'<(?P<name>' + names + r')'
+        r'(?P<attrs>[^>/]*?)'
+        r'\s*/?>',
+        re.IGNORECASE
+    )
+
+
+def _load_filter_config() -> tuple[frozenset, re.Pattern]:
+    """يقرأ الإعدادات الحالية ويُرجع (inline_set, selfclose_regex)."""
+    cfg = load_config()
+    inline = frozenset(cfg["inline_tags"])
+    selfclose_re = _build_selfclose_re(cfg["selfclosing_tags"])
+    return inline, selfclose_re
+
+
+# نُحمّل عند الاستيراد لكن نُتيح إعادة التحميل عبر reload_tag_config()
+_INLINE_TAGS, _SELFCLOSE_RE = _load_filter_config()
+
+
+def reload_tag_config() -> None:
+    """يُعيد قراءة إعدادات التاقات من الملف. يُستدعى بعد حفظ المستخدم."""
+    global _INLINE_TAGS, _SELFCLOSE_RE
+    _INLINE_TAGS, _SELFCLOSE_RE = _load_filter_config()
 
 
 class TieredTagFilter:
@@ -55,8 +77,10 @@ class TieredTagFilter:
             ...
     """
 
-    def __init__(self, inline_tags: frozenset = _INLINE_TAGS):
-        self.inline_tags = inline_tags
+    def __init__(self, inline_tags: Optional[frozenset] = None):
+        # نقرأ من الإعدادات الحالية لو لم يُمرَّر شيء
+        self.inline_tags = inline_tags if inline_tags is not None else _INLINE_TAGS
+        self._selfclose_re = _SELFCLOSE_RE
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -80,7 +104,7 @@ class TieredTagFilter:
             result = new_result
 
         # المرحلة 2: التاقات المستقلة (لا تتداخل بطبيعتها)
-        result = _SELFCLOSE_RE.sub(
+        result = self._selfclose_re.sub(
             lambda m: self._handle_selfclose(m, tokens),
             result,
         )
@@ -168,8 +192,9 @@ class BulletproofTagFilter:
       - متوافق مع TagValidator للفحص الصارم
     """
 
-    def __init__(self, inline_tags: frozenset = _INLINE_TAGS):
-        self.inline_tags = inline_tags
+    def __init__(self, inline_tags: Optional[frozenset] = None):
+        self.inline_tags = inline_tags if inline_tags is not None else _INLINE_TAGS
+        self._selfclose_re = _SELFCLOSE_RE
 
     def strip(self, text: str) -> tuple[str, list]:
         if not text or '<' not in text:
@@ -189,7 +214,7 @@ class BulletproofTagFilter:
             result = new_result
 
         # self-closing
-        result = _SELFCLOSE_RE.sub(
+        result = self._selfclose_re.sub(
             lambda m: self._handle_selfclose(m, tokens),
             result,
         )
