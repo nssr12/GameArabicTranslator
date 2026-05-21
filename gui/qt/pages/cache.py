@@ -249,6 +249,9 @@ class EditDialog(QWidget):
         self._dlg.setWindowTitle("تعديل الترجمة")
         self._dlg.setMinimumSize(820, 640)
         self._dlg.resize(960, 700)
+        # نافذة مستقلة — لا تمنع التفاعل مع التطبيق ولا حواراً آخر
+        self._dlg.setWindowFlags(Qt.Window)
+        self._dlg.setModal(False)
         self._game  = game_name
         self._entry = entry
         self._cache = cache
@@ -1059,10 +1062,19 @@ class CachePage(QWidget):
             return
         entry = entries[0]
         game  = entry.get("game", self._game)
-        dlg   = EditDialog(game, entry, self._cache, self)
+        # نخزّن المرجع لتجنّب تجميع القمامة، ونفتح بـ show() بدل exec()
+        # حتى لا يحجب الصفحة الرئيسية ولا حواراً آخر
+        if not hasattr(self, "_open_edit_dialogs"):
+            self._open_edit_dialogs = []
+        dlg = EditDialog(game, entry, self._cache, self)
         dlg.saved.connect(self._load_table)
-        if dlg.exec():
-            self.status_message.emit("✓  الترجمة حُفّظت")
+        dlg.saved.connect(lambda: self.status_message.emit("✓  الترجمة حُفّظت"))
+        # احذف المرجع عند الإغلاق
+        dlg._dlg.finished.connect(lambda _r, d=dlg: self._open_edit_dialogs.remove(d) if d in self._open_edit_dialogs else None)
+        self._open_edit_dialogs.append(dlg)
+        dlg._dlg.show()
+        dlg._dlg.raise_()
+        dlg._dlg.activateWindow()
 
     def _delete_selected(self):
         entries = self._get_selected_entries()

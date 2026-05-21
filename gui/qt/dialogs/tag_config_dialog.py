@@ -32,6 +32,9 @@ class TagConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("إعدادات حماية التاقات")
         self.setMinimumSize(780, 720)
+        # نافذة مستقلة (top-level) — لا تمنع التفاعل مع التطبيق
+        self.setWindowFlags(Qt.Window)
+        self.setModal(False)
         self._cfg = load_config()
         self._build()
 
@@ -39,35 +42,55 @@ class TagConfigDialog(QDialog):
 
     def _build(self):
         c = theme.c
+        # ألوان موثوقة — نتجنّب الاعتماد على c['primary'] في كل مكان لأنه قد يكون فاتحاً
+        # خلفية النافذة داكنة، النصوص فاتحة لضمان التباين
+        TEXT_BRIGHT = c.get('secondary', '#e8e8e8')   # نص أبيض/فاتح للقراءة
+        TEXT_MUTED  = c.get('muted', '#9a9a9a')
+        ACCENT      = c.get('accent', '#e94560')
+        TEAL        = c.get('teal', '#00d2ff')
         self.setStyleSheet(f"""
-            QDialog {{ background: {c['bg']}; }}
-            QLabel  {{ color: {c['primary']}; background: transparent; }}
+            QDialog {{ background: {c['bg']}; color: {TEXT_BRIGHT}; }}
+            QLabel  {{ color: {TEXT_BRIGHT}; background: transparent; }}
             QListWidget {{
-                background: {c['card']}; color: {c['primary']};
+                background: {c['card']}; color: {TEXT_BRIGHT};
                 border: 1px solid {c['border']}; border-radius: 6px;
                 font-family: Consolas, monospace; font-size: 12px;
                 padding: 4px;
             }}
-            QListWidget::item {{ padding: 4px 8px; }}
+            QListWidget::item {{ padding: 4px 8px; color: {TEXT_BRIGHT}; }}
             QListWidget::item:selected {{
-                background: {c['primary']}; color: white;
+                background: {ACCENT}; color: white;
             }}
-            QLineEdit {{
-                background: {c['card2']}; color: {c['primary']};
+            QLineEdit, QTextEdit {{
+                background: {c['card2']}; color: {TEXT_BRIGHT};
                 border: 1px solid {c['border']}; border-radius: 4px;
-                padding: 4px 8px; font-size: 12px;
+                padding: 6px 8px; font-size: 12px;
+                selection-background-color: {ACCENT};
+            }}
+            QLineEdit::placeholder, QTextEdit::placeholder {{
+                color: {TEXT_MUTED};
             }}
             QPushButton {{
-                background: {c['surface']}; color: {c['primary']};
+                background: {c['surface']}; color: {TEXT_BRIGHT};
                 border: 1px solid {c['border']}; border-radius: 4px;
-                padding: 6px 14px; font-size: 12px;
+                padding: 6px 14px; font-size: 12px; font-weight: 500;
             }}
-            QPushButton:hover {{ background: {c['hover']}; }}
+            QPushButton:hover {{
+                background: {c['hover']}; color: white;
+                border-color: {ACCENT};
+            }}
             QPushButton#primary {{
-                background: {c['primary']}; color: white; border: none;
+                background: {ACCENT}; color: white; border: 1px solid {ACCENT};
+                font-weight: bold;
             }}
+            QPushButton#primary:hover {{ background: {TEAL}; border-color: {TEAL}; }}
             QPushButton#danger {{
-                background: {c['accent']}; color: white; border: none;
+                background: {c['accent']}; color: white;
+                border: 1px solid {c['accent']}; font-weight: bold;
+            }}
+            QPushButton:disabled {{
+                background: {c['card']}; color: {TEXT_MUTED};
+                border-color: {c['border']};
             }}
         """)
         root = QVBoxLayout(self)

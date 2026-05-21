@@ -1111,19 +1111,20 @@ class LogPanel(QWidget):
             f"             padding: 2px 4px; font-size: 11px; min-width: 220px; }}"
         )
 
-        # زر تحرير قائمة التاقات المحمية
-        self._tag_config_btn = QPushButton("⚙")
-        self._tag_config_btn.setFixedSize(24, 24)
+        # زر تحرير قائمة التاقات المحمية — 🏷 emoji يظهر في كل الخطوط
+        self._tag_config_btn = QPushButton("🏷  قائمة")
+        self._tag_config_btn.setFixedHeight(26)
         self._tag_config_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self._tag_config_btn.setToolTip(
             "تحرير قائمة التاقات المحمية\n"
             "أضف تاقات مخصصة لتُحمى مع Tiered/Bulletproof"
         )
         self._tag_config_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {c['muted']};"
+            f"QPushButton {{ background: transparent; color: {c['secondary']};"
             f"               border: 1px solid {c['border']}; border-radius: 4px;"
-            f"               font-size: 12px; }}"
-            f"QPushButton:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}"
+            f"               padding: 0 10px; font-size: 11px; font-weight: 500; }}"
+            f"QPushButton:hover {{ color: white; background: {c['accent']};"
+            f"                     border-color: {c['accent']}; }}"
         )
         self._tag_config_btn.clicked.connect(self._on_open_tag_config)
 
@@ -1209,11 +1210,26 @@ class LogPanel(QWidget):
             self._on_stats(self._proxy_ref.get_stats())
 
     def _on_open_tag_config(self):
-        """يفتح حوار تحرير قائمة التاقات المحمية."""
+        """يفتح حوار تحرير قائمة التاقات المحمية (غير-modal)."""
         from gui.qt.dialogs.tag_config_dialog import TagConfigDialog
-        dlg = TagConfigDialog(parent=self)
-        if dlg.exec() == QDialog.Accepted:
-            self.log_message.emit("✓ حُفظت إعدادات التاقات وأُعيد تحميل الفلتر")
+        # إن وُجد حوار مفتوح، نُبرزه بدل فتح ثانٍ
+        if getattr(self, "_tag_cfg_dlg", None) is not None:
+            try:
+                if self._tag_cfg_dlg.isVisible():
+                    self._tag_cfg_dlg.raise_()
+                    self._tag_cfg_dlg.activateWindow()
+                    return
+            except RuntimeError:
+                pass
+        self._tag_cfg_dlg = TagConfigDialog(parent=self)
+        self._tag_cfg_dlg.saved.connect(
+            lambda: self.log_message.emit("✓ حُفظت إعدادات التاقات وأُعيد تحميل الفلتر")
+        )
+        # إعادة المرجع للـ None عند الإغلاق
+        self._tag_cfg_dlg.finished.connect(lambda _r: setattr(self, "_tag_cfg_dlg", None))
+        self._tag_cfg_dlg.show()
+        self._tag_cfg_dlg.raise_()
+        self._tag_cfg_dlg.activateWindow()
 
     def _on_tag_mode_changed(self, index: int):
         if not self._proxy_ref:
