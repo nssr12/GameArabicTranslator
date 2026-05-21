@@ -741,13 +741,18 @@ class GameDetailDialog(QDialog):
                     start_btn = QPushButton(lbl_s)
                     start_btn.setFixedHeight(32)
                     start_btn.setCursor(QCursor(Qt.PointingHandCursor))
-                    start_btn.setStyleSheet(f"""
-                        QPushButton {{
-                            background: transparent; color: {c['green']};
-                            border: 1px solid {c['green']}; border-radius: 7px;
-                            font-weight: bold; font-size: 11px; padding: 0 12px;
-                        }}
-                        QPushButton:hover {{ background: {c['green']}; color: #fff; }}
+                    # خلفية خضراء صريحة + نص أبيض bold لضمان الوضوح في كل المظاهر
+                    start_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #2e7d32; color: #ffffff;
+                            border: 1px solid #1b5e20; border-radius: 7px;
+                            font-weight: bold; font-size: 11px; padding: 0 14px;
+                        }
+                        QPushButton:hover {
+                            background: #1b5e20; color: #ffffff;
+                            border-color: #0d3a10;
+                        }
+                        QPushButton:pressed { background: #0d3a10; }
                     """)
                     start_btn.clicked.connect(self._do_proxy_toggle)
                     row_srv.addWidget(start_btn)

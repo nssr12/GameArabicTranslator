@@ -1399,13 +1399,25 @@ namespace ArabicGameTranslatorMVP.Flotsam
                 return;
             }
 
-            // مع isRightToLeftText=true نصحح فقط اتجاه الملء الرأسي
-            // Bottom* → TopRight حتى يبدأ TMP من الأعلى ويملأ للأسفل بدلاً من العكس
+            // مع isRightToLeftText=true:
+            //   - عمودياً: نُحوّل Bottom* → Top* (يبدأ الملء من أعلى لأسفل)
+            //   - أفقياً: نُحوّل Left → Right للنصوص العربية حتى تظهر في الجانب
+            //     الصحيح من حاويتها (يحلّ مشكلة التداخل مع slider visuals)
+            //   - الـ Center يبقى Center (لتجنّب تحريك العناوين الموسّطة)
             switch (text.alignment)
             {
-                case TextAlignmentOptions.BottomRight:
                 case TextAlignmentOptions.BottomLeft:
                 case TextAlignmentOptions.Bottom:
+                case TextAlignmentOptions.BottomRight:
+                    text.alignment = TextAlignmentOptions.TopRight;
+                    break;
+                case TextAlignmentOptions.Left:
+                case TextAlignmentOptions.BaselineLeft:
+                case TextAlignmentOptions.MidlineLeft:
+                case TextAlignmentOptions.CaplineLeft:
+                    text.alignment = TextAlignmentOptions.Right;
+                    break;
+                case TextAlignmentOptions.TopLeft:
                     text.alignment = TextAlignmentOptions.TopRight;
                     break;
             }

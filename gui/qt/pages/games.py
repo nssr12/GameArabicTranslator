@@ -1090,25 +1090,13 @@ class LogPanel(QWidget):
         cb_lay.setContentsMargins(8, 2, 8, 2)
         cb_lay.setSpacing(14)
 
-        tag_lbl = QLabel("🏷  معالجة التاقات:")
-        self._tag_mode_combo = QComboBox()
-        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص", "inline")
-        self._tag_mode_combo.addItem("🔒 Strip — تجريد كامل بـ PUA", "strip")
-        self._tag_mode_combo.addItem("🎯 Tiered — متدرّج", "tiered")
-        self._tag_mode_combo.addItem("🛡 Bulletproof — ⟦N⟧ + تحقق + fallback (موصى به)", "bulletproof")
-        self._tag_mode_combo.setToolTip(
-            "Inline: تُترك التاقات داخل النص للمودل (سياق كامل، لكن قد يفشل مع تاقات معقدة).\n"
-            "Strip: كل التاقات تُستبدل بمحارف PUA — قد يحذفها بعض المودلات.\n"
-            "Tiered: <b>/<i> تبقى inline، <color>/<size>/<sprite> تُستبدل بـ [tN]/[sN].\n"
-            "🛡 Bulletproof: علامات ⟦N⟧ + تحقق صارم + سلسلة fallback (bulletproof→tiered→strip).\n"
-            "  عند فشل كل المحاولات، يُعاد النص الأصلي ويُسجَّل كـ failed لإعادة المحاولة بمودل آخر."
-        )
-        self._tag_mode_combo.currentIndexChanged.connect(self._on_tag_mode_changed)
-        # نسق ColorBox مع الـ theme
-        self._tag_mode_combo.setStyleSheet(
-            f"QComboBox {{ background: {c['bg']}; color: {c['secondary']};"
-            f"             border: 1px solid {c['border']}; border-radius: 4px;"
-            f"             padding: 2px 4px; font-size: 11px; min-width: 220px; }}"
+        # الوضع الحالي يُعرَض كـ label للقراءة فقط — اختيار الوضع يتم عبر
+        # حوار التأكيد قبل تشغيل الخادم (نتجنّب الازدواجية)
+        tag_lbl = QLabel("🏷  وضع التاقات:")
+        self._tag_mode_label = QLabel("— غير محدد —")
+        self._tag_mode_label.setStyleSheet(
+            f"color: {c['accent']}; background: transparent;"
+            f" font-size: 11px; font-weight: bold; padding: 0 8px;"
         )
 
         # زر تحرير قائمة التاقات المحمية — 🏷 emoji يظهر في كل الخطوط
@@ -1141,7 +1129,7 @@ class LogPanel(QWidget):
         self._timeout_spin.valueChanged.connect(self._on_timeout_changed)
 
         cb_lay.addWidget(tag_lbl)
-        cb_lay.addWidget(self._tag_mode_combo)
+        cb_lay.addWidget(self._tag_mode_label)
         cb_lay.addWidget(self._tag_config_btn)
         cb_lay.addStretch()
         cb_lay.addWidget(timeout_lbl)
@@ -1192,22 +1180,32 @@ class LogPanel(QWidget):
         if proxy:
             proxy.stats_callback = self.stats_signal.emit
             self._on_stats(proxy.get_stats())
-            # زامن واجهة tag_mode مع البروكسي
-            current = proxy.get_tag_mode() if hasattr(proxy, "get_tag_mode") else "inline"
-            idx = self._tag_mode_combo.findData(current)
-            if idx >= 0:
-                self._tag_mode_combo.blockSignals(True)
-                self._tag_mode_combo.setCurrentIndex(idx)
-                self._tag_mode_combo.blockSignals(False)
+            # نُحدّث label الوضع
+            self._refresh_tag_mode_label()
             self._timeout_spin.blockSignals(True)
             self._timeout_spin.setValue(int(proxy.get_timeout()))
             self._timeout_spin.blockSignals(False)
         else:
             self._on_stats({"pending": 0, "engine_count": 0, "cache_count": 0, "rate_per_sec": 0})
 
+    def _refresh_tag_mode_label(self):
+        """يُحدّث label الوضع الحالي بناءً على حالة البروكسي."""
+        if self._proxy_ref and hasattr(self._proxy_ref, "get_tag_mode"):
+            mode = self._proxy_ref.get_tag_mode()
+            mode_display = {
+                "inline":      "🏷 Inline",
+                "strip":       "🔒 Strip",
+                "tiered":      "🎯 Tiered",
+                "bulletproof": "🛡 Bulletproof",
+            }.get(mode, mode)
+            self._tag_mode_label.setText(mode_display)
+        else:
+            self._tag_mode_label.setText("— غير محدد —")
+
     def _poll_stats(self):
         if self._proxy_ref and self._proxy_ref.is_running:
             self._on_stats(self._proxy_ref.get_stats())
+            self._refresh_tag_mode_label()
 
     def _on_open_tag_config(self):
         """يفتح حوار تحرير قائمة التاقات المحمية (غير-modal)."""
@@ -1230,15 +1228,6 @@ class LogPanel(QWidget):
         self._tag_cfg_dlg.show()
         self._tag_cfg_dlg.raise_()
         self._tag_cfg_dlg.activateWindow()
-
-    def _on_tag_mode_changed(self, index: int):
-        if not self._proxy_ref:
-            return
-        mode = self._tag_mode_combo.itemData(index) or "inline"
-        try:
-            self._proxy_ref.set_tag_mode(mode)
-        except Exception:
-            pass
 
     def _on_timeout_changed(self, value: int):
         if not self._proxy_ref:
