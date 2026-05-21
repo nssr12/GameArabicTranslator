@@ -1793,8 +1793,25 @@ class GamesPage(QWidget):
             # عبر زر "🔄 تحديث الترجمات" في صفحة تفاصيل اللعبة فقط
         else:
             game_cfg = self._game_manager.get_game(game_id) if self._game_manager else {}
-            ok, msg  = proxy.start(game_id, cfg=game_cfg or {})
+            # حوار تأكيد وضع التاقات قبل بدء الخادم
+            from gui.qt.dialogs.tag_mode_confirm_dialog import TagModeConfirmDialog
+            current_mode = (game_cfg or {}).get("tag_mode", "bulletproof")
+            confirm = TagModeConfirmDialog(
+                current_mode=current_mode,
+                game_name=game_name or game_id,
+                parent=self,
+            )
+            if confirm.exec() != QDialog.Accepted:
+                self.status_message.emit("⏹  أُلغي تشغيل الخادم")
+                return
+            chosen = confirm.selected_mode
+            # طبّق الوضع في cfg قبل start
+            game_cfg = dict(game_cfg or {})
+            game_cfg["tag_mode"] = chosen
+            ok, msg  = proxy.start(game_id, cfg=game_cfg)
             self.status_message.emit(msg)
+            if ok and chosen != current_mode:
+                self.status_message.emit(f"🏷  وضع التاقات الآن: {chosen}")
             if not ok:
                 QMessageBox.warning(self, "خطأ في الخادم", msg)
 

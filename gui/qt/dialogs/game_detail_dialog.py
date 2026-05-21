@@ -952,6 +952,7 @@ class GameDetailDialog(QDialog):
         self._fill_content()
 
     def _do_proxy_toggle(self):
+        from PySide6.QtWidgets import QDialog
         proxy = self._proxy
         if proxy is None:
             QMessageBox.warning(self, "خطأ", "خادم الترجمة غير متاح — أعد تشغيل التطبيق")
@@ -962,7 +963,20 @@ class GameDetailDialog(QDialog):
             # لا نُصدّر translations.txt تلقائياً — يتحكّم المستخدم
             # عبر زر "🔄 تحديث الترجمات" فقط
         else:
-            ok, msg = proxy.start(self._game_id, cfg=self._cfg)
+            # تأكيد وضع التاقات قبل بدء الخادم
+            from gui.qt.dialogs.tag_mode_confirm_dialog import TagModeConfirmDialog
+            current_mode = self._cfg.get("tag_mode", "bulletproof")
+            confirm = TagModeConfirmDialog(
+                current_mode=current_mode,
+                game_name=game_name,
+                parent=self,
+            )
+            if confirm.exec() != QDialog.Accepted:
+                return  # ألغى المستخدم
+            chosen = confirm.selected_mode
+            cfg_to_use = dict(self._cfg)
+            cfg_to_use["tag_mode"] = chosen
+            ok, msg = proxy.start(self._game_id, cfg=cfg_to_use)
             if not ok:
                 QMessageBox.warning(self, "خطأ في الخادم", msg)
         self._fill_content()
