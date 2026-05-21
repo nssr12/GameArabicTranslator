@@ -11,9 +11,10 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QLineEdit, QMessageBox, QFrame,
+    QTextEdit, QSplitter,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor
+from PySide6.QtGui import QCursor, QTextOption
 
 from gui.qt.theme import theme
 from engine.tag_config import (
@@ -30,7 +31,7 @@ class TagConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("إعدادات حماية التاقات")
-        self.setMinimumSize(560, 580)
+        self.setMinimumSize(780, 720)
         self._cfg = load_config()
         self._build()
 
@@ -97,9 +98,13 @@ class TagConfigDialog(QDialog):
         # ── قسم Self-closing tags ───────────────────────────────────────
         root.addWidget(self._build_section(
             "🎯 تاقات Self-closing — تُحمى بـ ⟦sN⟧",
-            "تاقات بلا محتوى داخلي (مثل <sprite>, <br>) — تُستخرَج وتُستعاد كاملة.",
+            "تاقات بلا محتوى داخلي (مثل <sprite>, <br>) — تُستخرَج وتُستعاد كاملة.\n"
+            "⚠ لا تضع تاقات مزدوجة (<b>...</b>) هنا — لن تعمل بشكل صحيح.",
             "selfclose",
         ))
+
+        # ── قسم المعاينة الحية ──────────────────────────────────────────
+        root.addWidget(self._build_preview_section())
 
         # ── أزرار التحكم السفلية ───────────────────────────────────────
         bottom = QHBoxLayout()
@@ -118,6 +123,9 @@ class TagConfigDialog(QDialog):
         bottom.addWidget(cancel_btn)
         bottom.addWidget(save_btn)
         root.addLayout(bottom)
+
+        # استدعاء أوّلي للمعاينة بالقيم المُحمَّلة
+        self._update_preview()
 
     def _build_section(self, title: str, hint: str, kind: str) -> QFrame:
         """يبني قسم قائمة + add/remove. kind: 'inline' | 'selfclose'."""
@@ -189,7 +197,123 @@ class TagConfigDialog(QDialog):
         else:
             self._selfclose_list = lst
 
+        # حدّث المعاينة عند أي تغيير في القائمة
+        def _trigger_preview():
+            if hasattr(self, "_preview_input"):
+                self._update_preview()
+        lst.model().rowsInserted.connect(lambda *a: _trigger_preview())
+        lst.model().rowsRemoved.connect(lambda *a: _trigger_preview())
+
         return frame
+
+    def _build_preview_section(self) -> QFrame:
+        """قسم معاينة الفلتر — اكتب نصاً وشاهد ما يُرسل للمحرّك مباشرة."""
+        c = theme.c
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background: {c['surface']}; border-radius: 8px; }}"
+        )
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+
+        head = QLabel("🔬  معاينة الفلتر — اختبر قبل تشغيل الخادم")
+        head.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {c['accent']};")
+        lay.addWidget(head)
+
+        sub = QLabel(
+            "اكتب نصاً يحتوي تاقات لتشاهد ما يخرج بعد تطبيق إعداداتك الحالية.\n"
+            "يُحدَّث تلقائياً مع كل تغيير."
+        )
+        sub.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        sub.setWordWrap(True)
+        lay.addWidget(sub)
+
+        # حقل الإدخال
+        self._preview_input = QTextEdit()
+        self._preview_input.setMaximumHeight(70)
+        self._preview_input.setPlaceholderText(
+            'مثلاً: Hello <b>World</b> with <color=red>RED</color> and <sprite name="x">'
+        )
+        self._preview_input.setLayoutDirection(Qt.LeftToRight)
+        opt_in = QTextOption()
+        opt_in.setTextDirection(Qt.LeftToRight)
+        self._preview_input.document().setDefaultTextOption(opt_in)
+        self._preview_input.setStyleSheet(
+            f"QTextEdit {{ background: {c['card2']}; color: {c['primary']};"
+            f"             border: 1px solid {c['border']}; border-radius: 4px;"
+            f"             padding: 6px; font-family: Consolas, monospace; font-size: 11px; }}"
+        )
+        self._preview_input.setText(
+            'Hello <b>World</b> with <color=red>RED</color> and <sprite name="x">'
+        )
+        self._preview_input.textChanged.connect(self._update_preview)
+        lay.addWidget(self._preview_input)
+
+        # حقل الإخراج (read-only)
+        out_lbl = QLabel("📤 ما سيصل للمحرّك:")
+        out_lbl.setStyleSheet(f"color: {c['teal']}; font-size: 10px;")
+        lay.addWidget(out_lbl)
+
+        self._preview_output = QTextEdit()
+        self._preview_output.setReadOnly(True)
+        self._preview_output.setMaximumHeight(60)
+        self._preview_output.setLayoutDirection(Qt.LeftToRight)
+        opt_out = QTextOption()
+        opt_out.setTextDirection(Qt.LeftToRight)
+        self._preview_output.document().setDefaultTextOption(opt_out)
+        self._preview_output.setStyleSheet(
+            f"QTextEdit {{ background: {c['card']}; color: {c['green']};"
+            f"             border: 1px solid {c['border']}; border-radius: 4px;"
+            f"             padding: 6px; font-family: Consolas, monospace; font-size: 11px; }}"
+        )
+        lay.addWidget(self._preview_output)
+
+        # سجل التاقات المستخرجة
+        self._preview_tokens = QLabel("")
+        self._preview_tokens.setStyleSheet(
+            f"color: {c['yellow']}; font-size: 10px; font-family: Consolas, monospace;"
+        )
+        self._preview_tokens.setWordWrap(True)
+        self._preview_tokens.setTextFormat(Qt.PlainText)
+        lay.addWidget(self._preview_tokens)
+
+        return frame
+
+    def _update_preview(self):
+        """يُعيد حساب المعاينة من القوائم الحالية في الحوار."""
+        # نبني فلتر مؤقّت بالقيم الحالية في القوائم (قبل الحفظ)
+        try:
+            from engine.tag_filter import BulletproofTagFilter, _build_selfclose_re
+            inline_now = frozenset(
+                self._inline_list.item(i).text()
+                for i in range(self._inline_list.count())
+            )
+            selfclose_now = [
+                self._selfclose_list.item(i).text()
+                for i in range(self._selfclose_list.count())
+            ]
+            flt = BulletproofTagFilter(inline_tags=inline_now)
+            flt._selfclose_re = _build_selfclose_re(selfclose_now)
+            text = self._preview_input.toPlainText()
+            cleaned, tokens = flt.strip(text)
+            self._preview_output.setPlainText(cleaned)
+
+            if tokens:
+                lines = []
+                for idx, (kind, name, attrs, _inner) in enumerate(tokens):
+                    if kind == "paired":
+                        lines.append(f"⟦{idx}⟧/⟦/{idx}⟧ ← <{name}{attrs}>...</{name}>")
+                    else:
+                        lines.append(f"⟦s{idx}⟧ ← <{name}{attrs}>")
+                self._preview_tokens.setText("\n".join(lines))
+            else:
+                self._preview_tokens.setText(
+                    "(لا توجد تاقات مُستخرَجة — كلها تبقى inline أو لا توجد تاقات)"
+                )
+        except Exception as e:
+            self._preview_output.setPlainText(f"خطأ: {e}")
+            self._preview_tokens.setText("")
 
     # ── Actions ───────────────────────────────────────────────────────────
 
