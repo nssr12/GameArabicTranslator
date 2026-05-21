@@ -486,6 +486,26 @@ class TranslationCache:
         ).fetchall()
         return {r[0]: r[1] for r in rows}
 
+    def get_if_model_matches(self, game_name: str, original_text: str,
+                             model_name: str) -> Optional[str]:
+        """يُرجع الترجمة فقط إن كان النموذج يطابق الفلتر. أسرع من get_by_model
+        لاستعلامات الـ proxy الفردية. يُحدّث hit_count تلقائياً."""
+        conn = self._get_conn(game_name)
+        row = conn.execute(
+            "SELECT translated_text FROM translations "
+            "WHERE original_text = ? AND model_used = ?",
+            (original_text, model_name)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE translations SET hit_count = hit_count + 1, "
+                "updated_at = CURRENT_TIMESTAMP WHERE original_text = ?",
+                (original_text,)
+            )
+            conn.commit()
+            return row[0]
+        return None
+
     def count_by_model(self, game_name: str, model_name: str) -> int:
         conn = self._get_conn(game_name)
         return conn.execute(

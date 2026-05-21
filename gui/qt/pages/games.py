@@ -1804,19 +1804,27 @@ class GamesPage(QWidget):
             confirm = TagModeConfirmDialog(
                 current_mode=current_mode,
                 game_name=game_name or game_id,
+                cache=self._cache,
                 parent=self,
             )
             if confirm.exec() != QDialog.Accepted:
                 self.status_message.emit("⏹  أُلغي تشغيل الخادم")
                 return
             chosen = confirm.selected_mode
-            # طبّق الوضع في cfg قبل start
+            chosen_cache = confirm.selected_cache_filter
+            # طبّق الوضع وفلتر الكاش في cfg قبل start
             game_cfg = dict(game_cfg or {})
             game_cfg["tag_mode"] = chosen
+            game_cfg["cache_model_filter"] = chosen_cache
             ok, msg  = proxy.start(game_id, cfg=game_cfg)
             self.status_message.emit(msg)
-            if ok and chosen != current_mode:
-                self.status_message.emit(f"🏷  وضع التاقات الآن: {chosen}")
+            if ok:
+                if chosen != current_mode:
+                    self.status_message.emit(f"🏷  وضع التاقات الآن: {chosen}")
+                if chosen_cache == "none":
+                    self.status_message.emit("⚠  وضع الكاش: بدون — كل النصوص ستُترجَم من جديد")
+                elif chosen_cache:
+                    self.status_message.emit(f"💾  مصدر الكاش: {chosen_cache} فقط")
             if not ok:
                 QMessageBox.warning(self, "خطأ في الخادم", msg)
 

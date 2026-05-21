@@ -198,6 +198,11 @@ class ProxyServer:
         self._tiered_filter      = TieredTagFilter()
         self._bulletproof_filter = BulletproofTagFilter()
         self._timeout      = 0      # >0 → سيُطبَّق على المحرّك عند start()
+        # فلتر مصدر الكاش — يحدّد أي ترجمات سابقة تُسترجَع:
+        #   ""       → كل النماذج (افتراضي)
+        #   "none"   → تجاهل الكاش (ترجمة من الصفر)
+        #   "اسم"   → فقط ترجمات هذا النموذج
+        self._cache_model_filter = ""
         self._server: http.server.ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None       = None
         self._engine_lock  = threading.Lock()   # يسلسل استدعاءات المحرّك (Ollama single-instance)
@@ -239,6 +244,16 @@ class ProxyServer:
         self._tag_mode = mode
         self._strip_tags = (mode == "strip")  # توافق رجعي
 
+    def set_cache_model_filter(self, model: str):
+        """يحدّد مصدر الكاش:
+          ""     → كل النماذج
+          "none" → تجاهل الكاش
+          غيره   → ترجمات هذا النموذج فقط"""
+        self._cache_model_filter = model or ""
+
+    def get_cache_model_filter(self) -> str:
+        return self._cache_model_filter
+
     def get_tag_mode(self) -> str:
         return self._tag_mode
 
@@ -268,10 +283,12 @@ class ProxyServer:
         self._char_limit  = int(_cfg.get("text_reorder_char_limit", 0))
         # tag_mode: المفضّل. strip_tags_before_translate: قديم — للتوافق
         tag_mode_cfg = _cfg.get("tag_mode")
-        if tag_mode_cfg in ("inline", "strip", "tiered"):
+        if tag_mode_cfg in ("inline", "strip", "tiered", "bulletproof"):
             self.set_tag_mode(tag_mode_cfg)
         else:
             self.set_strip_tags(bool(_cfg.get("strip_tags_before_translate", False)))
+        # فلتر مصدر الكاش — للتجربة بمودل واحد أو ترجمة من الصفر
+        self.set_cache_model_filter(str(_cfg.get("cache_model_filter", "")))
         self._timeout     = float(_cfg.get("translate_timeout", 0) or 0)
         # طبّق المهلة على المحرّك إن أمكن
         if self._timeout > 0 and self._engine is not None:
@@ -375,6 +392,20 @@ class ProxyServer:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     _HTML_TAG_RE_PROXY = _re.compile(r"</?[a-zA-Z][^<>]{0,120}>")
+
+    def _get_cached_by_model(self, text: str, model: str):
+        """يجلب من الكاش فقط إذا كان النموذج المحدد له ترجمة لهذا النص."""
+        try:
+            if hasattr(self._cache, "get_if_model_matches"):
+                return self._cache.get_if_model_matches(self._game_name, text, model)
+        except Exception:
+            pass
+        # fallback: get_by_model يُرجع dict، نفحص العنصر
+        try:
+            rows = self._cache.get_by_model(self._game_name, model)
+            return rows.get(text)
+        except Exception:
+            return None
 
     def _resolve_model_name(self) -> str:
         """يُرجع اسم المودل الفعلي (مثل llama3:8b) بدل المفتاح (ollama).
@@ -507,8 +538,16 @@ class ProxyServer:
         - from_cache=True   → ترجمة فعلية مسترجَعة من الكاش
         - was_unchanged=True → النص لا يحتاج ترجمة (أُعيد كما هو)، إمّا الآن أو معروف مسبقاً
         """
-        if self._cache and self._game_name:
-            cached = self._cache.get(self._game_name, text)
+        # تطبيق فلتر مصدر الكاش:
+        #   "none" → لا تستخدم الكاش، اذهب مباشرة للـ AI
+        #   "اسم"  → فقط ترجمات هذا النموذج تُسترجَع
+        #   ""    → كل النماذج (افتراضي)
+        if self._cache and self._game_name and self._cache_model_filter != "none":
+            if self._cache_model_filter:
+                # فلتر بمودل واحد
+                cached = self._get_cached_by_model(text, self._cache_model_filter)
+            else:
+                cached = self._cache.get(self._game_name, text)
             if cached:
                 return cached, True, False
             # نص معروف مسبقاً أنه لا يحتاج ترجمة أو فشل سابقاً → لا نستدعي الـ AI
@@ -526,9 +565,12 @@ class ProxyServer:
             # cache lookup فوقه تَمَّ بدون lock → cache hits تظل سريعة
             with self._engine_lock:
                 # تحقق من الكاش مرة أخرى داخل الـ lock — قد يكون thread آخر
-                # ترجم نفس النص بينما كنا ننتظر
-                if self._cache and self._game_name:
-                    cached2 = self._cache.get(self._game_name, text)
+                # ترجم نفس النص بينما كنا ننتظر (يحترم cache_model_filter)
+                if self._cache and self._game_name and self._cache_model_filter != "none":
+                    if self._cache_model_filter:
+                        cached2 = self._get_cached_by_model(text, self._cache_model_filter)
+                    else:
+                        cached2 = self._cache.get(self._game_name, text)
                     if cached2:
                         return cached2, True, False
                 if self._tag_mode == "bulletproof":

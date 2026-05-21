@@ -9,7 +9,7 @@ gui/qt/dialogs/tag_mode_confirm_dialog.py — تأكيد وضع التاقات �
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QRadioButton, QButtonGroup, QFrame,
+    QRadioButton, QButtonGroup, QFrame, QComboBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor
@@ -28,14 +28,22 @@ _MODES = [
 class TagModeConfirmDialog(QDialog):
     """حوار صغير لاختيار وضع التاقات قبل تشغيل خادم الترجمة."""
 
-    def __init__(self, current_mode: str = "bulletproof", game_name: str = "", parent=None):
+    def __init__(self, current_mode: str = "bulletproof", game_name: str = "",
+                 cache=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("تأكيد وضع التاقات")
         self.setMinimumWidth(560)
         self._selected_mode = current_mode
+        self._selected_cache_filter = ""   # كل النماذج (افتراضي)
         self._game_name = game_name
+        self._cache = cache
         self._open_tag_config_requested = False
         self._build(current_mode)
+
+    @property
+    def selected_cache_filter(self) -> str:
+        """يُرجع: '' (كل النماذج)، 'none' (بدون كاش)، أو اسم نموذج محدد."""
+        return self._selected_cache_filter
 
     @property
     def selected_mode(self) -> str:
@@ -118,6 +126,9 @@ class TagModeConfirmDialog(QDialog):
 
         root.addWidget(modes_frame)
 
+        # ── قسم اختيار مصدر الكاش ───────────────────────────────────────
+        root.addWidget(self._build_cache_filter_section())
+
         # ── شريط الأزرار السفلي ─────────────────────────────────────────
         bottom = QHBoxLayout()
 
@@ -142,10 +153,80 @@ class TagModeConfirmDialog(QDialog):
         bottom.addWidget(start_btn)
         root.addLayout(bottom)
 
+    def _build_cache_filter_section(self) -> QFrame:
+        """قسم اختيار مصدر الكاش — لتجربة موديل واحد أو ترجمة من الصفر."""
+        c = theme.c
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background: {c['surface']}; border-radius: 6px; padding: 6px; }}"
+        )
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
+
+        title = QLabel("💾  مصدر الكاش")
+        title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {c.get('teal', '#00d2ff')};")
+        lay.addWidget(title)
+
+        hint = QLabel(
+            "اختر أي ترجمات سابقة تُستخدَم. مفيد لتجربة الموديلات بعد التحديثات."
+        )
+        hint.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        self._cache_combo = QComboBox()
+        self._cache_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {c['card']}; color: {c['secondary']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                padding: 4px 8px; font-size: 11px; min-width: 280px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {c['card']}; color: {c['secondary']};
+                selection-background-color: {c.get('accent', '#e94560')};
+            }}
+        """)
+
+        # ابني القائمة من الكاش الفعلي
+        models_with_counts: list[tuple[str, int]] = []
+        total_all = 0
+        if self._cache and self._game_name:
+            try:
+                models = self._cache.get_models_for_game(self._game_name)
+                for m in models:
+                    try:
+                        cnt = self._cache.count_by_model(self._game_name, m)
+                    except Exception:
+                        cnt = 0
+                    models_with_counts.append((m, cnt))
+                try:
+                    total_all = self._cache.count_entries(self._game_name)
+                except Exception:
+                    total_all = sum(c for _, c in models_with_counts)
+            except Exception:
+                pass
+
+        self._cache_combo.addItem(f"🌐 كل النماذج ({total_all:,} ترجمة)", "")
+        for m, cnt in models_with_counts:
+            self._cache_combo.addItem(f"🤖 {m} ({cnt:,} ترجمة)", m)
+        self._cache_combo.addItem("❌ بدون كاش — ترجم من الصفر", "none")
+
+        self._cache_combo.setToolTip(
+            "كل النماذج: يستخدم أي ترجمة سابقة موجودة (الأسرع).\n"
+            "موديل محدد: فقط ترجماته تُسترجَع — البقية تُترجَم من جديد.\n"
+            "بدون كاش: يتجاهل كل الكاش، يرسل كل نص للمحرّك (للاختبار من الصفر)."
+        )
+
+        lay.addWidget(self._cache_combo)
+        return frame
+
     def _on_confirm(self):
         btn = self._group.checkedButton()
         if btn:
             self._selected_mode = btn.property("mode_key") or "bulletproof"
+        if hasattr(self, "_cache_combo"):
+            self._selected_cache_filter = self._cache_combo.currentData() or ""
         self.accept()
 
     def _on_open_tag_config(self):
