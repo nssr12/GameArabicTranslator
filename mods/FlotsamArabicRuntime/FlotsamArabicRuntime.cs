@@ -1499,11 +1499,25 @@ namespace ArabicGameTranslatorMVP.Flotsam
             RegexOptions.Compiled
         );
 
+        // نطابق إما تاق <...> أو LTR run — نعكس فقط الـ LTR runs خارج التاقات
+        // لأن TMP يحتاج محتوى التاق (مثل sprite name) بترتيبه الأصلي ليتعرف عليه
+        private static readonly Regex TagOrLtrRunRegex = new Regex(
+            @"(<[^>]*>)|([A-Za-z0-9]+)",
+            RegexOptions.Compiled
+        );
+
         private static string PreReverseLtrRunsForRtl(string text)
         {
-            return LtrRunRegex.Replace(text, m =>
-                new string(m.Value.Reverse().ToArray())
-            );
+            return TagOrLtrRunRegex.Replace(text, m =>
+            {
+                if (m.Groups[1].Success)
+                {
+                    // تاق كامل <...> — اتركه كما هو حتى يُعالجه TMP
+                    return m.Value;
+                }
+                // LTR run خارج تاق — اعكسه ليُعيده TMP لوضعه الصحيح في RTL
+                return new string(m.Value.Reverse().ToArray());
+            });
         }
 
         private static void SanitizeTextSetterPrefix(ref string value)
