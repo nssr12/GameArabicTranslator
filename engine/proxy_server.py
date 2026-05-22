@@ -455,6 +455,18 @@ class ProxyServer:
         except Exception:
             return None
 
+    def _get_engine_last_error(self) -> str:
+        """يجلب آخر سبب فشل من المترجم النشط (لا من الـ wrapper).
+        Wrapper TranslationEngine لا يحفظ _last_error — يُحفظ في الـ translator فقط."""
+        if not self._engine:
+            return ""
+        try:
+            key = self._engine.get_active_model() or ""
+            tr = self._engine.get_translator(key) if key else None
+            return getattr(tr, "_last_error", "") if tr else ""
+        except Exception:
+            return ""
+
     def _resolve_model_name(self) -> str:
         """يُرجع اسم المودل الفعلي (مثل llama3:8b) بدل المفتاح (ollama).
         OllamaTranslator يحفظ الاسم الحقيقي في self.model."""
@@ -656,7 +668,8 @@ class ProxyServer:
             # وإلا نظل نستدعي AI لنفس النص الفاشل بلا انقطاع
             try:
                 # نفصل السبب الأساسي عن قائمة الأوضاع المُجرَّبة لتجنّب التكرار في العرض
-                reason_base = getattr(self._engine, "_last_error", "") or "engine_failed"
+                # _last_error يوجد على المترجم النشط (OllamaTranslator)، ليس على الـ wrapper
+                reason_base = self._get_engine_last_error() or "engine_failed"
                 reason_full = reason_base
                 if modes_attempted:
                     reason_full = f"{reason_base} [tried: {modes_attempted}]"
