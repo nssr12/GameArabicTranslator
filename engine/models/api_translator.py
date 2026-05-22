@@ -145,6 +145,7 @@ class OllamaTranslator(BaseTranslator):
         self._available_models: list = []
         self._opts:    dict  = {}
         self._timeout: float = 60.0
+        self._keep_alive: str = "30m"   # يمنع Ollama من تفريغ المودل بين الطلبات
         self._last_error: str = ""
         self.system_prompt = _default_ollama_system_prompt()
 
@@ -204,8 +205,11 @@ class OllamaTranslator(BaseTranslator):
 
             # Cache options (done once, not per-translation)
             opts = _load_ollama_options(self.config_path)
-            self._timeout = float(opts.pop("timeout", 120))
-            self._opts    = opts
+            self._timeout    = float(opts.pop("timeout", 120))
+            # keep_alive: مهلة بقاء المودل في الذاكرة بين الطلبات
+            # افتراضي 30m بدل Ollama 5m للجلسات الطويلة (تجنّب reload mid-session)
+            self._keep_alive = opts.pop("keep_alive", "30m")
+            self._opts       = opts
             self._available_models = [
                 {"name": m.get("name", ""), "size_gb": round(m.get("size", 0) / (1024 ** 3), 1)}
                 for m in raw_models
@@ -244,6 +248,10 @@ class OllamaTranslator(BaseTranslator):
                     {"role": "user",   "content": text},
                 ],
                 "options": self._opts,
+                # keep_alive يمنع Ollama من تفريغ المودل بين الطلبات.
+                # افتراضي 30m. ضع -1 للأبد (الأسرع، يستهلك VRAM)
+                # أو 0 لتفريغ فوري (للذاكرة المحدودة)
+                "keep_alive": self._keep_alive,
             }
             resp = self._session.post(
                 f"{self.url}/api/chat", json=payload, timeout=self._timeout
