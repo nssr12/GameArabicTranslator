@@ -7,8 +7,8 @@ import os, json
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QComboBox, QSpinBox, QLineEdit, QScrollArea, QFileDialog,
-    QSizePolicy, QGridLayout, QApplication
+    QComboBox, QLineEdit, QScrollArea, QFileDialog,
+    QSizePolicy, QGridLayout, QApplication, QTabWidget,
 )
 from PySide6.QtCore  import Qt, Signal
 from PySide6.QtGui   import QCursor, QFont
@@ -25,6 +25,15 @@ class ThemeCard(QFrame):
     clicked = Signal(str)
 
     SWATCH_KEYS = ["accent", "blue", "green", "teal", "bg"]
+
+    _NAMES = {
+        "dark":     "داكن",
+        "midnight": "منتصف الليل",
+        "ocean":    "المحيط",
+        "sunset":   "الغروب",
+        "forest":   "الغابة",
+        "light":    "فاتح ☀",
+    }
 
     def __init__(self, theme_id: str, palette: dict, parent=None):
         super().__init__(parent)
@@ -53,15 +62,7 @@ class ThemeCard(QFrame):
             swatches.addWidget(dot)
         lay.addLayout(swatches)
 
-        # Name
-        name_map = {
-            "dark":     "داكن",
-            "midnight": "منتصف الليل",
-            "ocean":    "المحيط",
-            "sunset":   "الغروب",
-            "forest":   "الغابة",
-        }
-        lbl = QLabel(name_map.get(self._id, self._id))
+        lbl = QLabel(ThemeCard._NAMES.get(self._id, self._id))
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet(f"color: {p.get('primary','#fff')}; font-size: 12px; font-weight: bold;")
         lay.addWidget(lbl)
@@ -89,30 +90,20 @@ class ThemeCard(QFrame):
 # ── Section frame ─────────────────────────────────────────────────────────────
 
 def _section(title: str) -> tuple[QFrame, QVBoxLayout]:
-    """ينتج QFrame كبطاقة مع عنوان وبدنه layout."""
+    """ينتج QFrame كبطاقة مع عنوان — يعتمد على #card في QSS العالمي."""
     frame = QFrame()
     frame.setObjectName("card")
-    frame.setStyleSheet(f"""
-        QFrame#card {{
-            background-color: {theme.c['card']};
-            border: 1px solid {theme.c['border']};
-            border-radius: 10px;
-        }}
-    """)
     outer = QVBoxLayout(frame)
     outer.setContentsMargins(20, 16, 20, 18)
     outer.setSpacing(14)
 
     hdr = QLabel(title)
-    hdr.setStyleSheet(
-        f"color: {theme.c['primary']}; font-size: 15px; font-weight: bold;"
-        f" border: none; background: transparent;"
-    )
+    hdr.setObjectName("section_title")
     outer.addWidget(hdr)
 
     div = QFrame()
+    div.setObjectName("divider")
     div.setFixedHeight(1)
-    div.setStyleSheet(f"background: {theme.c['border']}; border: none;")
     outer.addWidget(div)
 
     return frame, outer
@@ -157,14 +148,60 @@ class SettingsPage(QWidget):
         # Top bar
         root.addWidget(self._build_topbar())
 
-        # Scrollable content
+        # QTabWidget يفصل "عام" عن "Ollama"
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: none;
+                background: transparent;
+                top: -1px;
+            }}
+            QTabBar {{ background: transparent; }}
+            QTabBar::tab {{
+                background: {c['card']};
+                color: {c['muted']};
+                padding: 8px 22px;
+                font-size: 12px;
+                font-weight: bold;
+                border: 1px solid {c['border']};
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+            }}
+            QTabBar::tab:selected {{
+                background: {c['bg']};
+                color: {c['accent']};
+                border-color: {c['accent']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                color: {c['primary']};
+            }}
+        """)
+
+        # Tab 1: عام (الإعدادات الحالية)
+        self._tabs.addTab(self._build_general_tab(), "⚙️  عام")
+
+        # Tab 2: Ollama (إعدادات + مراقبة موارد)
+        from gui.qt.pages.ollama_settings import OllamaSettingsPage
+        self._ollama_tab = OllamaSettingsPage()
+        self._ollama_tab.status_message.connect(self.status_message)
+        self._tabs.addTab(self._ollama_tab, "🧠  Ollama")
+
+        root.addWidget(self._tabs, 1)
+
+    def _build_general_tab(self) -> QWidget:
+        """تبويب 'عام' — يحتوي على المظهر، الخط، الأدوات (المحتوى السابق)."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet(f"background: {c['bg']}; border: none;")
+        scroll.setStyleSheet(
+            "QScrollArea { border: none; }"
+            " QScrollArea > QWidget { background: transparent; }"
+        )
 
         content = QWidget()
-        content.setStyleSheet(f"background: {c['bg']};")
+        content.setObjectName("settings_content")
         lay = QVBoxLayout(content)
         lay.setContentsMargins(28, 24, 28, 32)
         lay.setSpacing(20)
@@ -175,7 +212,7 @@ class SettingsPage(QWidget):
         lay.addStretch()
 
         scroll.setWidget(content)
-        root.addWidget(scroll, 1)
+        return scroll
 
     def _build_topbar(self) -> QFrame:
         bar, _ = make_topbar("⚙️", "الإعدادات")
@@ -219,19 +256,20 @@ class SettingsPage(QWidget):
         self._font_combo.setCurrentText(theme.font_family)
         self._font_combo.setFixedWidth(200)
         self._font_combo.currentTextChanged.connect(self._apply_font)
+        theme.style_combo(self._font_combo)
         row.addWidget(self._font_combo)
 
         row.addSpacing(20)
 
-        # Font size
+        # Font size: QComboBox
         row.addWidget(_row_label("الحجم:"))
-        self._font_spin = QSpinBox()
-        self._font_spin.setRange(9, 20)
-        self._font_spin.setValue(theme.font_size)
-        self._font_spin.setSuffix(" px")
-        self._font_spin.setFixedWidth(90)
-        self._font_spin.valueChanged.connect(self._apply_font)
-        row.addWidget(self._font_spin)
+        self._size_combo = QComboBox()
+        self._size_combo.addItems([str(s) for s in (9, 10, 11, 12, 13, 14, 15, 16, 18, 20)])
+        self._size_combo.setCurrentText(str(theme.font_size))
+        self._size_combo.setFixedWidth(90)
+        self._size_combo.currentTextChanged.connect(self._apply_font_from_combo)
+        theme.style_combo(self._size_combo)
+        row.addWidget(self._size_combo)
 
         row.addStretch()
         lay.addLayout(row)
@@ -288,6 +326,12 @@ class SettingsPage(QWidget):
 
         return frame
 
+    def refresh_theme(self):
+        theme.style_combo(self._font_combo)
+        theme.style_combo(self._size_combo)
+        for card in self._theme_cards.values():
+            card.set_active(card._id == theme.name)
+
     # ── Actions ───────────────────────────────────────────────────────────────
 
     def _apply_theme(self, theme_id: str):
@@ -301,15 +345,21 @@ class SettingsPage(QWidget):
         self.theme_changed.emit()
         self.status_message.emit(f"✓  الثيم: {theme_id}")
 
-    def _apply_font(self):
+    def _apply_font_from_combo(self):
+        try:
+            size = int(self._size_combo.currentText())
+        except (ValueError, AttributeError):
+            size = theme.font_size
         family = self._font_combo.currentText()
-        size   = self._font_spin.value()
         theme.set_font(family, size)
         app = QApplication.instance()
         if app:
             app.setFont(QFont(family, size))
             app.setStyleSheet(theme.qss())
         self.status_message.emit(f"✓  الخط: {family} {size}px")
+
+    def _apply_font(self):
+        self._apply_font_from_combo()
 
     def _browse_tool(self, key: str):
         path, _ = QFileDialog.getOpenFileName(
