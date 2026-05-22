@@ -213,7 +213,12 @@ class ProxyServer:
         self._translated_engine_count = 0 # ترجمات فعلية (نتيجة ≠ الأصل)
         self._translated_cache_count  = 0 # ضربات الكاش
         self._unchanged_count         = 0 # نصوص أرجعها الـ AI بدون تغيير (أسماء، أرقام)
+        self._failed_count            = 0 # فشل المحرّك بشكل نهائي
         self._recent_translations: deque = deque(maxlen=120)  # طوابع زمنية للترجمات الأخيرة (لحساب المعدل)
+        # تتبّع آخر 20 فشل مع تفاصيل (للتشخيص)
+        self._recent_failures: deque = deque(maxlen=20)
+        # متتالية الإخفاقات الحالية (لاكتشاف انهيار المحرّك)
+        self._consecutive_failures = 0
         self.stats_callback  = None   # callable(dict) | None — تُستدعى بعد كل تحديث إحصاءات
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -358,7 +363,6 @@ class ProxyServer:
         """يعيد إحصاءات الترجمة الحالية. آمنة من أي خيط."""
         now = time.monotonic()
         with self._stats_lock:
-            # حساب المعدل: ترجمات في آخر ثانية واحدة
             recent = [t for t in self._recent_translations if now - t <= 1.0]
             rate_per_sec = len(recent)
             return {
@@ -366,6 +370,8 @@ class ProxyServer:
                 "engine_count": self._translated_engine_count,
                 "cache_count": self._translated_cache_count,
                 "unchanged_count": self._unchanged_count,
+                "failed_count": self._failed_count,
+                "consecutive_failures": self._consecutive_failures,
                 "total_count": (self._translated_engine_count +
                                 self._translated_cache_count +
                                 self._unchanged_count),
@@ -386,8 +392,50 @@ class ProxyServer:
             self._translated_engine_count = 0
             self._translated_cache_count = 0
             self._unchanged_count = 0
+            self._failed_count = 0
             self._recent_translations.clear()
+            self._recent_failures.clear()
+            self._consecutive_failures = 0
         self._emit_stats()
+
+    def record_failure(self, text: str, reason: str, modes_tried: str = ""):
+        """يُسجّل فشل ترجمة مع التفاصيل لاحقاً تشخيصها."""
+        now = time.monotonic()
+        with self._stats_lock:
+            self._failed_count += 1
+            self._consecutive_failures += 1
+            self._recent_failures.append({
+                "ts": now,
+                "text": text[:200],
+                "reason": reason[:200],
+                "modes_tried": modes_tried,
+            })
+        # تحذير إن تتابع الفشل (انهيار محتمل للمحرّك)
+        if self._consecutive_failures == 5:
+            if self.log_callback:
+                try:
+                    self.log_callback(
+                        f"⚠⚠  5 فشل متتالية — المحرّك قد يكون عالقاً أو المودل مُحمَّل بشكل غير سليم"
+                    )
+                except Exception:
+                    pass
+        elif self._consecutive_failures == 15:
+            if self.log_callback:
+                try:
+                    self.log_callback(
+                        f"🚨  15 فشل متتالية — يُنصح بإيقاف الخادم وفحص Ollama"
+                    )
+                except Exception:
+                    pass
+
+    def record_success(self):
+        """يُصفّر متتالية الفشل عند أي نجاح."""
+        with self._stats_lock:
+            self._consecutive_failures = 0
+
+    def get_recent_failures(self) -> list[dict]:
+        with self._stats_lock:
+            return list(self._recent_failures)
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -593,6 +641,7 @@ class ProxyServer:
                     self._cache.mark_failed(self._game_name, text, "unchanged_by_ai")
                 except Exception:
                     pass
+                self.record_success()  # نُصفّر متتالية الفشل
                 return result, False, True
             model = self._resolve_model_name()
             self._cache.put(self._game_name, text, result, model, mode_used=succeeded_mode)
@@ -601,6 +650,7 @@ class ProxyServer:
                 self._cache.record_mode_success(self._game_name, succeeded_mode)
             except Exception:
                 pass
+            self.record_success()
         elif result is None and self._cache and self._game_name and self._engine:
             # الـ AI فشل (None) → نُسجّل سبب الفشل ونمنع إعادة المحاولة كل مرة
             # وإلا نظل نستدعي AI لنفس النص الفاشل بلا انقطاع
@@ -615,7 +665,9 @@ class ProxyServer:
                     if mode:
                         self._cache.record_mode_failure(self._game_name, mode.strip())
                 if self.log_callback:
-                    self.log_callback(f"⚠  فشلت ترجمة: {text[:40]}  →  {reason[:60]}")
+                    self.log_callback(f"⚠  فشل: {text[:40]}  →  {reason[:80]}")
+                # سجّل في تتبّع الفشل
+                self.record_failure(text, reason, modes_attempted)
             except Exception:
                 pass
 

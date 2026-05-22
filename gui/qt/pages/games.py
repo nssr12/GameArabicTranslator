@@ -1064,12 +1064,21 @@ class LogPanel(QWidget):
             "نصوص أعادها الـ AI كما هي (أسماء أعلام، أرقام، اختصارات).\n"
             "تُحفظ تلقائياً لتجنّب استدعاء الـ AI لها مرة أخرى."
         )
+        # عدّاد الفشل + زر عرض التفاصيل
+        self._failed_lbl = QLabel("❌  فشل: 0")
+        self._failed_lbl.setStyleSheet(f"color: {c.get('accent', '#e94560')};")
+        self._failed_lbl.setCursor(QCursor(Qt.PointingHandCursor))
+        self._failed_lbl.setToolTip(
+            "نصوص فشل المحرّك في ترجمتها.\nاضغط لعرض آخر الإخفاقات وأسبابها."
+        )
+        self._failed_lbl.mousePressEvent = lambda ev: self._show_recent_failures()
 
         sb_lay.addWidget(self._pending_lbl)
         sb_lay.addWidget(self._rate_lbl)
         sb_lay.addWidget(self._engine_lbl)
         sb_lay.addWidget(self._cache_lbl)
         sb_lay.addWidget(self._unchanged_lbl)
+        sb_lay.addWidget(self._failed_lbl)
         sb_lay.addStretch()
         lay.addWidget(self._stats_bar)
 
@@ -1238,11 +1247,51 @@ class LogPanel(QWidget):
             pass
 
     def _on_stats(self, s: dict):
+        c = theme.c
         self._pending_lbl.setText(f"⏳  في الانتظار: {s.get('pending', 0)}")
         self._rate_lbl.setText(f"⚡  المعدل: {s.get('rate_per_sec', 0)}/ث")
         self._engine_lbl.setText(f"🔄  مترجَم: {s.get('engine_count', 0)}")
         self._cache_lbl.setText(f"📦  من الكاش: {s.get('cache_count', 0)}")
         self._unchanged_lbl.setText(f"⏭  بلا تغيير: {s.get('unchanged_count', 0)}")
+        failed = s.get('failed_count', 0)
+        consec = s.get('consecutive_failures', 0)
+        if consec >= 5:
+            # تنبيه عند تتابع الفشل
+            label = f"🚨  فشل: {failed} (متتالية: {consec})"
+            self._failed_lbl.setStyleSheet(
+                f"color: white; background: {c.get('accent', '#e94560')};"
+                f" padding: 2px 6px; border-radius: 3px; font-weight: bold;"
+            )
+        else:
+            label = f"❌  فشل: {failed}"
+            self._failed_lbl.setStyleSheet(
+                f"color: {c.get('accent', '#e94560')}; background: transparent;"
+            )
+        self._failed_lbl.setText(label)
+
+    def _show_recent_failures(self):
+        """يعرض حواراً صغيراً بآخر الإخفاقات وأسبابها لتشخيص المشاكل."""
+        if not self._proxy_ref or not hasattr(self._proxy_ref, "get_recent_failures"):
+            return
+        failures = self._proxy_ref.get_recent_failures()
+        if not failures:
+            QMessageBox.information(self, "آخر الإخفاقات",
+                                    "🎉 لا توجد إخفاقات حالياً.")
+            return
+        lines = []
+        for i, f in enumerate(reversed(failures), 1):
+            text = (f.get("text") or "")[:80].replace("\n", " ↵ ")
+            reason = (f.get("reason") or "")[:120]
+            modes = f.get("modes_tried", "")
+            modes_str = f"  [tried: {modes}]" if modes else ""
+            lines.append(f"{i}. النص: {text!r}\n   السبب: {reason}{modes_str}")
+        body = "\n\n".join(lines)
+        msg = QMessageBox(self)
+        msg.setWindowTitle(f"آخر {len(failures)} إخفاق")
+        msg.setText(f"يُعرض من الأحدث إلى الأقدم:")
+        msg.setDetailedText(body)
+        msg.setIcon(QMessageBox.Information)
+        msg.exec()
 
 
 # ── Games page ────────────────────────────────────────────────────────────────

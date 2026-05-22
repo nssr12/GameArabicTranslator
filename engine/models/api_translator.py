@@ -259,16 +259,20 @@ class OllamaTranslator(BaseTranslator):
             if resp.status_code == 200:
                 raw = resp.json().get("message", {}).get("content", "").strip().strip('"\'').strip()
                 if raw and raw != text:
-                    if self._is_valid_translation(text, raw):
+                    valid, reason = self._validate_with_reason(text, raw)
+                    if valid:
                         return raw
-                    self._last_error = "رد غير صالح (رفض أو هلوسة)"
-                    print(f"[Ollama] rejected response for {text[:30]!r}: {raw[:60]!r}")
+                    # سبب مفصّل + الإدخال والإخراج في الـ log
+                    self._last_error = f"رد غير صالح: {reason}"
+                    print(f"[Ollama] REJECTED ({reason})")
+                    print(f"  input  : {text[:120]!r}")
+                    print(f"  output : {raw[:120]!r}")
                 elif not raw:
                     self._last_error = "استجابة فارغة من النموذج"
-                    print(f"[Ollama] empty response for: {text[:40]!r}")
+                    print(f"[Ollama] EMPTY response for: {text[:80]!r}")
                 else:
                     self._last_error = "النموذج أعاد النص دون ترجمة"
-                    print(f"[Ollama] identity response: {raw[:40]!r}")
+                    print(f"[Ollama] IDENTITY response: {raw[:80]!r}")
             else:
                 try:
                     err_body = resp.json().get("error", resp.text)
@@ -302,22 +306,26 @@ class OllamaTranslator(BaseTranslator):
 
     @staticmethod
     def _is_valid_translation(original: str, result: str) -> bool:
-        """يتحقق أن الرد ترجمة حقيقية وليس رفضاً أو هلوسة."""
+        """يتحقق أن الرد ترجمة حقيقية. (للتوافق الرجعي — بدون سبب)."""
+        return OllamaTranslator._validate_with_reason(original, result)[0]
+
+    @staticmethod
+    def _validate_with_reason(original: str, result: str) -> tuple[bool, str]:
+        """يُرجع (صحيح، سبب). السبب فارغ عند النجاح، نصّي عند الفشل."""
         import re
-        # يجب أن يحتوي على عربي
         if not re.search(r'[؀-ۿ]', result):
-            return False
-        # أنماط رفض معروفة
+            return False, "no_arabic: الرد لا يحوي أي حرف عربي"
         for pat in OllamaTranslator._REFUSAL_PATTERNS:
             if pat in result:
-                return False
-        # هلوسة طولية: نص قصير أعطى ردّاً أطول بكثير
+                return False, f"refusal: '{pat}'"
         if len(original.strip()) <= 30 and len(result) > max(len(original) * 5, 120):
-            return False
-        # هلوسة بالتوكنات: الرد يحوي {} لكن الأصل لا يحويها
+            return False, (
+                f"length_hallucination: الأصل {len(original.strip())} حرف، "
+                f"الرد {len(result)} حرف"
+            )
         if '{' in result and '{' not in original:
-            return False
-        return True
+            return False, "token_hallucination: { في الرد لكن ليس في الأصل"
+        return True, ""
 
     def translate(self, text: str, source_lang: str = "en", target_lang: str = "ar") -> Optional[str]:
         if not self._is_loaded or not self._session:
