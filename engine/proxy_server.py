@@ -655,19 +655,20 @@ class ProxyServer:
             # الـ AI فشل (None) → نُسجّل سبب الفشل ونمنع إعادة المحاولة كل مرة
             # وإلا نظل نستدعي AI لنفس النص الفاشل بلا انقطاع
             try:
-                reason = getattr(self._engine, "_last_error", "") or "engine_failed"
-                # في وضع bulletproof نُلحق الأوضاع المُجرَّبة بالسبب
+                # نفصل السبب الأساسي عن قائمة الأوضاع المُجرَّبة لتجنّب التكرار في العرض
+                reason_base = getattr(self._engine, "_last_error", "") or "engine_failed"
+                reason_full = reason_base
                 if modes_attempted:
-                    reason = f"{reason} [tried: {modes_attempted}]"
-                self._cache.mark_failed(self._game_name, text, reason[:200])
+                    reason_full = f"{reason_base} [tried: {modes_attempted}]"
+                self._cache.mark_failed(self._game_name, text, reason_full[:200])
                 # سجّل فشل كل وضع جرَّبناه في Learning cache
                 for mode in (modes_attempted.split(",") if modes_attempted else [self._tag_mode]):
                     if mode:
                         self._cache.record_mode_failure(self._game_name, mode.strip())
                 if self.log_callback:
-                    self.log_callback(f"⚠  فشل: {text[:40]}  →  {reason[:80]}")
-                # سجّل في تتبّع الفشل
-                self.record_failure(text, reason, modes_attempted)
+                    self.log_callback(f"⚠  فشل: {text[:40]}  →  {reason_full[:80]}")
+                # سجّل في تتبّع الفشل (السبب الأساسي بدون [tried:]) لأن العرض يضيفها
+                self.record_failure(text, reason_base, modes_attempted)
             except Exception:
                 pass
 
