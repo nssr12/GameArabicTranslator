@@ -2,11 +2,14 @@
 
 > ملف سياق المشروع لـ Claude / AI assistants.
 > للمستخدمين النهائيين، انظر [README.md](README.md).
-> آخر تحديث: 2026-05-31 (v2.2)
+> آخر تحديث: 2026-06-01 (v2.2 — تصحيح PySide6 + توثيق ملفات I2/UE4SS/admin غير الموثّقة)
 
 ## TL;DR
 
-Game Arabic Translator v2.2 — تطبيق Python/PyQt6 لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
+Game Arabic Translator v2.2 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
+
+> ⚠ **ملاحظة framework**: الكود يستورد فعلياً من `PySide6` (لا PyQt6). استخدم `Signal`/`Slot`/`@Property` (لا `pyqtSignal`/`pyqtSlot`/`pyqtProperty`) في أي كود Qt جديد.
+
 - **بروكسي HTTP محلي** (port 5001) — يستقبل من XUnity Auto-Translator (Unity) أو من unreal_hook_watcher (UE5)
 - **محرّكات متعدّدة** (Ollama, Google, DeepL, HuggingFace MarianMT/mBART/NLLB)
 - **SQLite cache** لكل لعبة (schema v2): `UNIQUE(original_text, model_used)` + جدول `failed_translations`
@@ -35,7 +38,7 @@ C:/Python314/python -c "import ast; ast.parse(open('PATH.py', encoding='utf-8').
 
 ```
 d:\GameArabicTranslator\
-├── main_qt.py                     ← نقطة الدخول لـ PyQt6
+├── main_qt.py                     ← نقطة الدخول لـ PySide6
 ├── config.json                    ← models + ollama_options + system_prompt + tag_mode (عام)
 ├── engine/
 │   ├── proxy_server.py            ← البروكسي HTTP (port 5001) — قلب التطبيق
@@ -47,6 +50,9 @@ d:\GameArabicTranslator\
 │   ├── tag_discovery.py           ← ⭐ جديد — استخراج XML tags من نصوص
 │   ├── tag_health.py              ← ⭐ جديد — is_broken_translation() كاشف الترجمات المعطوبة
 │   ├── filtered_translator.py     ← ⭐ جديد — FilteredTranslator + global tag_mode helpers
+│   ├── i2_translator.py           ← ⭐ I2BatchTranslator — ترجمة دفعية لملفات I2Languages JSON (UABEA)
+│   ├── arabic_shaper.py           ← تشكيل عربي + عكس بصري RTL لـ TMP (يحفظ tags/placeholders)
+│   ├── arabic_processor.py        ← reshape_arabic() — تشكيل مع حماية tokens (tags/{0}/%s/|icon|)
 │   ├── skip_patterns.py           ← قائمة المنع (data/skip_patterns.json)
 │   ├── static_translations.py     ← قارئ translations.txt اليدوي (الأولوية القصوى)
 │   └── models/
@@ -54,7 +60,8 @@ d:\GameArabicTranslator\
 ├── games/
 │   ├── game_manager.py
 │   ├── bepinex_mod.py             ← Unity: تثبيت/إلغاء + export translations.txt
-│   ├── unreal_hook_mod.py         ← UE5: تثبيت DLLs + export <hash>.subtitle.txt
+│   ├── unreal_hook_mod.py         ← UE5 (DLL injection): تثبيت DLLs + export <hash>.subtitle.txt
+│   ├── ue4ss_mod.py               ← UE4SS Arabic Translator mod (dict/translations.txt + mods.txt) — مسار UE بديل
 │   ├── configs/<GameName>.json    ← إعداد كل لعبة (path, hook_mode, …) — tag_mode أُزيل (عام الآن)
 │   └── iostore/                   ← UE5 IoStore (Grounded2)
 ├── gui/qt/
@@ -65,8 +72,11 @@ d:\GameArabicTranslator\
 │   │   ├── settings.py            ← شريط تبويبات (عام + Ollama)
 │   │   ├── ollama_settings.py     ← تبويب Ollama + مراقبة موارد CPU/GPU/VRAM
 │   │   ├── models.py              ← AI Models + SystemPromptEditor + tag_mode combo (عام)
-│   │   └── translate.py           ← الترجمة الفورية — يقرأ tag_mode من config العام
+│   │   ├── translate.py           ← الترجمة الفورية — يقرأ tag_mode من config العام
+│   │   ├── i2_translate.py        ← صفحة ترجمة I2Languages JSON (تحليل + دفعي + حفظ Arabic-only)
+│   │   └── unrealpak.py           ← صفحة فك/حزم ملفات .pak (UnrealPak.exe)
 │   └── dialogs/
+│       ├── admin_panel.py            ← لوحة إدارة محمية بـ PIN (إخفاء/إظهار أقسام الواجهة)
 │       ├── tag_config_dialog.py
 │       ├── tag_discovery_dialog.py   ← ⭐ جديد — اكتشاف XML tags من نصوص الكاش
 │       ├── tag_mode_confirm_dialog.py ← ⚠ مهجور — لم يعد يُستدعى (الفلتر عام الآن)
@@ -378,6 +388,39 @@ text setter في Unity
 | نص الـ sprite تاق يظهر بدل الصورة | الخط استُبدِل وفقد sprite asset | تحقّق من `HasCustomSpriteAsset` في FlotsamArabicRuntime |
 | الإيقاف/التشغيل في GUI لا يُصلح | (قبل non-blocking stop) — يجب يعمل الآن | `stop()` يجب يأخذ < 1ms |
 | الخادم يطلب إعادة تشغيل اللعبة | (قبل async + session reset) — يجب لا يحدث | تأكّد من v25 changes في proxy_server.py |
+
+## ⭐ نظام I2 الدفعي (Batch I2Languages Translation)
+
+مسار **منفصل عن الترجمة الفورية** لترجمة ملفات `I2Languages` كاملةً قبل تشغيل اللعبة (بدل الاعتماد على البروكسي وقت اللعب). مفيد لألعاب Unity التي تخزّن كل نصوصها في asset واحد عبر I2.Localization.
+
+### المكوّنات الثلاثة
+
+| المكوّن | اللغة | الدور |
+|------|------|------|
+| **engine/i2_translator.py** (`I2BatchTranslator`) | Python | يقرأ JSON المستخرج من UABEA → يترجم دفعياً عبر `FilteredTranslator` (نفس cascade) مع reuse للكاش per-game → يحقن في فتحة عربية (موجودة أو جديدة) → يصدّر `arabic_only.json` للمود |
+| **gui/qt/pages/i2_translate.py** | Python | الواجهة: اختيار لعبة + ملف JSON، تحليل، خيارات تشغيل (cache/skip/translations.txt/حد طول/tag_mode override)، progress + ETA + pause/resume، حفظ الناتج |
+| **mods/I2LanguageInjector/ (DLL)** | C# | يحقن الترجمات العربية في I2.Loc وقت التشغيل |
+
+### التدفّق
+
+```
+UABEA يستخرج I2Languages-*.assets → *.json
+   → I2BatchTranslator.analyze() (إحصاءات: اللغات، فتحة العربي)
+   → .run() دفعي عبر FilteredTranslator + cache (per-game)
+   → .save_modified() (الملف كامل) + .export_arabic_only() (للمود)
+   → I2LanguageInjector.dll يحقنها في اللعبة
+```
+
+### تكامل الكاش — suffix `:i2`
+
+ترجمات I2 الدفعية تُخزَّن في نفس DB اللعبة لكن بـ suffix `:i2` على اسم المودل (مثل `translategemma:12b:i2`). نصوصها قد تكون بصيغة template (`{0} Days`) لا تطابق نصوص اللعبة الـ live (post-substitution). لذا التصدير لـ translations.txt يُفضّل الـ live عبر `cache.get_best(text, deprioritize_suffix=":i2")` — انظر v2.2 §5.
+
+## مساري UE — متى أيّهما
+
+| المسار | الملف | الآلية | الاستخدام |
+|------|------|------|------|
+| **DLL injection** | `games/unreal_hook_mod.py` | حقن `cppfs/dxgi/ZXSOSZX*.dll` + ملفات `Translate/*.subtitle.txt` | الافتراضي لـ UE5 (Manor Lords, Palworld) |
+| **UE4SS mod** | `games/ue4ss_mod.py` | UE4SS + Lua mod يقرأ `dict/translations.txt` | مسار بديل لألعاب تدعم UE4SS |
 
 ## الـ C# Mods
 
