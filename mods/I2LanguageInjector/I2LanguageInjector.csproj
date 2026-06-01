@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>I2LanguageInjector</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- Unity DLLs — taken from the target game's Managed folder -->
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- BepInEx 5.x + HarmonyLib -->
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(BEPINEX_CORE)/BepInEx.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BEPINEX_CORE)/0Harmony.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

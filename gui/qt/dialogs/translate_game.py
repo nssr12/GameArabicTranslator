@@ -162,7 +162,7 @@ class TranslateGameDialog(QDialog):
         mode_frame = QFrame()
         mode_frame.setStyleSheet(
             f"QFrame {{ background: {c['card']}; border: 1px solid {c['border']};"
-            " border-radius: 8px; }}"
+            " border-radius: 8px; }"
         )
         mode_lay = QHBoxLayout(mode_frame)
         mode_lay.setContentsMargins(16, 12, 16, 12)
@@ -207,8 +207,7 @@ class TranslateGameDialog(QDialog):
                 background: {c['surface']}; border: none; border-radius: 7px;
             }}
             QProgressBar::chunk {{
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                    stop:0 {c['accent']}, stop:1 {c['blue']});
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {c['accent']}, stop:1 {c['blue']});
                 border-radius: 7px;
             }}
         """)
@@ -275,7 +274,7 @@ class TranslateGameDialog(QDialog):
         frame = QFrame()
         frame.setStyleSheet(
             f"QFrame {{ background: {theme.c['card']}; border: 1px solid {theme.c['border']};"
-            " border-radius: 8px; }}"
+            " border-radius: 8px; }"
         )
         lay = QVBoxLayout(frame)
         lay.setContentsMargins(14, 8, 14, 8)

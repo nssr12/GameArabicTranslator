@@ -33,20 +33,51 @@ def main():
     if os.path.isfile(zip_path):
         os.remove(zip_path)
 
+    # ── 2a. Sync APP_VERSION in translation_registry.py ──────────────────────
+    registry_path = os.path.join(ROOT, "games", "translation_registry.py")
+    with open(registry_path, encoding="utf-8") as f:
+        reg_src = f.read()
+    import re as _re
+    reg_src = _re.sub(r'APP_VERSION\s*=\s*"[^"]+"', f'APP_VERSION = "{version}"', reg_src)
+    with open(registry_path, "w", encoding="utf-8") as f:
+        f.write(reg_src)
+    print(f"APP_VERSION set to {version} in translation_registry.py")
+
     # ── 2. PyInstaller build ──────────────────────────────────────────────────
     print("\n[1/5] Building with PyInstaller...")
     run([sys.executable, "-m", "PyInstaller", "GameArabicTranslator.spec", "--noconfirm"])
 
     # ── 3. Create user folders + copy configs ─────────────────────────────────
     print("\n[2/5] Setting up user directories...")
-    os.makedirs(os.path.join(dist_dir, "data", "cache"), exist_ok=True)
-    os.makedirs(os.path.join(dist_dir, "logs"),          exist_ok=True)
+    cache_dst = os.path.join(dist_dir, "data", "cache")
+    os.makedirs(cache_dst, exist_ok=True)
+    os.makedirs(os.path.join(dist_dir, "logs"), exist_ok=True)
     shutil.copy2(os.path.join(ROOT, "config.json"), dist_dir)
     shutil.copytree(
         os.path.join(ROOT, "games", "configs"),
         os.path.join(dist_dir, "games", "configs"),
         dirs_exist_ok=True,
     )
+    # Copy pre-built translation caches so users see content on first launch
+    cache_src = os.path.join(ROOT, "data", "cache")
+    if os.path.isdir(cache_src):
+        import glob as _glob
+        for db in _glob.glob(os.path.join(cache_src, "*.db")):
+            shutil.copy2(db, cache_dst)
+            print(f"  Copied cache: {os.path.basename(db)}")
+    # Copy icon
+    icon_src = os.path.join(ROOT, "data", "icon.ico")
+    if os.path.isfile(icon_src):
+        icon_dst = os.path.join(dist_dir, "data")
+        os.makedirs(icon_dst, exist_ok=True)
+        shutil.copy2(icon_src, icon_dst)
+    # Copy game cover images
+    img_src = os.path.join(ROOT, "data", "game_images")
+    if os.path.isdir(img_src):
+        img_dst = os.path.join(dist_dir, "data", "game_images")
+        shutil.copytree(img_src, img_dst, dirs_exist_ok=True)
+        count = sum(1 for f in os.listdir(img_src) if os.path.isfile(os.path.join(img_src, f)))
+        print(f"  Copied game_images: {count} image(s)")
 
     # ── 4. Create ZIP ─────────────────────────────────────────────────────────
     print(f"\n[3/5] Creating {zip_name}...")
@@ -96,7 +127,7 @@ def main():
         json.dump(m, f, ensure_ascii=False, indent=2)
 
     # ── 8. Git commit + push ──────────────────────────────────────────────────
-    run(["git", "add", "manifest.json"])
+    run(["git", "add", "manifest.json", "games/translation_registry.py"])
     rc = run(["git", "commit", "-m", f"Release app v{version}"], check=False)
     if rc == 0:
         run(["git", "push", "origin", "main"])

@@ -83,11 +83,50 @@ def _dedup_clean(tags: list[str]) -> list[str]:
     return out
 
 
+def add_tags(
+    inline: list[str] | None = None,
+    selfclosing: list[str] | None = None,
+    path: str = CONFIG_PATH,
+) -> tuple[int, int]:
+    """
+    يضيف تاقات جديدة إلى القائمتين بدون تكرار. يحفظ الملف تلقائياً.
+
+    Returns:
+        (added_inline_count, added_selfclose_count) — العدد الفعلي للجديد فقط.
+    """
+    cfg = load_config(path)
+    existing_inline = set(cfg["inline_tags"])
+    existing_self   = set(cfg["selfclosing_tags"])
+
+    added_inline = 0
+    if inline:
+        for t in inline:
+            n = _normalize_tag(t)
+            if n and n not in existing_inline and n not in existing_self:
+                cfg["inline_tags"].append(n)
+                existing_inline.add(n)
+                added_inline += 1
+
+    added_self = 0
+    if selfclosing:
+        for t in selfclosing:
+            n = _normalize_tag(t)
+            if n and n not in existing_self and n not in existing_inline:
+                cfg["selfclosing_tags"].append(n)
+                existing_self.add(n)
+                added_self += 1
+
+    if added_inline or added_self:
+        save_config(cfg, path)
+    return (added_inline, added_self)
+
+
 __all__ = [
     "TagConfig",
     "load_config",
     "save_config",
     "reset_to_defaults",
+    "add_tags",
     "DEFAULT_INLINE_TAGS",
     "DEFAULT_SELFCLOSE_TAGS",
     "CONFIG_PATH",

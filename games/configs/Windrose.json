@@ -1,0 +1,20 @@
+{
+  "name": "Windrose",
+  "process_name": "Windrose.exe",
+  "game_path": "D:/SteamLibrary/steamapps/common/Windrose/R5/Content/Paks",
+  "engine": "ue5",
+  "hook_mode": "file",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "font_path": "",
+  "notes": "",
+  "hooks": [],
+  "enabled": true,
+  "hidden_features": [],
+  "shown_features": [
+    "locres_section",
+    "iostore_section"
+  ],
+  "locres_path": "D:/SteamLibrary/steamapps/common/Windrose/R5/Content/F_model/R5/Content/Localization/Game/en/Game.locres"
+}

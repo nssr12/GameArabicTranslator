@@ -35,7 +35,7 @@ class GameManager:
             return
         
         for filename in os.listdir(self.configs_dir):
-            if filename.endswith(".json"):
+            if filename.endswith(".json") and not filename.startswith("_"):
                 filepath = os.path.join(self.configs_dir, filename)
                 try:
                     with open(filepath, "r", encoding="utf-8") as f:

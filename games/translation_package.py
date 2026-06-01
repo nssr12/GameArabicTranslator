@@ -285,6 +285,26 @@ class TranslationPackage:
             return False
         return None
 
+    def register_file(self, game_name: str, name: str, game_target: str):
+        """Register a file that is already in ready/ without copying (e.g. after download)."""
+        cfg = self.get_config(game_name)
+        cfg["files"] = [e for e in cfg["files"] if e.get("game_target") != game_target]
+        cfg["files"].append({
+            "name":        name,
+            "game_target": game_target,
+            "has_orig":    False,
+        })
+        os.makedirs(self.get_mod_dir(game_name), exist_ok=True)
+        self._save_config(game_name, cfg)
+
+    def set_installed_version(self, game_name: str, version: str):
+        cfg = self.get_config(game_name)
+        cfg["installed_version"] = version
+        self._save_config(game_name, cfg)
+
+    def get_installed_version(self, game_name: str) -> str:
+        return self.get_config(game_name).get("installed_version", "")
+
     def has_files(self, game_name: str) -> bool:
         return bool(self.get_config(game_name)["files"])
 

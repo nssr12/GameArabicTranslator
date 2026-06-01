@@ -160,7 +160,12 @@ class TieredTagFilter:
 
     def _handle_selfclose(self, m: re.Match, tokens: list) -> str:
         idx = len(tokens)
-        tokens.append(("self", m.group("name"), m.group("attrs") or "", None))
+        attrs = m.group("attrs") or ""
+        # احفظ صيغة الإغلاق الأصلية: <tag/> أو <tag>
+        # السبب: Palworld و UE5 يفرّقون بينهما — حذف الـ / يكسر التنسيق
+        if m.group(0).rstrip().endswith("/>"):
+            attrs = attrs + "/"
+        tokens.append(("self", m.group("name"), attrs, None))
         return f"[s{idx}]"
 
 
@@ -275,5 +280,10 @@ class BulletproofTagFilter:
     def _handle_selfclose(self, m: re.Match, tokens: list) -> str:
         # نستخدم ⟦sN⟧ بدل ⟦*N⟧ — الـ * كان يُفسَّر كـ markdown emphasis ويُحذف
         idx = len(tokens)
-        tokens.append(("self", m.group("name"), m.group("attrs") or "", None))
+        attrs = m.group("attrs") or ""
+        # احفظ صيغة الإغلاق الأصلية: <tag/> أو <tag>
+        # السبب: Palworld و UE5 يفرّقون بينهما — حذف الـ / يكسر التنسيق
+        if m.group(0).rstrip().endswith("/>"):
+            attrs = attrs + "/"
+        tokens.append(("self", m.group("name"), attrs, None))
         return f"{_BP_OPEN}s{idx}{_BP_CLOSE}"

@@ -395,6 +395,19 @@ class TranslatePage(QWidget):
         self._history: list[dict] = []
         self._build()
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _refresh_tag_mode_label(self):
+        """يحدّث label الفلتر العام (يُقرأ من config.json)."""
+        if not hasattr(self, "_tag_mode_label"):
+            return
+        try:
+            from engine.filtered_translator import get_global_tag_mode
+            mode = get_global_tag_mode()
+        except Exception:
+            mode = "?"
+        self._tag_mode_label.setText(f"🏷 الفلتر: {mode}  (من Models)")
+
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build(self):
@@ -410,39 +423,18 @@ class TranslatePage(QWidget):
         c = theme.c
         bar, lay = make_topbar("🌐", "الترجمة الفورية")
 
-        # Tag mode selector — لاختبار الفلاتر قبل اللعبة
-        tag_lbl = QLabel("🏷  معالجة التاقات:")
-        tag_lbl.setStyleSheet(
+        # تلميح: الفلتر يُختار من صفحة AI Models (فلتر عام واحد للتطبيق)
+        self._tag_mode_label = QLabel("🏷 الفلتر: —")
+        self._tag_mode_label.setStyleSheet(
             f"color: {c['muted']}; font-size: 11px;"
             " background: transparent; border: none;"
         )
-        self._tag_mode_combo = QComboBox()
-        self._tag_mode_combo.setFixedHeight(30)
-        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص", "inline")
-        self._tag_mode_combo.addItem("🔒 Strip — تجريد PUA", "strip")
-        self._tag_mode_combo.addItem("🎯 Tiered — متدرّج", "tiered")
-        self._tag_mode_combo.addItem("🛡 Bulletproof — ⟦N⟧ + fallback", "bulletproof")
-        self._tag_mode_combo.setCurrentIndex(3)  # افتراضي Bulletproof
-        self._tag_mode_combo.setToolTip(
-            "اختر طريقة معالجة التاقات قبل إرسال النص للمودل:\n"
-            "Inline: النص الكامل مع التاقات الخام\n"
-            "Strip: كل التاقات → PUA chars\n"
-            "Tiered: بسيطة inline، معقدة → [tN]/[sN]\n"
-            "🛡 Bulletproof: ⟦N⟧ + تحقق صارم + cascade fallback تلقائي"
+        self._tag_mode_label.setToolTip(
+            "الفلتر العام يُختار من صفحة AI Models (يُحفظ في config.json).\n"
+            "هذا التطبيق يستخدم نفس الفلتر في كل الأماكن لتجنّب التضارب."
         )
-        self._tag_mode_combo.setStyleSheet(f"""
-            QComboBox {{
-                background: {c['surface']}; color: {c['primary']};
-                border: 1px solid {c['border']}; border-radius: 6px;
-                padding: 2px 8px; min-width: 200px;
-            }}
-            QComboBox QAbstractItemView {{
-                background: {c['surface']}; color: {c['primary']};
-                selection-background-color: {c['accent']};
-            }}
-        """)
-        lay.addWidget(tag_lbl)
-        lay.addWidget(self._tag_mode_combo)
+        self._refresh_tag_mode_label()
+        lay.addWidget(self._tag_mode_label)
 
         clear_btn = QPushButton("🗑️  مسح السجل")
         clear_btn.setObjectName("btn_secondary")
@@ -905,7 +897,11 @@ class TranslatePage(QWidget):
 
         src = self._src_combo.currentData()
         tgt = self._tgt_combo.currentData()
-        tag_mode = self._tag_mode_combo.currentData() or "inline"
+        # الفلتر يُقرأ من الإعداد العام في صفحة AI Models
+        from engine.filtered_translator import get_global_tag_mode
+        tag_mode = get_global_tag_mode()
+        # حدّث الـ label ليظهر الفلتر الفعّال
+        self._refresh_tag_mode_label()
 
         w = SingleTranslateWorker(text, self._engine, src, tgt, tag_mode=tag_mode)
         w.done.connect(self._on_translate_done)
@@ -933,7 +929,8 @@ class TranslatePage(QWidget):
         self._translate_btn.setText("🌐  ترجمة  (Ctrl+Enter)")
 
         original = self._input.toPlainText().strip()
-        selected_mode = self._tag_mode_combo.currentData() or "inline"
+        from engine.filtered_translator import get_global_tag_mode
+        selected_mode = get_global_tag_mode()
         # في cascade، mode_used قد يختلف عن selected_mode (مثلاً bulletproof → strip)
         display_mode = mode_used or selected_mode
 

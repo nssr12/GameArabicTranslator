@@ -152,6 +152,34 @@ THEMES: Dict[str, Dict[str, str]] = {
         "warning":   "#fbbf24",
         "error":     "#f87171",
     },
+    "light": {
+        "bg":        "#f0f3f7",
+        "surface":   "#e8ecf2",
+        "card":      "#ffffff",
+        "card2":     "#f5f7fa",
+        "border":    "#d0d7e2",
+        "sidebar":   "#dde3ed",
+        "hover":     "#e5eaf2",
+        "selected":  "#c8d8ff",
+        "accent":    "#1a73e8",
+        "accent2":   "#4a94f0",
+        "blue":      "#1a73e8",
+        "blue2":     "#4a94f0",
+        "green":     "#1e7e46",
+        "green2":    "#28a85a",
+        "teal":      "#0097a7",
+        "yellow":    "#e5a000",
+        "orange":    "#e67e22",
+        "purple":    "#6b3fa0",
+        "muted":     "#6b7280",
+        "secondary": "#374151",
+        "primary":   "#111827",
+        "row_alt":   "#f5f7fa",
+        "row_even":  "#ffffff",
+        "success":   "#1e7e46",
+        "warning":   "#e5a000",
+        "error":     "#dc2626",
+    },
 }
 
 
@@ -226,6 +254,33 @@ class ThemeEngine:
         self._font_size   = max(9, min(20, size))
         self.save()
 
+    def style_combo(self, combo) -> None:
+        """Apply opaque popup background directly on the combo's view (bypasses cascade issues)."""
+        c = self.c
+        view = combo.view()
+        if view is None:
+            return
+        view.setAutoFillBackground(True)
+        view.setStyleSheet(
+            f"QAbstractItemView {{"
+            f" background-color: {c['card2']};"
+            f" color: {c['primary']};"
+            f" selection-background-color: {c['selected']};"
+            f" selection-color: {c['primary']};"
+            f" border: 1px solid {c['blue']};"
+            f" outline: none;"
+            f"}}"
+            f"QAbstractItemView::item {{"
+            f" padding: 6px 12px;"
+            f" min-height: 26px;"
+            f" background-color: {c['card2']};"
+            f" color: {c['primary']};"
+            f"}}"
+            f"QAbstractItemView::item:selected, QAbstractItemView::item:hover {{"
+            f" background-color: {c['selected']};"
+            f"}}"
+        )
+
     # ── QSS generation ───────────────────────────────────────────────────────
 
     def qss(self) -> str:
@@ -242,8 +297,14 @@ class ThemeEngine:
     color: {c['primary']};
     outline: none;
 }}
-QMainWindow, QDialog, QWidget {{
+QMainWindow, QDialog {{
     background-color: {c['bg']};
+}}
+QWidget:not(QLineEdit):not(QTextEdit):not(QPlainTextEdit):not(QComboBox):not(QAbstractSpinBox):not(QSpinBox) {{
+    background-color: {c['bg']};
+}}
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QAbstractSpinBox, QSpinBox {{
+    background-color: {c['card']};
 }}
 QToolTip {{
     background-color: {c['card2']};
@@ -264,10 +325,21 @@ QToolTip {{
     max-width: 230px;
 }}
 #sidebar_header {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-        stop:0 {c['card']}, stop:1 {c['card2']});
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {c['card']}, stop:1 {c['card2']});
     border-bottom: 1px solid {c['border']};
-    padding: 18px 16px 14px;
+}}
+#sidebar_toggle_btn {{
+    background-color: {c['card2']};
+    border: 1px solid {c['border']};
+    border-radius: 5px;
+    color: {c['secondary']};
+    font-size: 16px;
+    font-weight: bold;
+}}
+#sidebar_toggle_btn:hover {{
+    background-color: {c['hover']};
+    border-color: {c['muted']};
+    color: {c['primary']};
 }}
 #app_logo {{
     color: {c['accent']};
@@ -309,6 +381,26 @@ QToolTip {{
     color: {c['primary']};
     font-weight: bold;
 }}
+#model_nav_btn {{
+    background: transparent;
+    color: {c['secondary']};
+    border: none;
+    border-left: 3px solid transparent;
+    padding: 10px 90px 10px 13px;
+    text-align: right;
+    font-size: {fs}px;
+    border-radius: 0px;
+}}
+#model_nav_btn:hover {{
+    background-color: {c['hover']};
+    color: {c['primary']};
+}}
+#model_nav_btn[active=true] {{
+    background-color: {c['hover']};
+    border-left: 3px solid {c['accent']};
+    color: {c['primary']};
+    font-weight: bold;
+}}
 #model_chip {{
     background-color: {c['card2']};
     color: {c['teal']};
@@ -343,8 +435,7 @@ QToolTip {{
    Top bar (page header)
 ═══════════════════════════════════════════════════════════════════════ */
 #topbar {{
-    background: qlineargradient(x1:1,y1:0,x2:0,y2:0,
-        stop:0 {c['bg']}, stop:0.45 {c['card']}, stop:1 {c['surface']});
+    background: qlineargradient(x1:1,y1:0,x2:0,y2:0, stop:0 {c['bg']}, stop:0.45 {c['card']}, stop:1 {c['surface']});
     border-bottom: 1px solid {c['border']};
     min-height: 64px;
     max-height: 64px;
@@ -426,16 +517,14 @@ QPushButton:disabled {{
 }}
 
 QPushButton#btn_primary {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-        stop:0 {c['accent']}, stop:1 {_darken(c['accent'])});
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {c['accent']}, stop:1 {_darken(c['accent'])});
     color: white;
     border: none;
     font-weight: bold;
     padding: 8px 22px;
 }}
 QPushButton#btn_primary:hover {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-        stop:0 {c['accent2']}, stop:1 {c['accent']});
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {c['accent2']}, stop:1 {c['accent']});
 }}
 QPushButton#btn_secondary {{
     background-color: {c['card2']};
@@ -443,30 +532,30 @@ QPushButton#btn_secondary {{
     border: 1px solid {c['border']};
 }}
 QPushButton#btn_danger {{
-    background-color: rgba(248,81,73,0.12);
+    background-color: rgba(248,81,73,31);
     color: {c['error']};
-    border: 1px solid rgba(248,81,73,0.35);
+    border: 1px solid rgba(248,81,73,89);
 }}
 QPushButton#btn_danger:hover {{
-    background-color: rgba(248,81,73,0.22);
+    background-color: rgba(248,81,73,56);
     border-color: {c['error']};
 }}
 QPushButton#btn_info {{
-    background-color: rgba(56,139,253,0.12);
+    background-color: rgba(56,139,253,31);
     color: {c['blue2']};
-    border: 1px solid rgba(56,139,253,0.35);
+    border: 1px solid rgba(56,139,253,89);
 }}
 QPushButton#btn_info:hover {{
-    background-color: rgba(56,139,253,0.22);
+    background-color: rgba(56,139,253,56);
     border-color: {c['blue']};
 }}
 QPushButton#btn_success {{
-    background-color: rgba(63,185,80,0.12);
+    background-color: rgba(63,185,80,31);
     color: {c['green2']};
-    border: 1px solid rgba(63,185,80,0.35);
+    border: 1px solid rgba(63,185,80,89);
 }}
 QPushButton#btn_success:hover {{
-    background-color: rgba(63,185,80,0.22);
+    background-color: rgba(63,185,80,56);
     border-color: {c['green']};
 }}
 QPushButton#icon_btn {{
@@ -486,18 +575,19 @@ QPushButton#icon_btn:hover {{
    Inputs
 ═══════════════════════════════════════════════════════════════════════ */
 QLineEdit {{
-    background-color: {c['card2']};
+    background-color: {c['card']};
     border: 1px solid {c['border']};
     border-radius: 6px;
     padding: 7px 12px;
     color: {c['primary']};
     selection-background-color: {c['selected']};
 }}
-QLineEdit:focus {{ border-color: {c['blue']}; background-color: {c['card']}; }}
-QLineEdit:read-only {{ color: {c['muted']}; background-color: {c['surface']}; }}
+QLineEdit:hover  {{ border-color: {c['muted']}; }}
+QLineEdit:focus  {{ border-color: {c['blue']}; background-color: {c['card']}; }}
+QLineEdit:read-only {{ color: {c['muted']}; background-color: {c['surface']}; border-color: {c['border']}; }}
 
 QTextEdit, QPlainTextEdit {{
-    background-color: {c['card2']};
+    background-color: {c['card']};
     border: 1px solid {c['border']};
     border-radius: 6px;
     color: {c['primary']};
@@ -507,38 +597,63 @@ QTextEdit, QPlainTextEdit {{
 }}
 QTextEdit:focus, QPlainTextEdit:focus {{ border-color: {c['blue']}; }}
 QTextEdit:read-only, QPlainTextEdit:read-only {{
-    background-color: {c['card']};
+    background-color: {c['surface']};
     color: {c['muted']};
 }}
 
 QComboBox {{
-    background-color: {c['card2']};
+    background-color: {c['card']};
     border: 1px solid {c['border']};
     border-radius: 6px;
-    padding: 6px 10px;
-    color: {c['secondary']};
-    selection-background-color: {c['card']};
+    padding: 6px 10px 6px 10px;
+    color: {c['primary']};
     min-height: 28px;
 }}
 QComboBox:hover {{ border-color: {c['muted']}; }}
 QComboBox:focus {{ border-color: {c['blue']}; }}
-QComboBox::drop-down {{ border: none; width: 24px; }}
-QComboBox QAbstractItemView {{
+QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 26px;
+    border-left: 1px solid {c['border']};
     background-color: {c['card2']};
-    border: 1px solid {c['border']};
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}}
+QComboBox::drop-down:hover {{ background-color: {c['hover']}; }}
+QComboBox::down-arrow {{
+    width: 0; height: 0;
+    border-left:  4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top:   5px solid {c['muted']};
+}}
+QComboBox QAbstractItemView {{
+    background: {c['card2']};
+    background-color: {c['card2']};
+    border: 1px solid {c['blue']};
+    border-radius: 0px;
     selection-background-color: {c['selected']};
+    selection-color: {c['primary']};
     color: {c['primary']};
     outline: none;
-    padding: 2px;
+    padding: 0px;
+    min-width: 100px;
 }}
+QComboBox QAbstractItemView::item {{ padding: 6px 12px; min-height: 26px; color: {c['primary']}; background-color: {c['card2']}; }}
+QComboBox QAbstractItemView::item:selected {{ background-color: {c['selected']}; color: {c['primary']}; }}
+QComboBox QAbstractItemView::item:hover {{ background-color: {c['hover']}; color: {c['primary']}; }}
+QComboBox QAbstractItemView::item:focus {{ background-color: {c['card2']}; }}
 
 QSpinBox {{
-    background-color: {c['card2']};
+    background-color: {c['card']};
     border: 1px solid {c['border']};
     border-radius: 6px;
     padding: 6px 10px;
     color: {c['primary']};
 }}
+QSpinBox:hover {{ border-color: {c['muted']}; }}
 QSpinBox:focus {{ border-color: {c['blue']}; }}
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -633,6 +748,27 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
     max-height: 1px;
     min-height: 1px;
 }}
+#section_title {{
+    color: {c['primary']};
+    font-size: {fs + 2}px;
+    font-weight: bold;
+    background: transparent;
+    border: none;
+}}
+#page_section_lbl {{
+    color: {c['secondary']};
+    font-size: {fs + 2}px;
+    font-weight: bold;
+    background: transparent;
+    border: none;
+}}
+#empty_state_lbl {{
+    color: {c['muted']};
+    font-size: {fs}px;
+    padding: 30px;
+    background: transparent;
+    border: none;
+}}
 
 /* ═══════════════════════════════════════════════════════════════════════
    Toolbar / Panels
@@ -664,8 +800,7 @@ QProgressBar {{
     height: 6px;
 }}
 QProgressBar::chunk {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-        stop:0 {c['blue']}, stop:1 {c['teal']});
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {c['blue']}, stop:1 {c['teal']});
     border-radius: 4px;
 }}
 
@@ -710,7 +845,10 @@ QRadioButton::indicator:checked {{
 ═══════════════════════════════════════════════════════════════════════ */
 QTabWidget::pane {{
     border: 1px solid {c['border']};
-    border-radius: 0 6px 6px 6px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-top-left-radius: 0;
     background-color: {c['surface']};
 }}
 QTabBar::tab {{
@@ -718,7 +856,10 @@ QTabBar::tab {{
     color: {c['muted']};
     border: 1px solid {c['border']};
     border-bottom: none;
-    border-radius: 6px 6px 0 0;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
     padding: 7px 18px;
     margin-right: 2px;
 }}
@@ -768,8 +909,7 @@ QSplitter::handle:vertical   {{ height: 1px; }}
    Dialog
 ═══════════════════════════════════════════════════════════════════════ */
 #dialog_header {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-        stop:0 {c['card']}, stop:1 {c['card2']});
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {c['card']}, stop:1 {c['card2']});
     border-bottom: 1px solid {c['border']};
     padding: 20px 24px;
 }}
@@ -793,6 +933,58 @@ QSplitter::handle:vertical   {{ height: 1px; }}
     color: {c['muted']};
     font-size: {fs - 2}px;
 }}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Scroll areas  (ensures correct background on theme change)
+═══════════════════════════════════════════════════════════════════════ */
+QScrollArea {{
+    background-color: {c['bg']};
+    border: none;
+}}
+QScrollArea > QWidget {{
+    background-color: transparent;
+}}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Page content containers  (updated by app.setStyleSheet on theme change)
+═══════════════════════════════════════════════════════════════════════ */
+QWidget#translate_main_area  {{ background-color: {c['bg']}; }}
+QWidget#model_right_panel    {{ background-color: {c['bg']}; }}
+QWidget#models_body          {{ background-color: {c['bg']}; }}
+QWidget#home_content         {{ background-color: transparent; }}
+QWidget#home_games_section   {{ background-color: transparent; }}
+QWidget#home_grid_container  {{ background-color: transparent; }}
+QWidget#settings_content     {{ background-color: transparent; }}
+QWidget#unrealpak_body       {{ background-color: transparent; }}
+QWidget#history_widget       {{ background-color: transparent; }}
+
+QFrame#translator_card {{
+    background-color: {c['card']};
+    border: 1px solid {c['border']};
+    border-radius: 12px;
+}}
+QFrame#input_panel, QFrame#output_panel {{
+    background-color: {c['surface']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+}}
+QFrame#output_header {{
+    background: transparent;
+    border-bottom: 1px solid {c['border']};
+}}
+QFrame#home_toolbar_frame {{
+    background-color: {c['card']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+}}
+QFrame#home_toolbar_frame QLineEdit {{
+    background-color: {c['bg']};
+    border: 1px solid {c['border']};
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: {c['primary']};
+}}
+QFrame#home_toolbar_frame QLineEdit:focus {{ border-color: {c['blue']}; }}
 
 /* ═══════════════════════════════════════════════════════════════════════
    Log / Terminal panel

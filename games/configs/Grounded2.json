@@ -1,7 +1,7 @@
 {
   "name": "Grounded2",
-  "process_name": "Grounded2.exe",
-  "game_path": "D:/SteamLibrary/steamapps/common/Grounded2/Augusta/Content/Paks",
+  "process_name": "Grounded2-WinGRTS-Shipping.exe",
+  "game_path": "D:/SteamLibrary/steamapps/common/Grounded2",
   "engine": "unreal",
   "hook_mode": "frida",
   "source_lang": "en",

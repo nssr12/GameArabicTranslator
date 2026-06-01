@@ -104,10 +104,14 @@ class IoStoreTranslator:
             self._log(f"ERROR: path not found: {paks_input}")
             return False
 
-        cmd = [self.retoc_path, "to-legacy", paks_input, output_dir]
-        if aes_key.strip():
-            cmd += ["--aes-key", aes_key.strip()]
+        # --aes-key is a GLOBAL option → must come before the sub-command name
+        aes_clean = aes_key.strip()
+        cmd = [self.retoc_path]
+        if aes_clean:
+            cmd += ["--aes-key", aes_clean]
+        cmd += ["to-legacy", paks_input, output_dir]
 
+        self._log(f"CMD: {' '.join(cmd)}")
         ok, out = self._run(cmd, timeout=300)
         for line in out.splitlines():
             self._log(f"  {line}")
@@ -116,6 +120,42 @@ class IoStoreTranslator:
             return False
         if not os.path.isdir(output_dir):
             self._log(f"WARNING: output folder not found after extraction: {output_dir}")
+
+        # to-legacy skips raw chunks (locres, locmeta, ini, …).
+        # Run 'retoc unpack' on every .utoc → extract to a temp dir, then
+        # merge only NEW files (not already produced by to-legacy) into output_dir.
+        import glob as _glob, shutil as _shutil, tempfile as _tempfile
+        paks_dir = paks_input if os.path.isdir(paks_input) else os.path.dirname(paks_input)
+        utoc_files = _glob.glob(os.path.join(paks_dir, "*.utoc"))
+        if utoc_files:
+            self._log(f"Unpacking raw chunks from {len(utoc_files)} container(s)…")
+        for utoc in utoc_files:
+            tmp = _tempfile.mkdtemp(prefix="retoc_unpack_")
+            ucmd = [self.retoc_path]
+            if aes_clean:
+                ucmd += ["--aes-key", aes_clean]
+            ucmd += ["unpack", utoc, tmp]
+            self._log(f"  CMD: {' '.join(ucmd)}")
+            _, uout = self._run(ucmd, timeout=120)
+            for line in uout.splitlines():
+                self._log(f"    {line}")
+            # Merge: walk every file in tmp, copy to output_dir preserving relative path.
+            # Skip files that to-legacy already produced (uasset, umap, uexp, ubulk).
+            _skip_ext = {".uasset", ".umap", ".uexp", ".ubulk", ".ushaderbytecode"}
+            copied = 0
+            for root, _, files in os.walk(tmp):
+                for fname in files:
+                    if os.path.splitext(fname)[1].lower() in _skip_ext:
+                        continue
+                    src_file = os.path.join(root, fname)
+                    rel      = os.path.relpath(src_file, tmp)
+                    dst_file = os.path.join(output_dir, rel)
+                    os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+                    _shutil.copy2(src_file, dst_file)
+                    copied += 1
+            self._log(f"    Merged {copied} raw file(s) into output")
+            _shutil.rmtree(tmp, ignore_errors=True)
+
         self._log("✓ Step 1 complete")
         return True
 
@@ -424,11 +464,14 @@ class IoStoreTranslator:
         # retoc treats the output path literally as the .utoc filename, then derives .ucas from it
         base = output_base[:-5] if output_base.endswith(".utoc") else output_base
         utoc_out = base + "_P.utoc"
-        cmd = [self.retoc_path, "to-zen", "--version", zen_version,
-               legacy_folder, utoc_out]
-        if aes_key.strip():
-            cmd += ["--aes-key", aes_key.strip()]
+        # --aes-key is a GLOBAL option → must come before the sub-command name
+        aes_clean = aes_key.strip()
+        cmd = [self.retoc_path]
+        if aes_clean:
+            cmd += ["--aes-key", aes_clean]
+        cmd += ["to-zen", "--version", zen_version, legacy_folder, utoc_out]
 
+        self._log(f"CMD: {' '.join(cmd)}")
         ok, out = self._run(cmd, timeout=300)
         for line in out.splitlines():
             self._log(f"  {line}")
@@ -441,6 +484,77 @@ class IoStoreTranslator:
         if not os.path.exists(pak_out):
             self._create_pak_stub(pak_out)
         return True
+
+    # ── .locres translation ───────────────────────────────────────────────────
+
+    def translate_locres_files(
+        self,
+        legacy_folder: str,
+        engine,
+        cache,
+        game_id: str,
+        progress_cb: Callable[[int, int, str], None] | None = None,
+    ) -> tuple[int, int]:
+        """
+        Find all .locres files in legacy_folder, translate English→Arabic,
+        patch them in-place. Returns (total_replaced, total_strings).
+        """
+        from games.locres_patcher import LocresPatcher
+
+        files = LocresPatcher.find_locres_files(legacy_folder)
+        if not files:
+            self._log("No .locres files found in the extracted folder.")
+            return 0, 0
+
+        self._log(f"Found {len(files)} .locres file(s):")
+        for p in files:
+            self._log(f"  {os.path.relpath(p, legacy_folder)}")
+
+        total_replaced = 0
+        total_count    = 0
+
+        for fi, path in enumerate(files):
+            fname = os.path.relpath(path, legacy_folder)
+            entries = LocresPatcher.read(path)
+            if not entries:
+                self._log(f"  [{fi+1}/{len(files)}] {fname} — empty/unreadable, skipped")
+                continue
+
+            english_texts = [e.value.strip() for e in entries if e.value.strip()]
+            unique_texts  = list(dict.fromkeys(english_texts))   # dedupe, preserve order
+
+            # 1. Cache lookup
+            translations: dict[str, str] = {}
+            if cache and game_id:
+                for txt in unique_texts:
+                    ar = cache.get(game_id, txt)
+                    if ar:
+                        translations[txt] = ar
+
+            # 2. Translate missing via AI engine
+            missing = [t for t in unique_texts if t not in translations]
+            if missing and engine:
+                self._log(f"  Translating {len(missing)} new strings in {fname}…")
+                for i, txt in enumerate(missing):
+                    if progress_cb:
+                        progress_cb(i, len(missing), fname)
+                    try:
+                        ar = engine.translate(txt)
+                        if ar and ar != txt:
+                            translations[txt] = ar
+                            if cache and game_id:
+                                cache.save(game_id, txt, ar)
+                    except Exception as e:
+                        self._log(f"    WARN: {e}")
+
+            # 3. Patch in-place
+            replaced, count = LocresPatcher.patch(path, path, translations)
+            total_replaced += replaced
+            total_count    += count
+            self._log(f"  [{fi+1}/{len(files)}] {fname}: {replaced}/{count} replaced")
+
+        self._log(f"✓ .locres done — {total_replaced}/{total_count} total strings replaced")
+        return total_replaced, total_count
 
     def _create_pak_stub(self, path: str):
         """Create a minimal valid UE pak file (IoStore container stub)."""

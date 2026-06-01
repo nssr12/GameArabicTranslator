@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>ArabicFontFixer</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- Unity + TMP DLLs — taken from any installed Unity game (Flotsam here) -->
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(GAME_MANAGED)/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreFontEngineModule">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.TextCoreFontEngineModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreTextEngineModule">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.TextCoreTextEngineModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(GAME_MANAGED)/UnityEngine.AssetBundleModule.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- BepInEx 5.x + HarmonyLib -->
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(BEPINEX_CORE)/BepInEx.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BEPINEX_CORE)/0Harmony.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

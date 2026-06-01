@@ -3,14 +3,32 @@ gui/qt/widgets/sidebar.py  —  الشريط الجانبي للتنقل
 """
 
 from __future__ import annotations
+import os
+import sys
+
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QToolButton, QScrollArea, QWidget, QSizePolicy
 )
 from PySide6.QtCore  import Qt, Signal, QSize
-from PySide6.QtGui   import QCursor, QFont
+from PySide6.QtGui   import QCursor, QFont, QPixmap
 
 from gui.qt.theme import theme
+
+if getattr(sys, 'frozen', False):
+    _DATA_DIR = os.path.join(os.path.dirname(sys.executable), "data")
+else:
+    _DATA_DIR = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "data")
+    )
+
+
+def _find_logo() -> str:
+    for name in ("logo.png", "logo.jpg", "logo.jpeg"):
+        p = os.path.join(_DATA_DIR, name)
+        if os.path.isfile(p):
+            return p
+    return ""
 
 
 # ── Nav item ──────────────────────────────────────────────────────────────────
@@ -41,6 +59,8 @@ NAV_ITEMS = [
     ("🏠", "الرئيسية",       "home"),
     ("🎮", "الألعاب",        "games"),
     ("🌐", "الترجمة الفورية", "translate"),
+    ("🌍", "ترجمة I2",       "i2_translate"),
+    ("📦", "UnrealPak",      "unrealpak"),
     ("🤖", "AI Models",      "models"),
     ("💾", "الكاش",          "cache"),
     ("⚙️",  "الإعدادات",     "settings"),
@@ -55,6 +75,7 @@ class Sidebar(QFrame):
 
     page_requested  = Signal(str)
     admin_requested = Signal()
+    toggle_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -78,20 +99,51 @@ class Sidebar(QFrame):
     def _make_header(self) -> QFrame:
         hdr = QFrame()
         hdr.setObjectName("sidebar_header")
-        hdr.setFixedHeight(78)
+        hdr.setFixedHeight(108)
 
-        lay = QVBoxLayout(hdr)
-        lay.setContentsMargins(16, 14, 16, 12)
-        lay.setSpacing(3)
+        logo_path = _find_logo()
+        if logo_path:
+            px = QPixmap(logo_path)
+            if not px.isNull():
+                # Logo fills the header area centered
+                px = px.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                img_lbl = QLabel(hdr)
+                img_lbl.setPixmap(px)
+                img_lbl.setGeometry(0, 0, 230, 108)
+                img_lbl.setAlignment(Qt.AlignCenter)
+                img_lbl.setStyleSheet("background: transparent; border: none;")
+
+                # ☰ toggle button — overlay at top-right corner (outer edge, away from content)
+                toggle_btn = QToolButton(hdr)
+                toggle_btn.setText("☰")
+                toggle_btn.setObjectName("sidebar_toggle_btn")
+                toggle_btn.setFixedSize(28, 28)
+                toggle_btn.setCursor(QCursor(Qt.PointingHandCursor))
+                toggle_btn.setToolTip("إخفاء القائمة")
+                toggle_btn.clicked.connect(self.toggle_requested)
+                toggle_btn.move(230 - 28 - 4, 4)   # outer-right of sidebar
+                toggle_btn.raise_()
+                return hdr
+
+        # fallback: normal layout with text + toggle
+        lay = QHBoxLayout(hdr)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(6)
 
         logo = QLabel("🎮 GAT")
         logo.setObjectName("app_logo")
+        logo.setAlignment(Qt.AlignCenter)
+        lay.addWidget(logo, 1)
 
-        ver = QLabel("v2.0  •  PySide6")
-        ver.setObjectName("app_version")
+        toggle_btn = QToolButton()
+        toggle_btn.setText("☰")
+        toggle_btn.setObjectName("sidebar_toggle_btn")
+        toggle_btn.setFixedSize(28, 28)
+        toggle_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        toggle_btn.setToolTip("إخفاء القائمة")
+        toggle_btn.clicked.connect(self.toggle_requested)
+        lay.addWidget(toggle_btn, 0, Qt.AlignTop)
 
-        lay.addWidget(logo)
-        lay.addWidget(ver)
         return hdr
 
     def _make_nav(self) -> QWidget:

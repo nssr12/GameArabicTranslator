@@ -111,6 +111,9 @@ class TranslationCache:
             ("updated_at", "ALTER TABLE translations ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
             ("model_used", "ALTER TABLE translations ADD COLUMN model_used TEXT DEFAULT 'unknown'"),
             ("mode_used",  "ALTER TABLE translations ADD COLUMN mode_used TEXT DEFAULT ''"),  # learning cache
+            # is_preferred: علم اختيار يدوي صريح للترجمة الأفضل في حالة وجود ترجمات متعدّدة
+            # — أعلى أولوية في خوارزمية get_best الهرمية
+            ("is_preferred", "ALTER TABLE translations ADD COLUMN is_preferred INTEGER DEFAULT 0"),
         ]:
             if col not in existing:
                 try:
@@ -118,10 +121,18 @@ class TranslationCache:
                     conn.commit()
                 except Exception:
                     pass
+
+        # ── Migration v2: UNIQUE(original_text) → UNIQUE(original_text, model_used)
+        # يسمح بترجمات متعدّدة لنفس النص (واحدة لكل مودل) للدمج الهرمي.
+        # يحفظ كل البيانات الموجودة كما هي — لا فقدان.
+        self._migrate_to_composite_unique(conn)
         # نفس الترقية لجدول failed_translations
         existing_failed = {row[1] for row in conn.execute("PRAGMA table_info(failed_translations)")}
         for col, ddl in [
             ("modes_tried", "ALTER TABLE failed_translations ADD COLUMN modes_tried TEXT DEFAULT ''"),
+            # model_used: المودل الذي حاول الترجمة وفشل — يُستخدم عند التصحيح اليدوي
+            # لحفظ الترجمة المُصحَّحة تحت نفس المودل في كاش النجاح
+            ("model_used", "ALTER TABLE failed_translations ADD COLUMN model_used TEXT DEFAULT ''"),
         ]:
             if col not in existing_failed:
                 try:
@@ -139,7 +150,88 @@ class TranslationCache:
                 last_used_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # جدول أولوية المودلات — يستخدم في الدمج الهرمي
+        # priority أعلى = يفوز عند التعارض. الترتيب الافتراضي: حسب الإضافة.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_priority (
+                model_used    TEXT PRIMARY KEY,
+                priority      INTEGER NOT NULL DEFAULT 0,
+                updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
+
+    def _migrate_to_composite_unique(self, conn: sqlite3.Connection):
+        """يُحوّل UNIQUE(original_text) إلى UNIQUE(original_text, model_used).
+        SQLite لا يدعم DROP CONSTRAINT — يجب إعادة بناء الجدول.
+        يحافظ على كل البيانات الموجودة (id, hit_count, ...).
+        """
+        try:
+            # ابحث عن قيد UNIQUE الحالي
+            indexes = conn.execute("PRAGMA index_list(translations)").fetchall()
+            # idx: (seq, name, unique, origin, partial)
+            old_unique_only_text = False
+            new_unique_composite = False
+            for idx in indexes:
+                if not idx[2]:
+                    continue
+                cols = [r[2] for r in conn.execute(f"PRAGMA index_info('{idx[1]}')").fetchall()]
+                if cols == ["original_text"]:
+                    old_unique_only_text = True
+                elif sorted(cols) == sorted(["original_text", "model_used"]):
+                    new_unique_composite = True
+
+            if new_unique_composite:
+                return   # تمت الترقية مسبقاً
+
+            if not old_unique_only_text:
+                # جدول قديم بصيغة مختلفة — لا تتدخّل
+                return
+
+            # إعادة بناء آمنة — executescript يدير الـ transaction بنفسه
+            conn.executescript("""
+                ALTER TABLE translations RENAME TO _translations_v1;
+                CREATE TABLE translations (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    original_text    TEXT    NOT NULL,
+                    translated_text  TEXT    NOT NULL,
+                    model_used       TEXT    NOT NULL DEFAULT 'unknown',
+                    mode_used        TEXT    DEFAULT '',
+                    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    hit_count        INTEGER DEFAULT 0,
+                    is_preferred     INTEGER DEFAULT 0,
+                    UNIQUE(original_text, model_used)
+                );
+            """)
+            # انسخ كل الأعمدة المتاحة (نراعي أن الـ v1 قد لا يحوي is_preferred)
+            v1_cols = {row[1] for row in conn.execute("PRAGMA table_info(_translations_v1)")}
+            base_cols = ["id", "original_text", "translated_text", "model_used",
+                         "created_at", "updated_at", "hit_count"]
+            optional_cols = ["mode_used", "is_preferred"]
+            all_cols = base_cols + [c for c in optional_cols if c in v1_cols]
+            cols_csv = ", ".join(all_cols)
+            # عَوِّض NULLs في model_used → 'unknown' لتفادي مشاكل NOT NULL
+            select_parts = []
+            for c in all_cols:
+                if c == "model_used":
+                    select_parts.append("COALESCE(NULLIF(TRIM(model_used), ''), 'unknown') AS model_used")
+                else:
+                    select_parts.append(c)
+            conn.execute(
+                f"INSERT INTO translations ({cols_csv}) "
+                f"SELECT {', '.join(select_parts)} FROM _translations_v1"
+            )
+            conn.execute("DROP TABLE _translations_v1")
+            conn.executescript("""
+                CREATE INDEX IF NOT EXISTS idx_original ON translations(original_text);
+                CREATE INDEX IF NOT EXISTS idx_original_model ON translations(original_text, model_used);
+            """)
+            conn.commit()
+            print("[Cache] migrated translations table to v2 (UNIQUE on text+model)")
+        except Exception as e:
+            # ترقية فشلت — يبقى الجدول القديم سليماً (لا يكسر التطبيق)
+            print(f"[Cache] migration to v2 failed: {e}")
 
     # ------------------------------------------------------------------
     # Public API  (same signatures as before — no breaking changes)
@@ -167,17 +259,174 @@ class TranslationCache:
             return
         # If this game was soft-deleted but data is being written again, make it visible
         self._soft_deleted.discard(game_name)
+        # تطبيع: model_used فارغ → "unknown" (يلائم NOT NULL في الـ schema الجديد)
+        model = (model or "unknown").strip() or "unknown"
         conn = self._get_conn(game_name)
+        # Schema v2: UNIQUE(original_text, model_used) — صف منفصل لكل مودل
+        # نفس النص يُحفَظ مرات متعدّدة (واحدة لكل مودل ترجمه) ويُختار الأفضل عند التصدير.
         conn.execute("""
             INSERT INTO translations (original_text, translated_text, model_used, mode_used)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT(original_text) DO UPDATE SET
+            ON CONFLICT(original_text, model_used) DO UPDATE SET
                 translated_text = excluded.translated_text,
-                model_used      = excluded.model_used,
                 mode_used       = excluded.mode_used,
                 updated_at      = CURRENT_TIMESTAMP
         """, (original_text, translated_text, model, mode_used))
         conn.commit()
+
+    def set_preferred(self, game_name: str, original_text: str, model_used: str,
+                      preferred: bool = True):
+        """يحدّد أن ترجمة معيّنة (نص × مودل) هي المختارة يدوياً.
+        يضع is_preferred=1 على هذا الصف و 0 على بقية صفوف نفس النص."""
+        conn = self._get_conn(game_name)
+        conn.execute(
+            "UPDATE translations SET is_preferred = 0 WHERE original_text = ?",
+            (original_text,)
+        )
+        if preferred:
+            conn.execute(
+                "UPDATE translations SET is_preferred = 1 "
+                "WHERE original_text = ? AND model_used = ?",
+                (original_text, model_used)
+            )
+        conn.commit()
+
+    # ── Model priority management ───────────────────────────────────────────
+
+    def get_model_priorities(self, game_name: str) -> dict[str, int]:
+        """يُرجع خريطة {model_used: priority} للعبة معيّنة."""
+        conn = self._get_conn(game_name)
+        rows = conn.execute(
+            "SELECT model_used, priority FROM model_priority"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+    def set_model_priority(self, game_name: str, model_used: str, priority: int):
+        """يُحدّث أولوية مودل (أعلى = يفوز عند التعارض)."""
+        conn = self._get_conn(game_name)
+        conn.execute("""
+            INSERT INTO model_priority (model_used, priority, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(model_used) DO UPDATE SET
+                priority = excluded.priority,
+                updated_at = CURRENT_TIMESTAMP
+        """, (model_used, priority))
+        conn.commit()
+
+    def get_best(self, game_name: str, original_text: str,
+                 deprioritize_suffix: str = "") -> Optional[str]:
+        """يُرجع أفضل ترجمة للنص حسب الخوارزمية الهرمية:
+          1) is_preferred=1     — اختيار يدوي صريح
+          2) mode_used='manual' — تصحيح يدوي عبر EditDialog
+          3) إجماع 2+ مودلات    — نفس الترجمة من أكثر من مودل
+          4) أعلى model_priority — حسب جدول الأولوية
+          5) الأحدث (MAX updated_at) — fallback نهائي
+
+        deprioritize_suffix: لو محدّد (مثل ":i2")، نفلتر الترجمات من المودلات
+          التي تنتهي بهذا الـ suffix **عندما يتوفّر بديل بدونها**. مفيد للـ live
+          export — ترجمات :i2 بصيغة template ({0}) أو contextual لا تناسب
+          عرض TMP الـ live (اللعبة تستبدل placeholders قبل الإرسال).
+        """
+        conn = self._get_conn(game_name)
+        rows = conn.execute("""
+            SELECT translated_text, model_used,
+                   COALESCE(is_preferred, 0), COALESCE(mode_used, ''),
+                   COALESCE(updated_at, '')
+            FROM translations
+            WHERE original_text = ?
+        """, (original_text,)).fetchall()
+        if not rows:
+            return None
+        # فضّل المودلات بدون suffix عندما يتوفّر بديل
+        if deprioritize_suffix and len(rows) > 1:
+            no_suffix = [r for r in rows if not str(r[1]).endswith(deprioritize_suffix)]
+            if no_suffix:
+                rows = no_suffix
+        if len(rows) == 1:
+            return rows[0][0]
+
+        # المستوى 1: is_preferred
+        preferred = [r for r in rows if r[2]]
+        if preferred:
+            return preferred[0][0]
+
+        # المستوى 2: mode_used='manual'
+        manual = [r for r in rows if r[3] == "manual"]
+        if manual:
+            # لو فيه عدة manual، خذ الأحدث
+            manual.sort(key=lambda r: r[4] or "", reverse=True)
+            return manual[0][0]
+
+        # المستوى 3: إجماع — نفس الترجمة من 2+ مودلات
+        from collections import Counter
+        counts = Counter(r[0] for r in rows)
+        most_common, count = counts.most_common(1)[0]
+        if count >= 2:
+            return most_common
+
+        # المستوى 4: أعلى model_priority
+        priorities = self.get_model_priorities(game_name)
+        # نقطة الافتراضي 0 إن لم يُحدَّد
+        rows_by_prio = sorted(rows, key=lambda r: priorities.get(r[1], 0), reverse=True)
+        top_prio = priorities.get(rows_by_prio[0][1], 0)
+        if top_prio > 0:
+            return rows_by_prio[0][0]
+
+        # المستوى 5: الأحدث
+        rows_by_time = sorted(rows, key=lambda r: r[4] or "", reverse=True)
+        return rows_by_time[0][0]
+
+    def iter_best_translations(self, game_name: str, model_filter: str = "",
+                                deprioritize_suffix: str = ""):
+        """مولّد يمرّ على كل النصوص الفريدة في اللعبة ويُرجع (original, best_translation).
+        إذا حُدّد model_filter غير فارغ، يُرجع ترجمة هذا المودل فقط (بلا دمج هرمي).
+
+        deprioritize_suffix: يُمرَّر إلى get_best — يفضّل المودلات بدون الـ suffix.
+
+        ⚠ يُتجاوز كل نص يطابق skip_patterns (يُترَك بالإنجليزية تلقائياً
+        لأن ArabicFontFixer لن يجده في _staticTr → لن يستبدله).
+        """
+        # حمّل skip_patterns مرة واحدة قبل البدء
+        try:
+            from engine import skip_patterns
+            skip_pats = skip_patterns.get_patterns()
+        except Exception:
+            skip_pats = []
+
+        conn = self._get_conn(game_name)
+        if model_filter:
+            # فلتر بمودل واحد — لا حاجة للهرمية
+            rows = conn.execute("""
+                SELECT original_text, translated_text
+                FROM translations
+                WHERE model_used = ?
+                ORDER BY original_text
+            """, (model_filter,)).fetchall()
+            for r in rows:
+                # تخطّى لو يطابق skip_patterns
+                if skip_pats:
+                    try:
+                        if skip_patterns.matches(r[0], skip_pats):
+                            continue
+                    except Exception:
+                        pass
+                yield r[0], r[1]
+            return
+        # كل المودلات — طبّق الدمج الهرمي على كل نص فريد
+        rows = conn.execute(
+            "SELECT DISTINCT original_text FROM translations ORDER BY original_text"
+        ).fetchall()
+        for r in rows:
+            # تخطّى لو يطابق skip_patterns (يبقى بالإنجليزية في اللعبة)
+            if skip_pats:
+                try:
+                    if skip_patterns.matches(r[0], skip_pats):
+                        continue
+                except Exception:
+                    pass
+            best = self.get_best(game_name, r[0], deprioritize_suffix=deprioritize_suffix)
+            if best:
+                yield r[0], best
 
     # ── Learning cache ────────────────────────────────────────────────────
 
@@ -229,13 +478,16 @@ class TranslationCache:
             return default
         return stats[0]["mode"]
 
-    def mark_failed(self, game_name: str, original_text: str, reason: str = ""):
+    def mark_failed(self, game_name: str, original_text: str, reason: str = "",
+                    model_used: str = ""):
         conn = self._get_conn(game_name)
-        # عند تكرار محاولة فاشلة، نُحدّث السبب لأحدث رسالة
+        # عند تكرار محاولة فاشلة، نُحدّث السبب والمودل لأحدث محاولة
         conn.execute(
-            "INSERT INTO failed_translations (original_text, reason) VALUES (?, ?) "
-            "ON CONFLICT(original_text) DO UPDATE SET reason=excluded.reason",
-            (original_text, reason)
+            "INSERT INTO failed_translations (original_text, reason, model_used) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(original_text) DO UPDATE SET "
+            "reason=excluded.reason, model_used=excluded.model_used",
+            (original_text, reason, model_used)
         )
         conn.commit()
 
@@ -247,30 +499,51 @@ class TranslationCache:
         ).fetchone() is not None
 
     def get_failed_page(self, game_name: str, offset: int = 0, limit: int = 50,
-                        search: str = "") -> list:
+                        search: str = "", exact_match: bool = False) -> list:
         """يُرجع صفحة من الترجمات الفاشلة مع سببها."""
         conn = self._get_conn(game_name)
         conditions, params = [], []
         if search:
-            pattern = f"%{search}%"
-            conditions.append("(original_text LIKE ? OR reason LIKE ?)")
-            params.extend([pattern, pattern])
+            if exact_match:
+                conditions.append(
+                    "(original_text = ? COLLATE NOCASE OR reason = ? COLLATE NOCASE)"
+                )
+                params.extend([search, search])
+            else:
+                pattern = f"%{search}%"
+                conditions.append("(original_text LIKE ? OR reason LIKE ?)")
+                params.extend([pattern, pattern])
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         params.extend([limit, offset])
         rows = conn.execute(
-            f"SELECT original_text, reason, created_at "
+            f"SELECT original_text, reason, created_at, model_used "
             f"FROM failed_translations {where} ORDER BY id DESC LIMIT ? OFFSET ?",
             params
         ).fetchall()
-        return [{"original": r[0], "reason": r[1] or "", "created_at": r[2] or ""} for r in rows]
+        return [
+            {
+                "original":   r[0],
+                "reason":     r[1] or "",
+                "created_at": r[2] or "",
+                "model":      (r[3] or "") if len(r) > 3 else "",
+            }
+            for r in rows
+        ]
 
-    def count_failed(self, game_name: str, search: str = "") -> int:
+    def count_failed(self, game_name: str, search: str = "",
+                     exact_match: bool = False) -> int:
         conn = self._get_conn(game_name)
         conditions, params = [], []
         if search:
-            pattern = f"%{search}%"
-            conditions.append("(original_text LIKE ? OR reason LIKE ?)")
-            params.extend([pattern, pattern])
+            if exact_match:
+                conditions.append(
+                    "(original_text = ? COLLATE NOCASE OR reason = ? COLLATE NOCASE)"
+                )
+                params.extend([search, search])
+            else:
+                pattern = f"%{search}%"
+                conditions.append("(original_text LIKE ? OR reason LIKE ?)")
+                params.extend([pattern, pattern])
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         return conn.execute(
             f"SELECT COUNT(*) FROM failed_translations {where}", params
@@ -410,42 +683,94 @@ class TranslationCache:
         if not file_deleted:
             self._soft_deleted.add(game_name)
 
-    def get_page(self, game_name: str, offset: int = 0, limit: int = 50,
-                 search: str = "", model_filter: str = "") -> list:
-        conn = self._get_conn(game_name)
-        conditions, params = [], []
+    def _build_search_conditions(self, search: str, model_filter: str,
+                                  exact_match: bool, health_filter: str) -> tuple[list, list]:
+        """يبني WHERE conditions و params مشتركة بين count و get_page.
 
+        health_filter:
+          "manual"    → mode_used = 'manual'
+          "preferred" → is_preferred = 1
+          "conflict"  → original_text له ترجمات من 2+ مودلات (subquery)
+          (broken يُطبَّق post-fetch في الـ caller — يحتاج regex)
+        """
+        conditions, params = [], []
         if search:
-            pattern = f"%{search}%"
-            conditions.append("(original_text LIKE ? OR translated_text LIKE ?)")
-            params.extend([pattern, pattern])
+            if exact_match:
+                conditions.append(
+                    "(original_text = ? COLLATE NOCASE OR "
+                    "translated_text = ? COLLATE NOCASE)"
+                )
+                params.extend([search, search])
+            else:
+                pattern = f"%{search}%"
+                conditions.append("(original_text LIKE ? OR translated_text LIKE ?)")
+                params.extend([pattern, pattern])
         if model_filter and model_filter != "All Models":
             conditions.append("model_used = ?")
             params.append(model_filter)
+        if health_filter == "manual":
+            conditions.append("LOWER(COALESCE(mode_used,'')) = 'manual'")
+        elif health_filter == "preferred":
+            conditions.append("COALESCE(is_preferred, 0) = 1")
+        elif health_filter == "conflict":
+            conditions.append(
+                "original_text IN (SELECT original_text FROM translations "
+                "GROUP BY original_text HAVING COUNT(DISTINCT model_used) > 1)"
+            )
+        return conditions, params
 
+    def get_page(self, game_name: str, offset: int = 0, limit: int = 50,
+                 search: str = "", model_filter: str = "",
+                 exact_match: bool = False, health_filter: str = "") -> list:
+        conn = self._get_conn(game_name)
+        conditions, params = self._build_search_conditions(
+            search, model_filter, exact_match, health_filter
+        )
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        params.extend([limit, offset])
+        params = list(params) + [limit, offset]
         rows = conn.execute(
-            f"SELECT original_text, translated_text, model_used, hit_count "
+            f"SELECT original_text, translated_text, model_used, hit_count, "
+            f"       COALESCE(mode_used, ''), COALESCE(is_preferred, 0) "
             f"FROM translations {where} ORDER BY id DESC LIMIT ? OFFSET ?",
             params
         ).fetchall()
-        return [{"original": r[0], "translated": r[1], "model": r[2], "hits": r[3]} for r in rows]
+        return [
+            {
+                "original": r[0], "translated": r[1], "model": r[2],
+                "hits": r[3], "mode_used": r[4], "is_preferred": bool(r[5]),
+            }
+            for r in rows
+        ]
 
-    def count_entries(self, game_name: str, search: str = "", model_filter: str = "") -> int:
+    def count_entries(self, game_name: str, search: str = "", model_filter: str = "",
+                      exact_match: bool = False, health_filter: str = "") -> int:
         conn = self._get_conn(game_name)
-        conditions, params = [], []
-
-        if search:
-            pattern = f"%{search}%"
-            conditions.append("(original_text LIKE ? OR translated_text LIKE ?)")
-            params.extend([pattern, pattern])
-        if model_filter and model_filter != "All Models":
-            conditions.append("model_used = ?")
-            params.append(model_filter)
-
+        conditions, params = self._build_search_conditions(
+            search, model_filter, exact_match, health_filter
+        )
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         return conn.execute(f"SELECT COUNT(*) FROM translations {where}", params).fetchone()[0]
+
+    def iter_all_for_broken_check(self, game_name: str, search: str = "",
+                                   model_filter: str = "", exact_match: bool = False):
+        """مولّد لكل الصفوف (للفلتر post-process مثل 'broken').
+        يُرجع dicts مثل get_page لكن بدون LIMIT/OFFSET."""
+        conn = self._get_conn(game_name)
+        conditions, params = self._build_search_conditions(
+            search, model_filter, exact_match, ""
+        )
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        cursor = conn.execute(
+            f"SELECT original_text, translated_text, model_used, hit_count, "
+            f"       COALESCE(mode_used, ''), COALESCE(is_preferred, 0) "
+            f"FROM translations {where} ORDER BY id DESC",
+            params
+        )
+        for r in cursor:
+            yield {
+                "original": r[0], "translated": r[1], "model": r[2],
+                "hits": r[3], "mode_used": r[4], "is_preferred": bool(r[5]),
+            }
 
     def get_models_for_game(self, game_name: str) -> List[str]:
         conn = self._get_conn(game_name)
@@ -454,13 +779,21 @@ class TranslationCache:
         ).fetchall()
         return [r[0] for r in rows if r[0]]
 
-    def update_translation(self, game_name: str, original_text: str, new_translated: str):
+    def update_translation(self, game_name: str, original_text: str,
+                           new_translated: str, mode_used: str = ""):
         conn = self._get_conn(game_name)
-        conn.execute(
-            "UPDATE translations SET translated_text = ?, updated_at = CURRENT_TIMESTAMP "
-            "WHERE original_text = ?",
-            (new_translated, original_text)
-        )
+        if mode_used:
+            conn.execute(
+                "UPDATE translations SET translated_text = ?, mode_used = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE original_text = ?",
+                (new_translated, mode_used, original_text)
+            )
+        else:
+            conn.execute(
+                "UPDATE translations SET translated_text = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE original_text = ?",
+                (new_translated, original_text)
+            )
         conn.commit()
 
     def delete_entry(self, game_name: str, original_text: str):
@@ -506,12 +839,23 @@ class TranslationCache:
             return row[0]
         return None
 
-    def count_by_model(self, game_name: str, model_name: str) -> int:
+    def count_by_model(self, game_name: str, model_name: str = "") -> int | dict:
+        """
+        إن مُرِّر model_name → عدد ترجمات هذا المودل (int).
+        إن لم يُمرَّر → dict {model: count} لكل المودلات في اللعبة.
+        """
         conn = self._get_conn(game_name)
-        return conn.execute(
-            "SELECT COUNT(*) FROM translations WHERE model_used = ?",
-            (model_name,)
-        ).fetchone()[0]
+        if model_name:
+            return conn.execute(
+                "SELECT COUNT(*) FROM translations WHERE model_used = ?",
+                (model_name,)
+            ).fetchone()[0]
+        # لا فلتر → خريطة كاملة
+        rows = conn.execute(
+            "SELECT model_used, COUNT(*) FROM translations "
+            "GROUP BY model_used ORDER BY model_used"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows if r[0]}
 
     def close(self):
         if hasattr(self._local, "conns"):

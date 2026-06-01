@@ -331,8 +331,15 @@ class BepInExMod:
     def _shape_arabic(text: str) -> str:
         """
         يشكّل الحروف العربية (Presentation Forms) ويُبقيها بالترتيب المنطقي.
-        لا نستخدم get_display لأن المسار الجديد يعتمد على isRightToLeftText=true
-        في TMP الذي يتولّى عرض الاتجاه RTL بنفسه.
+
+        ⚠ ضروري لأن:
+          • الخط Arabic fallback (Tahoma من النظام) عند تحويله إلى TMP_FontAsset
+            عبر CreateDynamicFontFromOSFont يفقد جداول OpenType للـ Arabic shaping.
+          • TMP بدون presentation forms مسبقة يعرض الأحرف في صيغة isolated فقط
+            (لا توصيل بين الحروف) → النص يظهر مفكّكاً ("متابعة" تبدو "م ت ا ب ع ة").
+          • بتطبيق reshape هنا، الأحرف تصل لـ TMP بصيغة presentation forms جاهزة،
+            ثم isRightToLeftText=true يعكس الترتيب البصري للقراءة من اليمين.
+
         التاقات (<color=...> إلخ) محمية بـ PUA placeholders.
         """
         try:
@@ -372,8 +379,17 @@ class BepInExMod:
         BepInEx/config/ArabicGameTranslator/translations.txt
 
         model_filter:
-          - "" (افتراضي): يصدّر كل ترجمات اللعبة من جميع النماذج
-          - "ollama" / "llama3:8b" / "google_free": يصدّر فقط ترجمات هذا النموذج
+          - "" (افتراضي): يصدّر كل ترجمات اللعبة مع تطبيق **الدمج الهرمي**:
+              1) is_preferred=1
+              2) mode_used='manual'
+              3) إجماع 2+ مودلات
+              4) أعلى model_priority
+              5) الأحدث (fallback)
+            النص الذي له ترجمات متعدّدة يُصدَّر بترجمة واحدة فقط (الأفضل).
+          - "ollama" / "llama3:8b" / ...: يصدّر فقط ترجمات هذا النموذج (بدون دمج).
+
+        ⚠ الكاش (Game.db) لا يُعدَّل — هذه الدالة قراءة فقط.
+        الملف الناتج فقط يُحدَّث عند تكرار العملية.
         """
         if not game_path or not cache:
             return False, "مسار اللعبة غير محدد أو الكاش غير متاح", 0
@@ -382,35 +398,85 @@ class BepInExMod:
         if not game_name:
             return False, "اسم اللعبة غير محدد", 0
 
-        try:
-            if model_filter:
-                all_t = cache.get_by_model(game_name, model_filter)
-            else:
-                all_t = cache.get_all_for_game(game_name)
-        except Exception as e:
-            return False, f"خطأ في قراءة الكاش: {e}", 0
-
-        if not all_t:
-            label = f" للنموذج «{model_filter}»" if model_filter else ""
-            return False, f"لا توجد ترجمات في الكاش{label}", 0
-
         dest_dir  = self._config_dir(game_path)
         dest_path = os.path.join(dest_dir, "translations.txt")
+        # كاشف الترجمات المعطوبة — نتخطّاها حتى لا تظهر في اللعبة
+        from engine.tag_health import is_broken_translation
+        import re as _re
+        # نمط placeholders: {0}, {0:N0}, {playerName} — هذه نصوص template
+        # اللعبة تستبدلها قبل إرسال للـ TMP، لذا لن تطابق أبداً في الـ live.
+        # وجودها في translations.txt مهدر فقط.
+        _template_pat = _re.compile(r"\{\d+[^}]*\}")
+
         try:
             os.makedirs(dest_dir, exist_ok=True)
+            count = 0
+            broken = 0
+            templates = 0
+            skip_count = 0
             with open(dest_path, "w", encoding="utf-8") as f:
-                for en, ar in all_t.items():
+                # iter_best_translations يطبّق الدمج الهرمي عندما model_filter=""
+                # ويُرجع ترجمة المودل المحدّد عندما يكون غير فارغ.
+                # deprioritize_suffix=":i2" يفضّل المودلات الـ live (post-substitution)
+                # على ترجمات :i2 (التي تأتي من I2 batch مع context/templates مختلفة).
+                exported_keys = set()
+                for en, ar in cache.iter_best_translations(
+                    game_name, model_filter, deprioritize_suffix=":i2"
+                ):
                     if not en or not ar:
+                        continue
+                    # تخطّى نصوص بصيغة template ({0}, {0:N0}) — لا تطابق نصوص اللعبة
+                    if _template_pat.search(en):
+                        templates += 1
+                        continue
+                    # تخطّى الترجمات ذات التاقات المكسورة
+                    if is_broken_translation(en, ar):
+                        broken += 1
                         continue
                     safe_key  = en.replace("=", "\\=").replace("\n", "\\n")
                     visual_ar = self._shape_arabic(ar).replace("\n", "\\n")
                     f.write(f"{safe_key}={visual_ar}\n")
+                    exported_keys.add(en)
+                    count += 1
+
+                # تصدير failed_translations كـ markers (=__SKIP__) — يُتجاهَل تلقائياً
+                # في الـ DLL، يمنع re-queue كل hover للنصوص غير القابلة للترجمة
+                # (أسماء، أرقام نسخ، اختصارات لوحة المفاتيح، ...).
+                # ⚠ لا نضيف marker لنص له ترجمة فعلية (حالة الكاش الحالية).
+                # نقتصر على الفلتر العام (بلا model_filter) لأن الـ markers مستقلّة عن المودل.
+                if not model_filter:
+                    try:
+                        conn = cache._get_conn(game_name)
+                        rows = conn.execute(
+                            "SELECT original_text FROM failed_translations"
+                        ).fetchall()
+                        for (en,) in rows:
+                            if not en or en in exported_keys:
+                                continue
+                            safe_key = en.replace("=", "\\=").replace("\n", "\\n")
+                            f.write(f"{safe_key}=__SKIP__\n")
+                            skip_count += 1
+                    except Exception as e:
+                        print(f"[bepinex_mod] failed markers export error: {e}")
         except Exception as e:
             return False, f"خطأ في كتابة translations.txt: {e}", 0
 
-        count = len(all_t)
-        suffix = f" (نموذج: {model_filter})" if model_filter else ""
-        return True, f"صُدِّرت {count:,} ترجمة{suffix} → translations.txt", count
+        if count == 0:
+            label = f" للنموذج «{model_filter}»" if model_filter else ""
+            return False, f"لا توجد ترجمات في الكاش{label}", 0
+
+        if model_filter:
+            suffix = f" (نموذج: {model_filter})"
+        else:
+            suffix = " (دمج هرمي عبر كل المودلات)"
+        msg = f"صُدِّرت {count:,} ترجمة{suffix} → translations.txt"
+        if skip_count:
+            msg += f"  •  {skip_count:,} marker (نصوص بلا ترجمة)"
+        if templates:
+            msg += f"  •  تخطّى {templates:,} template ({{N}})"
+        if broken:
+            msg += f"  •  تخطّى {broken:,} معطوبة (تاقات مكسورة)"
+        return True, msg, count
 
     # ── تثبيت كامل ───────────────────────────────────────────────────────────
 
@@ -498,6 +564,34 @@ class BepInExMod:
                 log.append(f"✓ نُسخ {dll_name} → BepInEx/plugins/")
             except Exception as e:
                 return False, log + [f"خطأ في نسخ DLL: {e}"]
+
+        # 2.5 نسخ أي DLLs إضافية من mods/<GameName>/ (plugins خاصة باللعبة)
+        # مثلاً FlotsamArabicRuntime.dll — يُكمّل عمل ArabicFontFixer للعبة معيّنة.
+        # يُهمل أي DLL مطابق لـ dll_name (نُسخ سلفاً) أو في مجلد bepinex/ الفرعي.
+        game_mod_dir = os.path.join(_MODS_DIR, game_name)
+        if os.path.isdir(game_mod_dir):
+            plugins_dir = self._plugins_dir(game_path)
+            os.makedirs(plugins_dir, exist_ok=True)
+            extra_copied = []
+            try:
+                for fname in os.listdir(game_mod_dir):
+                    if not fname.lower().endswith(".dll"):
+                        continue
+                    if dll_name and fname == dll_name:
+                        continue   # سبق نسخه أعلاه
+                    src = os.path.join(game_mod_dir, fname)
+                    if not os.path.isfile(src):
+                        continue
+                    dest = os.path.join(plugins_dir, fname)
+                    shutil.copy2(src, dest)
+                    extra_copied.append(fname)
+            except Exception as e:
+                log.append(f"⚠ خطأ في نسخ plugins إضافية: {e}")
+            if extra_copied:
+                log.append(
+                    f"✓ نُسخ {len(extra_copied)} plugin إضافي للعبة: "
+                    f"{', '.join(extra_copied)}"
+                )
 
         # 3. ملف الترجمات
         if is_xunity_mode:

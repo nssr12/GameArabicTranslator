@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
@@ -16,8 +17,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QMessageBox, QSizePolicy,
     QToolButton, QApplication,
 )
-from PySide6.QtCore  import Qt, Signal, QTimer
-from PySide6.QtGui   import QCursor, QFont, QColor
+from PySide6.QtCore  import Qt, Signal, QThread, QTimer
+from PySide6.QtGui   import QCursor, QFont, QColor, QPixmap
 
 from gui.qt.theme import theme
 
@@ -28,12 +29,349 @@ FEATURE_DEFS = [
     ("cache_section",   "💾  قسم الكاش"),
     ("translate",       "🌐  زر ترجمة اللعبة"),
     ("edit_config",     "✏️   زر تعديل الإعدادات"),
+    ("font_section",    "🔤  زر استبدال الخط"),
     ("locres_section",  "📄  قسم ملف Locres  (UE4)"),
     ("iostore_section", "📦  قسم IoStore / UAsset  (UE5)"),
 ]
 _SHOWN_ONLY = {"locres_section", "iostore_section"}
 
 _SCAN_EXTS = {".uasset", ".uexp", ".pak", ".utoc", ".ucas", ".locres", ".ttf", ".ufont"}
+
+
+# ── Project root (3 levels up from gui/qt/dialogs/) ──────────────────────────
+
+if getattr(sys, 'frozen', False):
+    _PROJECT_ROOT = os.path.dirname(sys.executable)
+else:
+    _PROJECT_ROOT = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+    )
+
+
+# ── Log dialog ────────────────────────────────────────────────────────────────
+
+class _LogDialog(QDialog):
+    """حوار عرض مخرجات العمليات في الوقت الفعلي."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(640, 440)
+        c = theme.c
+        self.setStyleSheet(
+            f"QDialog  {{ background: {c['bg']}; }}"
+            f"QLabel   {{ color: {c['primary']}; background: transparent; border: none; }}"
+            f"QTextEdit {{ background: {c['surface']}; color: {c['secondary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 8px; }}"
+        )
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFont(QFont("Consolas", 9))
+        lay.addWidget(self._log, 1)
+
+        self._status = QLabel("جاري العمل…")
+        self._status.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        lay.addWidget(self._status)
+
+        br = QHBoxLayout()
+        br.addStretch()
+        self._close_btn = QPushButton("إغلاق")
+        self._close_btn.setEnabled(False)
+        self._close_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._close_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['accent']}; color: #fff;"
+            " border: none; border-radius: 8px; font-weight: bold; padding: 6px 20px; }"
+            "QPushButton:disabled { background: #555; color: #888; }"
+        )
+        self._close_btn.clicked.connect(self.accept)
+        br.addWidget(self._close_btn)
+        lay.addLayout(br)
+
+    def append_line(self, line: str):
+        self._log.append(line)
+        sb = self._log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def set_finished(self, ok: bool):
+        c = theme.c
+        if ok:
+            self._status.setText("✅ اكتملت العملية بنجاح")
+            self._status.setStyleSheet(
+                f"color: {c.get('green', '#4caf50')}; font-size: 11px; font-weight: bold;"
+            )
+        else:
+            self._status.setText("✗ فشلت العملية — راجع السجل أعلاه")
+            self._status.setStyleSheet(
+                f"color: {c['accent']}; font-size: 11px; font-weight: bold;"
+            )
+        self._close_btn.setEnabled(True)
+
+
+# ── App release worker ────────────────────────────────────────────────────────
+
+class _AppReleaseWorker(QThread):
+    """يشغّل publish_app.py ويُرسل مخرجاته سطراً بسطر."""
+    log_line = Signal(str)
+    finished = Signal(bool)
+
+    def __init__(self, version: str):
+        super().__init__()
+        self._version = version
+
+    def run(self):
+        import subprocess
+        script = os.path.join(_PROJECT_ROOT, "tools", "publish_app.py")
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, script, self._version],
+                cwd=_PROJECT_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+            )
+            for line in iter(proc.stdout.readline, ""):
+                self.log_line.emit(line.rstrip())
+            proc.wait()
+            self.finished.emit(proc.returncode == 0)
+        except Exception as exc:
+            self.log_line.emit(f"✗ خطأ: {exc}")
+            self.finished.emit(False)
+
+
+# ── Translation release worker ────────────────────────────────────────────────
+
+class _TranslationReleaseWorker(QThread):
+    """ينشر ملفات ready/ كـ GitHub Release ويحدّث manifest.json."""
+    log_line = Signal(str)
+    finished = Signal(bool)
+
+    _REPO = "nssr12/GameArabicTranslator"
+
+    def __init__(self, game_id: str, version: str, ready_dir: str,
+                 manifest_path: str, file_targets: dict):
+        super().__init__()
+        self._game_id       = game_id
+        self._version       = version
+        self._ready_dir     = ready_dir
+        self._manifest_path = manifest_path
+        self._file_targets  = file_targets   # {filename: game_target}
+
+    def run(self):
+        import subprocess
+        game_id = self._game_id
+        version = self._version
+        tag     = f"translation-{game_id}-v{version}"
+        REPO    = self._REPO
+
+        # Collect ready/ files
+        if not os.path.isdir(self._ready_dir):
+            self.log_line.emit("✗ مجلد ready/ غير موجود")
+            self.finished.emit(False)
+            return
+        files = sorted(
+            os.path.join(self._ready_dir, f)
+            for f in os.listdir(self._ready_dir)
+            if os.path.isfile(os.path.join(self._ready_dir, f))
+        )
+        if not files:
+            self.log_line.emit("✗ لا توجد ملفات في مجلد ready/")
+            self.finished.emit(False)
+            return
+        self.log_line.emit(f"الملفات: {', '.join(os.path.basename(f) for f in files)}")
+
+        # Delete old release if exists
+        self.log_line.emit(f"\n>> التحقق من الإصدار القديم: {tag}")
+        r = subprocess.run(
+            ["gh", "release", "view", tag, "--repo", REPO],
+            capture_output=True, cwd=_PROJECT_ROOT,
+        )
+        if r.returncode == 0:
+            self.log_line.emit(f">> حذف الإصدار القديم {tag}…")
+            subprocess.run(
+                ["gh", "release", "delete", tag, "--repo", REPO,
+                 "--yes", "--cleanup-tag"],
+                cwd=_PROJECT_ROOT,
+            )
+            time.sleep(2)
+
+        # Create GitHub release + upload files
+        self.log_line.emit(f"\n>> إنشاء GitHub Release: {tag}  ({len(files)} ملف)…")
+        cmd = [
+            "gh", "release", "create", tag,
+            "--repo", REPO,
+            "--title", f"Translation {game_id} v{version}",
+            "--notes", f"ترجمة عربية للعبة {game_id} - الإصدار {version}",
+            *files,
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=_PROJECT_ROOT)
+        if r.returncode != 0:
+            self.log_line.emit(f"✗ فشل إنشاء الإصدار:\n{r.stderr.strip()}")
+            self.finished.emit(False)
+            return
+        self.log_line.emit(f"✓ GitHub Release: {tag}")
+
+        # Build manifest file entries
+        manifest_files = []
+        total_bytes    = 0
+        for fp in files:
+            fname  = os.path.basename(fp)
+            url    = f"https://github.com/{REPO}/releases/download/{tag}/{fname}"
+            size   = os.path.getsize(fp)
+            target = self._file_targets.get(fname, fname)
+            total_bytes += size
+            manifest_files.append({
+                "name":        fname,
+                "url":         url,
+                "game_target": target,
+                "size":        size,
+            })
+
+        # Update manifest.json
+        self.log_line.emit("\n>> تحديث manifest.json…")
+        with open(self._manifest_path, encoding="utf-8") as f:
+            m = json.load(f)
+        m.setdefault("translations", {})[game_id] = {
+            "version": version,
+            "size_mb": max(1, round(total_bytes / (1024 * 1024))),
+            "files":   manifest_files,
+        }
+        with open(self._manifest_path, "w", encoding="utf-8") as f:
+            json.dump(m, f, ensure_ascii=False, indent=2)
+        self.log_line.emit("✓ manifest.json محدَّث")
+
+        # Git commit + push
+        self.log_line.emit("\n>> git add + commit + push…")
+        subprocess.run(["git", "add", "manifest.json"], cwd=_PROJECT_ROOT)
+        rc = subprocess.run(
+            ["git", "commit", "-m", f"Release translation {game_id} v{version}"],
+            cwd=_PROJECT_ROOT, capture_output=True,
+        ).returncode
+        if rc == 0:
+            r2 = subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=_PROJECT_ROOT, capture_output=True, text=True,
+            )
+            if r2.returncode == 0:
+                self.log_line.emit("✓ تم الرفع إلى GitHub")
+            else:
+                self.log_line.emit(f"⚠ git push: {r2.stderr.strip()}")
+        else:
+            self.log_line.emit("manifest.json لم يتغير — تخطي commit")
+
+        self.log_line.emit(f"\n✅ تم! ترجمة {game_id} v{version} متاحة للمستخدمين")
+        self.finished.emit(True)
+
+
+# ── for_cache upload worker ──────────────────────────────────────────────────
+
+class _ForCacheUploadWorker(QThread):
+    """يضغط مجلد for_cache ويرفعه كـ asset إلى GitHub Release."""
+    log_line = Signal(str)
+    finished = Signal(bool)
+
+    _REPO = "nssr12/GameArabicTranslator"
+
+    def __init__(self, game_id: str, version: str, for_cache_dir: str, manifest_path: str):
+        super().__init__()
+        self._game_id       = game_id
+        self._version       = version
+        self._for_cache_dir = for_cache_dir
+        self._manifest_path = manifest_path
+
+    def run(self):
+        import subprocess, tempfile
+        game_id  = self._game_id
+        version  = self._version
+        tag      = f"translation-{game_id}-v{version}"
+        REPO     = self._REPO
+        zip_name = f"{game_id}_for_cache.zip"
+
+        # Zip the for_cache directory
+        self.log_line.emit(">> ضغط مجلد for_cache…")
+        tmp_dir  = tempfile.mkdtemp()
+        zip_base = os.path.join(tmp_dir, zip_name[:-4])
+        try:
+            shutil.make_archive(zip_base, "zip", root_dir=self._for_cache_dir)
+            zip_path = zip_base + ".zip"
+            size_mb  = os.path.getsize(zip_path) / 1_048_576
+            self.log_line.emit(f"✓ تم الضغط: {size_mb:.1f} MB")
+        except Exception as e:
+            self.log_line.emit(f"✗ خطأ في الضغط: {e}")
+            self.finished.emit(False)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        # Verify release exists
+        self.log_line.emit(f"\n>> التحقق من الإصدار: {tag}")
+        r = subprocess.run(
+            ["gh", "release", "view", tag, "--repo", REPO],
+            capture_output=True, cwd=_PROJECT_ROOT,
+        )
+        if r.returncode != 0:
+            self.log_line.emit(f"✗ الإصدار {tag} غير موجود — انشر الترجمة أولاً")
+            self.finished.emit(False)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        # Upload (--clobber replaces existing asset)
+        self.log_line.emit(f"\n>> رفع {zip_name}…")
+        r = subprocess.run(
+            ["gh", "release", "upload", tag, zip_path,
+             "--repo", REPO, "--clobber"],
+            capture_output=True, text=True, cwd=_PROJECT_ROOT,
+        )
+        if r.returncode != 0:
+            self.log_line.emit(f"✗ فشل الرفع:\n{r.stderr.strip()}")
+            self.finished.emit(False)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+        self.log_line.emit("✓ تم الرفع بنجاح")
+
+        # Update manifest.json
+        url = f"https://github.com/{REPO}/releases/download/{tag}/{zip_name}"
+        self.log_line.emit("\n>> تحديث manifest.json…")
+        try:
+            with open(self._manifest_path, encoding="utf-8") as f:
+                m = json.load(f)
+            m.setdefault("translations", {}).setdefault(game_id, {}).update({
+                "for_cache_url":     url,
+                "for_cache_size_mb": max(1, round(size_mb)),
+            })
+            with open(self._manifest_path, "w", encoding="utf-8") as f:
+                json.dump(m, f, ensure_ascii=False, indent=2)
+            self.log_line.emit("✓ manifest.json محدَّث")
+        except Exception as e:
+            self.log_line.emit(f"✗ خطأ في manifest.json: {e}")
+            self.finished.emit(False)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        # git commit + push
+        self.log_line.emit("\n>> git add + commit + push…")
+        subprocess.run(["git", "add", "manifest.json"], cwd=_PROJECT_ROOT)
+        rc = subprocess.run(
+            ["git", "commit", "-m", f"Add for_cache link for {game_id} v{version}"],
+            cwd=_PROJECT_ROOT, capture_output=True,
+        ).returncode
+        if rc == 0:
+            r2 = subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=_PROJECT_ROOT, capture_output=True, text=True,
+            )
+            self.log_line.emit(
+                "✓ تم الرفع إلى GitHub" if r2.returncode == 0
+                else f"⚠ git push: {r2.stderr.strip()}"
+            )
+        else:
+            self.log_line.emit("manifest.json لم يتغير — تخطي commit")
+
+        self.log_line.emit(f"\n✅ for_cache لـ {game_id} متاح الآن للمستخدمين")
+        self.finished.emit(True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ── PIN dialog ────────────────────────────────────────────────────────────────
@@ -134,6 +472,8 @@ class PINDialog(QDialog):
 class AdminPanel(QDialog):
     """لوحة الإدارة الكاملة."""
 
+    features_saved = Signal(str)   # game_id — يُصدَر عند حفظ إعدادات الميزات
+
     def __init__(self, game_manager, cache, config: dict,
                  config_path: str = "", parent=None):
         super().__init__(parent)
@@ -145,7 +485,7 @@ class AdminPanel(QDialog):
 
         self.setWindowTitle("⚙️  لوحة الإدارة")
         self.setMinimumSize(960, 640)
-        self.setModal(True)
+        self.setModal(False)
         self._build()
 
     # ── Build ─────────────────────────────────────────────────────────────────
@@ -176,7 +516,8 @@ class AdminPanel(QDialog):
             QTabBar::tab {{
                 background: {c['surface']}; color: {c['muted']};
                 border: 1px solid {c['border']}; border-bottom: none;
-                border-radius: 6px 6px 0 0;
+                border-top-left-radius: 6px; border-top-right-radius: 6px;
+                border-bottom-left-radius: 0; border-bottom-right-radius: 0;
                 padding: 6px 16px; margin-right: 2px;
             }}
             QTabBar::tab:selected {{
@@ -296,6 +637,18 @@ class AdminPanel(QDialog):
         bot_lay.setContentsMargins(16, 10, 16, 10)
         bot_lay.setSpacing(10)
 
+        release_app_btn = QPushButton("🚀  إصدار التطبيق")
+        release_app_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        release_app_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(0,0,0,26); color: {c['accent']};"
+            f" border: 1px solid {c['accent']}; border-radius: 6px;"
+            f" padding: 4px 14px; font-size: 11px; }}"
+            f"QPushButton:hover {{ background: {c['accent']}; color: #fff; }}"
+        )
+        release_app_btn.clicked.connect(self._open_app_release_dialog)
+        bot_lay.addWidget(release_app_btn)
+        bot_lay.addSpacing(16)
+
         pin_lbl = QLabel("تغيير PIN:")
         pin_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 11px;")
         self._new_pin = QLineEdit()
@@ -384,7 +737,9 @@ class AdminPanel(QDialog):
         cfg = self._gm.get_game(game_id) or {} if self._gm else {}
 
         self._tabs.addTab(self._build_features_tab(game_id, cfg),   "👁  الميزات")
+        self._tabs.addTab(self._build_cover_tab(game_id, cfg),      "🖼  صورة العرض")
         self._tabs.addTab(self._build_package_tab(game_id, cfg),    "📦  حزمة التعريب")
+        self._tabs.addTab(self._build_release_tab(game_id, cfg),    "🚀  نشر الترجمة")
         self._tabs.addTab(self._build_config_tab(game_id, cfg),     "🗒  الإعدادات الخام")
         self._tabs.addTab(self._build_cache_tab(game_id, cfg),      "💾  الكاش")
 
@@ -432,7 +787,7 @@ class AdminPanel(QDialog):
             " border: none; border-radius: 8px; font-weight: bold; padding: 0 20px; }"
         )
         save_btn.clicked.connect(
-            lambda gid=game_id, moe=is_moe: self._save_features(gid, moe)
+            lambda checked, gid=game_id, moe=is_moe: self._save_features(gid, moe)
         )
         lay.addWidget(save_btn)
         return w
@@ -457,12 +812,150 @@ class AdminPanel(QDialog):
                 if not checked:
                     new_hidden.append(key)
 
+        saved = False
         if self._gm:
-            self._gm.update_game(game_id, {
+            saved = self._gm.update_game(game_id, {
                 "hidden_features": new_hidden,
                 "shown_features":  new_shown,
             })
-        QMessageBox.information(self, "✓", "تم حفظ إعدادات الميزات")
+        else:
+            print("[AdminPanel] _save_features: game_manager is None!")
+
+        if saved:
+            self.features_saved.emit(game_id)
+            QMessageBox.information(self, "✓", "تم حفظ إعدادات الميزات")
+        else:
+            QMessageBox.warning(self, "خطأ", "تعذّر حفظ الميزات — اللعبة غير موجودة في الإعدادات")
+
+    # ── Cover Image tab ───────────────────────────────────────────────────────
+
+    def _build_cover_tab(self, game_id: str, cfg: dict) -> QWidget:
+        c         = theme.c
+        w         = QWidget()
+        lay       = QVBoxLayout(w)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
+
+        game_name = cfg.get("name", game_id)
+        img_dir   = os.path.join(_PROJECT_ROOT, "data", "game_images")
+
+        hint = QLabel("صورة الغلاف التي تظهر على بطاقة اللعبة في الصفحة الرئيسية")
+        hint.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        lay.addWidget(hint)
+
+        # Preview frame
+        preview_frame = QFrame()
+        preview_frame.setFixedHeight(190)
+        preview_frame.setStyleSheet(
+            f"QFrame {{ background: {c['surface']}; border: 1px solid {c['border']};"
+            " border-radius: 8px; }"
+        )
+        pf_lay = QVBoxLayout(preview_frame)
+        pf_lay.setContentsMargins(0, 0, 0, 0)
+
+        cover_lbl = QLabel()
+        cover_lbl.setAlignment(Qt.AlignCenter)
+        cover_lbl.setStyleSheet("background: transparent; border: none;")
+        pf_lay.addWidget(cover_lbl, 1)
+        lay.addWidget(preview_frame)
+
+        path_lbl = QLabel()
+        path_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        path_lbl.setWordWrap(True)
+        lay.addWidget(path_lbl)
+
+        def _refresh():
+            found = ""
+            for stem in [game_name, game_id]:
+                for ext in (".png", ".jpg", ".jpeg"):
+                    p = os.path.join(img_dir, stem + ext)
+                    if os.path.isfile(p):
+                        found = p
+                        break
+                if found:
+                    break
+            if found:
+                px = QPixmap(found)
+                if not px.isNull():
+                    px = px.scaled(340, 170, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    cover_lbl.setPixmap(px)
+                    cover_lbl.setStyleSheet("background: transparent; border: none;")
+                    path_lbl.setText(f"📁  {found}")
+                else:
+                    cover_lbl.setPixmap(QPixmap())
+                    cover_lbl.setText("⚠️  تعذّر تحميل الصورة")
+                    path_lbl.setText("")
+            else:
+                cover_lbl.setPixmap(QPixmap())
+                cover_lbl.setText("🎮")
+                cover_lbl.setStyleSheet(
+                    f"color: {c['muted']}; font-size: 36px; background: transparent; border: none;"
+                )
+                path_lbl.setText("لم تُضَف صورة غلاف بعد")
+
+        _refresh()
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        pick_btn = QPushButton("📂  اختيار صورة")
+        pick_btn.setFixedHeight(34)
+        pick_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        pick_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['accent']}; color: #fff;"
+            " border: none; border-radius: 8px; font-weight: bold; padding: 0 18px; }"
+            f"QPushButton:hover {{ background: {c.get('accent_hover', c['accent'])}; }}"
+        )
+
+        def _pick():
+            path, _ = QFileDialog.getOpenFileName(
+                self, "اختر صورة الغلاف", "",
+                "Images (*.png *.jpg *.jpeg)"
+            )
+            if not path or not os.path.isfile(path):
+                return
+            os.makedirs(img_dir, exist_ok=True)
+            ext  = os.path.splitext(path)[1].lower()
+            dest = os.path.join(img_dir, game_name + ext)
+            for old_ext in (".png", ".jpg", ".jpeg"):
+                old = os.path.join(img_dir, game_name + old_ext)
+                if os.path.isfile(old) and old != dest:
+                    os.remove(old)
+            shutil.copy2(path, dest)
+            _refresh()
+
+        pick_btn.clicked.connect(_pick)
+        btn_row.addWidget(pick_btn)
+
+        del_btn = QPushButton("🗑  حذف الصورة")
+        del_btn.setFixedHeight(34)
+        del_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        del_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(0,0,0,26); color: {c['accent']};"
+            f" border: 1px solid {c['accent']}; border-radius: 8px; padding: 0 16px; }}"
+            f"QPushButton:hover {{ background: {c['accent']}; color: #fff; }}"
+        )
+
+        def _delete():
+            removed = False
+            for stem in [game_name, game_id]:
+                for ext in (".png", ".jpg", ".jpeg"):
+                    p = os.path.join(img_dir, stem + ext)
+                    if os.path.isfile(p):
+                        os.remove(p)
+                        removed = True
+            if removed:
+                _refresh()
+            else:
+                QMessageBox.information(self, "تنبيه", "لا توجد صورة لحذفها")
+
+        del_btn.clicked.connect(_delete)
+        btn_row.addWidget(del_btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+        lay.addStretch()
+        return w
 
     # ── Translation Package tab ───────────────────────────────────────────────
 
@@ -519,7 +1012,7 @@ class AdminPanel(QDialog):
                     f"QToolButton {{ background: transparent; color: {c['accent']};"
                     " border: none; font-weight: bold; }"
                     f"QToolButton:hover {{ color: #fff; background: {c['accent']};"
-                    " border-radius: 3px; }}"
+                    " border-radius: 3px; }"
                 )
                 del_btn.clicked.connect(
                     lambda _, gt=entry["game_target"]: (
@@ -585,7 +1078,7 @@ class AdminPanel(QDialog):
             btn.setCursor(QCursor(Qt.PointingHandCursor))
             clr = theme.c.get(color, theme.c["accent"])
             btn.setStyleSheet(
-                f"QPushButton {{ background: rgba(0,0,0,0.1); color: {clr};"
+                f"QPushButton {{ background: rgba(0,0,0,26); color: {clr};"
                 f" border: 1px solid {clr}; border-radius: 7px; padding: 0 12px; }}"
                 f"QPushButton:hover {{ background: {clr}; color: #fff; }}"
             )
@@ -594,6 +1087,148 @@ class AdminPanel(QDialog):
 
         btn_row.addStretch()
         lay.addLayout(btn_row)
+
+        # ── for_cache section ──────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"QFrame {{ background: {c['border']}; max-height: 1px; border: none; }}")
+        lay.addWidget(sep)
+
+        fc_hdr = QHBoxLayout()
+        fc_title_lbl = QLabel("📁  ملفات الكاش المرجعي  (for_cache)")
+        fc_title_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {c['secondary']};"
+        )
+        fc_hdr.addWidget(fc_title_lbl)
+        fc_hdr.addStretch()
+        fc_st_lbl = QLabel()
+        fc_hdr.addWidget(fc_st_lbl)
+        lay.addLayout(fc_hdr)
+
+        fc_dir = pkg.get_for_cache_dir(game_id)
+
+        # Table of subfolders inside for_cache/
+        fc_table = QTableWidget(0, 3)
+        fc_table.setHorizontalHeaderLabels(["المجلد", "الحجم", ""])
+        fc_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        fc_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        fc_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        fc_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        fc_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        fc_table.verticalHeader().hide()
+        fc_table.setMaximumHeight(120)
+        lay.addWidget(fc_table)
+
+        def _dir_size_mb(path: str) -> float:
+            total = 0
+            for rd, _, fnames in os.walk(path):
+                for fn in fnames:
+                    try:
+                        total += os.path.getsize(os.path.join(rd, fn))
+                    except OSError:
+                        pass
+            return total / 1_048_576
+
+        def _refresh_fc():
+            fc_table.setRowCount(0)
+            if not os.path.isdir(fc_dir):
+                fc_st_lbl.setText("● فارغ")
+                fc_st_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+                return
+            entries = [
+                e for e in sorted(os.listdir(fc_dir))
+                if os.path.isdir(os.path.join(fc_dir, e))
+            ]
+            if not entries:
+                fc_st_lbl.setText("● فارغ")
+                fc_st_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+                return
+            fc_st_lbl.setText(f"● {len(entries)} مجلد")
+            fc_st_lbl.setStyleSheet(f"color: {c['green']}; font-size: 10px;")
+            for name in entries:
+                fp = os.path.join(fc_dir, name)
+                r_idx = fc_table.rowCount()
+                fc_table.insertRow(r_idx)
+                fc_table.setItem(r_idx, 0, QTableWidgetItem(name))
+                sz = QTableWidgetItem(f"{_dir_size_mb(fp):.1f} MB")
+                sz.setTextAlignment(Qt.AlignCenter)
+                fc_table.setItem(r_idx, 1, sz)
+                del_fc = QToolButton()
+                del_fc.setText("✕")
+                del_fc.setStyleSheet(
+                    f"QToolButton {{ background: transparent; color: {c['accent']};"
+                    " border: none; font-weight: bold; }"
+                    f"QToolButton:hover {{ color: #fff; background: {c['accent']};"
+                    " border-radius: 3px; }"
+                )
+                del_fc.clicked.connect(
+                    lambda _, p=fp: (shutil.rmtree(p, ignore_errors=True), _refresh_fc())
+                )
+                fc_table.setCellWidget(r_idx, 2, del_fc)
+
+        _refresh_fc()
+
+        fc_btn_row = QHBoxLayout()
+
+        def _pick_for_cache():
+            folder = QFileDialog.getExistingDirectory(
+                self, "اختر مجلد for_cache (مثلاً Paks_legacy)", ""
+            )
+            if not folder or not os.path.isdir(folder):
+                return
+            ok2, log2 = pkg.copy_to_for_cache(game_id, folder)
+            if ok2:
+                _refresh_fc()
+            else:
+                QMessageBox.warning(self, "خطأ", "\n".join(log2))
+
+        def _upload_for_cache():
+            if not os.path.isdir(fc_dir) or not any(
+                os.path.isdir(os.path.join(fc_dir, e)) for e in os.listdir(fc_dir)
+            ):
+                QMessageBox.warning(
+                    self, "تنبيه", "مجلد for_cache فارغ — اختر مجلداً أولاً"
+                )
+                return
+            manifest_path2 = os.path.join(_PROJECT_ROOT, "manifest.json")
+            cur_ver2 = ""
+            try:
+                with open(manifest_path2, encoding="utf-8") as fh2:
+                    m2 = json.load(fh2)
+                cur_ver2 = m2.get("translations", {}).get(game_id, {}).get("version", "")
+            except Exception:
+                pass
+            if not cur_ver2:
+                QMessageBox.warning(self, "تنبيه", "انشر الترجمة أولاً ثم ارفع for_cache")
+                return
+            log_dlg2 = _LogDialog(
+                f"☁️  رفع for_cache — {game_id} v{cur_ver2}", parent=self
+            )
+            worker2 = _ForCacheUploadWorker(game_id, cur_ver2, fc_dir, manifest_path2)
+            worker2.log_line.connect(log_dlg2.append_line)
+            worker2.finished.connect(log_dlg2.set_finished)
+            self._fc_worker = worker2
+            worker2.start()
+            log_dlg2.exec()
+
+        for fc_label, fc_color, fc_slot in [
+            ("📁  تحديد/تحديث",  "teal", _pick_for_cache),
+            ("☁️  رفع للسحابة", "blue", _upload_for_cache),
+        ]:
+            fc_btn = QPushButton(fc_label)
+            fc_btn.setFixedHeight(30)
+            fc_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            fc_clr = theme.c.get(fc_color, theme.c["accent"])
+            fc_btn.setStyleSheet(
+                f"QPushButton {{ background: rgba(0,0,0,26); color: {fc_clr};"
+                f" border: 1px solid {fc_clr}; border-radius: 7px; padding: 0 12px; }}"
+                f"QPushButton:hover {{ background: {fc_clr}; color: #fff; }}"
+            )
+            fc_btn.clicked.connect(fc_slot)
+            fc_btn_row.addWidget(fc_btn)
+
+        fc_btn_row.addStretch()
+        lay.addLayout(fc_btn_row)
         return w
 
     # ── Raw config tab ────────────────────────────────────────────────────────
@@ -654,7 +1289,7 @@ class AdminPanel(QDialog):
         stats_card = QFrame()
         stats_card.setStyleSheet(
             f"QFrame {{ background: {c['card']}; border: 1px solid {c['border']};"
-            " border-radius: 8px; }}"
+            " border-radius: 8px; }"
         )
         sc_lay = QVBoxLayout(stats_card)
         sc_lay.setContentsMargins(16, 12, 16, 12)
@@ -703,7 +1338,7 @@ class AdminPanel(QDialog):
         del_btn.setFixedHeight(34)
         del_btn.setCursor(QCursor(Qt.PointingHandCursor))
         del_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(0,0,0,0.1); color: {c['accent']};"
+            f"QPushButton {{ background: rgba(0,0,0,26); color: {c['accent']};"
             f" border: 1px solid {c['accent']}; border-radius: 8px; padding: 0 16px; }}"
             f"QPushButton:hover {{ background: {c['accent']}; color: #fff; }}"
         )
@@ -713,6 +1348,220 @@ class AdminPanel(QDialog):
         lay.addLayout(btn_row)
         lay.addStretch()
         return w
+
+    # ── Translation release tab ───────────────────────────────────────────────
+
+    def _build_release_tab(self, game_id: str, cfg: dict) -> QWidget:
+        c   = theme.c
+        w   = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(12)
+
+        manifest_path = os.path.join(_PROJECT_ROOT, "manifest.json")
+
+        try:
+            from games.translation_package import TranslationPackage
+            pkg       = TranslationPackage()
+            ready_dir = pkg.get_ready_dir(game_id)
+        except ImportError:
+            lay.addWidget(QLabel("✗  TranslationPackage غير متاح"))
+            return w
+
+        # Current published version from manifest
+        cur_ver = "—"
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                m = json.load(f)
+            cur_ver = m.get("translations", {}).get(game_id, {}).get("version", "—")
+        except Exception:
+            pass
+
+        # Info card
+        info_card = QFrame()
+        info_card.setStyleSheet(
+            f"QFrame {{ background: {c['card']}; border: 1px solid {c['border']};"
+            " border-radius: 8px; }"
+        )
+        ic_lay = QVBoxLayout(info_card)
+        ic_lay.setContentsMargins(14, 10, 14, 10)
+        ic_lay.setSpacing(6)
+
+        ver_lbl = QLabel(f"الإصدار المنشور:  <b>{cur_ver}</b>")
+        ver_lbl.setStyleSheet(f"color: {c['secondary']}; font-size: 12px;")
+        ic_lay.addWidget(ver_lbl)
+
+        # Files in ready/
+        ready_files: list[str] = []
+        if os.path.isdir(ready_dir):
+            ready_files = sorted(
+                f for f in os.listdir(ready_dir)
+                if os.path.isfile(os.path.join(ready_dir, f))
+            )
+        files_text = (
+            "ملفات ready/:  " + "،  ".join(ready_files)
+            if ready_files
+            else "⚠  مجلد ready/ فارغ — أضف ملفات الترجمة أولاً"
+        )
+        files_lbl = QLabel(files_text)
+        files_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        files_lbl.setWordWrap(True)
+        ic_lay.addWidget(files_lbl)
+
+        path_lbl = QLabel(f"المسار:  {ready_dir}")
+        path_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 9px;")
+        path_lbl.setWordWrap(True)
+        ic_lay.addWidget(path_lbl)
+
+        lay.addWidget(info_card)
+
+        # New version input
+        ver_row = QHBoxLayout()
+        ver_row_lbl = QLabel("إصدار جديد:")
+        ver_row_lbl.setStyleSheet(f"color: {c['primary']}; font-size: 12px;")
+        ver_row.addWidget(ver_row_lbl)
+        ver_input = QLineEdit()
+        ver_input.setFixedWidth(110)
+        ver_input.setPlaceholderText("مثال: 0.3")
+        ver_row.addWidget(ver_input)
+        ver_row.addStretch()
+        lay.addLayout(ver_row)
+
+        note = QLabel(
+            "سيتم إنشاء GitHub Release ورفع الملفات، ثم تحديث manifest.json والـ git push.\n"
+            "المستخدمون سيرون شارة التحديث عند فتح التطبيق."
+        )
+        note.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        lay.addStretch()
+
+        pub_btn = QPushButton("🚀  نشر الترجمة")
+        pub_btn.setFixedHeight(38)
+        pub_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        pub_btn.setEnabled(bool(ready_files))
+        pub_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['accent']}; color: #fff;"
+            " border: none; border-radius: 8px; font-weight: bold; padding: 0 20px; }"
+            "QPushButton:disabled { background: #444; color: #666; }"
+        )
+
+        def _publish():
+            version = ver_input.text().strip()
+            if not version:
+                QMessageBox.warning(w, "تنبيه", "أدخل رقم الإصدار الجديد")
+                return
+            # game_target map: from existing manifest first, fallback to filename
+            file_targets: dict = {}
+            try:
+                with open(manifest_path, encoding="utf-8") as fh:
+                    m2 = json.load(fh)
+                for ef in m2.get("translations", {}).get(game_id, {}).get("files", []):
+                    file_targets[ef["name"]] = ef.get("game_target", ef["name"])
+            except Exception:
+                pass
+
+            log_dlg = _LogDialog(f"🚀  نشر ترجمة {game_id} v{version}", parent=self)
+            worker  = _TranslationReleaseWorker(
+                game_id, version, ready_dir, manifest_path, file_targets
+            )
+            worker.log_line.connect(log_dlg.append_line)
+            worker.finished.connect(log_dlg.set_finished)
+            self._tr_worker = worker   # prevent GC
+            worker.start()
+            log_dlg.exec()
+
+        pub_btn.clicked.connect(_publish)
+        lay.addWidget(pub_btn)
+        return w
+
+    # ── App release dialog ────────────────────────────────────────────────────
+
+    def _open_app_release_dialog(self):
+        c = theme.c
+
+        cur_ver = "?"
+        try:
+            from games.translation_registry import APP_VERSION
+            cur_ver = APP_VERSION
+        except Exception:
+            pass
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("🚀  إصدار تحديث التطبيق")
+        dlg.setFixedSize(430, 215)
+        dlg.setStyleSheet(
+            f"QDialog  {{ background: {c['bg']}; }}"
+            f"QLabel   {{ color: {c['primary']}; background: transparent; border: none; }}"
+            f"QLineEdit {{ background: {c['surface']}; color: {c['primary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 4px 8px; }}"
+            f"QLineEdit:focus {{ border-color: {c['accent']}; }}"
+        )
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+
+        cur_lbl = QLabel(f"الإصدار الحالي:  {cur_ver}")
+        cur_lbl.setStyleSheet(f"color: {c['muted']}; font-size: 11px;")
+        lay.addWidget(cur_lbl)
+
+        row = QHBoxLayout()
+        row_lbl = QLabel("الإصدار الجديد:")
+        row_lbl.setStyleSheet(f"color: {c['primary']}; font-size: 12px;")
+        row.addWidget(row_lbl)
+        ver_input = QLineEdit()
+        ver_input.setFixedWidth(120)
+        ver_input.setPlaceholderText("مثال: 1.6")
+        row.addWidget(ver_input)
+        row.addStretch()
+        lay.addLayout(row)
+
+        note = QLabel(
+            "⚠  ستبدأ عملية البناء الكاملة بـ PyInstaller ثم النشر على GitHub.\n"
+            "العملية قد تستغرق 5–15 دقيقة."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        lay.addWidget(note)
+
+        br = QHBoxLayout()
+        cancel = QPushButton("إلغاء")
+        cancel.setCursor(QCursor(Qt.PointingHandCursor))
+        cancel.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['muted']};"
+            f" border: 1px solid {c['border']}; border-radius: 8px; padding: 6px 18px; }}"
+            f"QPushButton:hover {{ background: {c['hover']}; }}"
+        )
+        cancel.clicked.connect(dlg.reject)
+
+        pub_btn = QPushButton("🚀  بدء النشر")
+        pub_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        pub_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['accent']}; color: #fff;"
+            " border: none; border-radius: 8px; font-weight: bold; padding: 6px 18px; }"
+        )
+
+        def _start():
+            version = ver_input.text().strip()
+            if not version:
+                QMessageBox.warning(dlg, "تنبيه", "أدخل رقم الإصدار")
+                return
+            dlg.accept()
+            log_dlg = _LogDialog(f"🚀  إصدار التطبيق v{version} — السجل", parent=self)
+            worker  = _AppReleaseWorker(version)
+            worker.log_line.connect(log_dlg.append_line)
+            worker.finished.connect(log_dlg.set_finished)
+            self._app_worker = worker   # prevent GC
+            worker.start()
+            log_dlg.exec()
+
+        pub_btn.clicked.connect(_start)
+        br.addWidget(cancel)
+        br.addStretch()
+        br.addWidget(pub_btn)
+        lay.addLayout(br)
+        dlg.exec()
 
     # ── System info ───────────────────────────────────────────────────────────
 
@@ -810,8 +1659,12 @@ class AdminPanel(QDialog):
 
 # ── Public launcher ───────────────────────────────────────────────────────────
 
-def open_admin(game_manager, cache, config: dict, config_path: str, parent=None):
-    """يعرض حوار PIN أولاً ثم لوحة الإدارة عند التحقق."""
+def open_admin(game_manager, cache, config: dict, config_path: str,
+               parent=None) -> "AdminPanel | None":
+    """
+    يعرض حوار PIN أولاً (modal) ثم يفتح لوحة الإدارة بدون حجب التطبيق.
+    يُعيد instance اللوحة لربط الـ signals خارجياً، أو None إذا أُلغي PIN.
+    """
     pin_dlg = PINDialog(config, parent=parent)
     result  = [False]
 
@@ -819,8 +1672,15 @@ def open_admin(game_manager, cache, config: dict, config_path: str, parent=None)
         result[0] = True
 
     pin_dlg.verified.connect(_on_verified)
-    pin_dlg.exec()
+    pin_dlg.exec()   # PIN يبقى modal
 
-    if result[0]:
-        admin = AdminPanel(game_manager, cache, config, config_path, parent=parent)
-        admin.exec()
+    if not result[0]:
+        return None
+
+    admin = AdminPanel(game_manager, cache, config, config_path, parent=parent)
+    admin.setModal(False)          # لا يحجب التطبيق
+    admin.setAttribute(Qt.WA_DeleteOnClose, False)
+    admin.show()
+    admin.raise_()
+    admin.activateWindow()
+    return admin

@@ -57,5 +57,10 @@
     "Unlockables.json"
   ],
   "enabled": true,
-  "hidden_features": []
+  "hidden_features": [],
+  "shown_features": [
+    "locres_section",
+    "iostore_section"
+  ],
+  "bepinex_mod": {}
 }

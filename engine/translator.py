@@ -31,7 +31,10 @@ class TranslationEngine:
         from engine.models.deepl_translator import DeepLTranslator
         
         models_cfg = self._config.get("models", {})
-        
+        # برومت مخصّص (إن وجد) من أعلى مستوى في config.json — يُطبَّق على المترجمات
+        # التي تدعم system_prompt (Ollama, Custom Endpoint) بعد إنشائها.
+        custom_prompt = (self._config.get("system_prompt") or "").strip()
+
         for key, cfg in models_cfg.items():
             try:
                 model_type = cfg.get("type", "")
@@ -70,8 +73,12 @@ class TranslationEngine:
                     translator = DeepLTranslator(key, desc, api_key, tier)
                 
                 if translator:
+                    # طبّق البرومت المخصّص (لو محفوظ في config.json) على المترجمات
+                    # التي تدعمه — وإلا يبقى البرومت الافتراضي من __init__
+                    if custom_prompt and hasattr(translator, "system_prompt"):
+                        translator.system_prompt = custom_prompt
                     self._translators[key] = translator
-                    
+
             except Exception as e:
                 print(f"[Engine] Error initializing translator '{key}': {e}")
         

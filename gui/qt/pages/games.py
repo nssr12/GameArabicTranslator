@@ -4,11 +4,14 @@ gui/qt/pages/games.py  —  صفحة الألعاب (المرحلة 5)
 
 from __future__ import annotations
 import os
+import sys
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QScrollArea, QSizePolicy, QMessageBox, QSpacerItem, QProgressBar,
     QSplitter, QPlainTextEdit, QCheckBox, QSpinBox, QComboBox, QDialog,
+    QLineEdit,
 )
 from PySide6.QtCore  import Qt, Signal, QThread, QTimer
 from PySide6.QtGui   import QCursor, QFont
@@ -310,16 +313,35 @@ class GameDetailPanel(QFrame):
     bepinex_collect_requested      = Signal(str, str)  # game_id, game_path
     bepinex_collect_from_requested = Signal(str, str)  # game_id, source_path
     proxy_server_toggle_requested  = Signal(str, str)  # game_id, game_name
+    model_priority_requested        = Signal(str)  # game_id — يفتح حوار أولوية المودلات
+    ue4ss_install_requested         = Signal(str)  # game_id
+    ue4ss_update_requested          = Signal(str)  # game_id — يصدّر القاموس
+    ue4ss_import_missing_requested  = Signal(str)  # game_id — يقرأ missing.txt
+    ue4ss_uninstall_requested       = Signal(str)  # game_id
+
+    # Unreal Hook (dxgi.dll injection mod for UE5 games like Manor Lords/Palworld)
+    unreal_hook_install_requested         = Signal(str, str)  # game_id, game_name
+    unreal_hook_uninstall_requested       = Signal(str, str)  # game_id, game_name
+    unreal_hook_launch_requested          = Signal(str, str)  # game_id, game_name
+    unreal_hook_open_translate_requested  = Signal(str, str)  # game_id, game_name
+    unreal_hook_update_translate_requested = Signal(str, str, str)  # game_id, game_name, model_filter
+    unreal_hook_priority_requested        = Signal(str)        # game_id (opens priority dialog)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._game_id       = None
         self._game_cfg      = {}
+        self._cache         = None    # يُحدَّث في load() — مطلوب لقائمة المودلات
         self._registry_info: dict = {}
         self._registry_loaded: bool = False
         self._dl_progress   = None
         self._dl_lbl        = None
         self._proxy_server  = None
+        # زر تشغيل/إغلاق اللعبة + مؤقّت تحديث حالته
+        self._btn_launch_game: QPushButton | None = None
+        self._launch_timer    = QTimer(self)
+        self._launch_timer.setInterval(2000)   # كل ثانيتين
+        self._launch_timer.timeout.connect(self._refresh_launch_btn)
         self._build_empty()
 
     def set_proxy_server(self, proxy):
@@ -356,6 +378,7 @@ class GameDetailPanel(QFrame):
     def load(self, game_id: str, cfg: dict, cache=None):
         self._game_id  = game_id
         self._game_cfg = cfg
+        self._cache    = cache   # احفظه — تستخدمه بطاقات Unreal Hook + BepInEx لقوائم المودلات
         self._dl_progress = None
         self._dl_lbl      = None
 
@@ -373,6 +396,11 @@ class GameDetailPanel(QFrame):
         lay = self._scroll.widget().layout()
         lay.setContentsMargins(28, 24, 28, 24)
         lay.setSpacing(18)
+
+        # نظّف زر تشغيل اللعبة السابق + أوقف مؤقّته قبل إعادة بناء البطاقة
+        # (سيُعاد بناؤه إذا توفّرت بيانات اللعبة)
+        self._launch_timer.stop()
+        self._btn_launch_game = None
 
         # ── Header ────────────────────────────────────────────────────────────
         hdr = QHBoxLayout()
@@ -535,6 +563,21 @@ class GameDetailPanel(QFrame):
                      lambda: self.edit_requested.emit(self._game_id), "✏️")
             )
 
+        # زر تشغيل / إغلاق اللعبة — يظهر فقط إذا كان process_name + game_path معرَّفَين
+        process_name = (cfg or {}).get("process_name", "").strip()
+        game_path    = (cfg or {}).get("game_path", "").strip()
+        if process_name and game_path and os.path.isdir(game_path):
+            launch_btn = _btn("تشغيل اللعبة", "green",
+                              self._on_launch_clicked, "🎮")
+            self._btn_launch_game = launch_btn
+            actions_lay.addWidget(launch_btn)
+            # حدّث حالته فوراً + ابدأ المراقبة الدورية
+            self._refresh_launch_btn()
+            self._launch_timer.start()
+        else:
+            self._btn_launch_game = None
+            self._launch_timer.stop()
+
         actions_lay.addWidget(
             _btn("حذف اللعبة", "accent",
                  lambda: self.delete_requested.emit(self._game_id), "🗑️")
@@ -542,7 +585,437 @@ class GameDetailPanel(QFrame):
 
         lay.addWidget(actions_card)
 
+        # ── UE4SS Arabic Translator card (لألعاب UE فقط) ─────────────────────
+        if eng_key in ("ue4", "ue5", "unreal"):
+            self._render_ue4ss_card(lay, cfg)
+
+        # ── Unreal Hook card (لألعاب UE5 اللي تحتاج dxgi injection) ────────────────
+        shown = cfg.get("shown_features") or []
+        if "unreal_hook_section" in shown or cfg.get("hook_mode") == "unreal_hook":
+            self._render_unreal_hook_card(lay, cfg)
+
+        # ── BepInEx + XUnity card (لألعاب Unity) ────────────────────────────────
+        # نُظهره لألعاب Unity أو أي لعبة فيها قسم bepinex_mod في الـ config
+        if eng_key == "unity" or "bepinex_mod" in cfg:
+            self._render_bepinex_card(lay, cfg)
+
         lay.addStretch()
+
+    # ====================== UNREAL HOOK CARD ======================
+    def _render_unreal_hook_card(self, lay, cfg: dict):
+        """بطاقة Unreal Hook: تثبيت + تشغيل اللعبة + watcher + إحصاءات."""
+        try:
+            from games.unreal_hook_mod import UnrealHookMod
+        except ImportError:
+            return
+        c = theme.c
+        mod = UnrealHookMod()
+        status = mod.get_status(cfg)
+
+        # كرت Unreal Hook
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background: {c['card']};
+                border: 1px solid {c['border']};
+                border-radius: 10px;
+                padding: 14px;
+            }}
+        """)
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 12, 14, 12)
+        cl.setSpacing(8)
+
+        # العنوان
+        hdr = QHBoxLayout()
+        title = QLabel("🌐  محرّك Unreal Hook — ترجمة UE5 (dxgi injection)")
+        title.setStyleSheet(f"color: {c['primary']}; font-size: 13px; font-weight: bold; background: transparent;")
+        hdr.addWidget(title)
+        hdr.addStretch()
+        if status["installed"]:
+            badge = QLabel("✓ مُثبَّت")
+            badge.setStyleSheet(f"color: {c['green']}; font-size: 10px; font-weight: bold; background: transparent;")
+        else:
+            badge = QLabel("✗ غير مُثبَّت")
+            badge.setStyleSheet(f"color: {c['accent']}; font-size: 10px; font-weight: bold; background: transparent;")
+        hdr.addWidget(badge)
+        cl.addLayout(hdr)
+
+        # وصف
+        desc = QLabel(
+            "يعترض نصوص UE5 عبر dxgi.dll hijack + suspended-launch injection. "
+            "النصوص تُرسَل لبروكسي الترجمة في نظامنا (Ollama)."
+        )
+        desc.setStyleSheet(f"color: {c['muted']}; font-size: 10px; background: transparent;")
+        desc.setWordWrap(True)
+        cl.addWidget(desc)
+
+        # حالة المسار
+        if not status["win64_exists"]:
+            warn = QLabel(f"⚠ مجلد اللعبة غير موجود: {status['win64_dir']}")
+            warn.setStyleSheet(f"color: {c['yellow']}; font-size: 10px; background: transparent;")
+            warn.setWordWrap(True)
+            cl.addWidget(warn)
+            lay.addWidget(card)
+            return
+
+        # ── إحصاءات ──
+        if status["installed"]:
+            stats_row = QHBoxLayout()
+            stats_row.setSpacing(20)
+            for label, value, color in [
+                ("نصوص ملتقطة", status["captured_count"], c.get('accent2', c['primary'])),
+                ("نصوص مترجمة", status["translated_count"], c['green']),
+                ("في الانتظار", max(0, status["captured_count"] - status["translated_count"]), c['yellow']),
+            ]:
+                box = QVBoxLayout()
+                box.setSpacing(2)
+                val = QLabel(f"{value:,}")
+                val.setStyleSheet(f"color: {color}; font-size: 18px; font-weight: bold; background: transparent;")
+                val.setAlignment(Qt.AlignCenter)
+                lbl = QLabel(label)
+                lbl.setStyleSheet(f"color: {c['muted']}; font-size: 10px; background: transparent;")
+                lbl.setAlignment(Qt.AlignCenter)
+                box.addWidget(val)
+                box.addWidget(lbl)
+                wrap = QFrame()
+                wrap.setStyleSheet(f"background: transparent; border: none;")
+                wrap.setLayout(box)
+                stats_row.addWidget(wrap, 1)
+            cl.addLayout(stats_row)
+
+        # ── أزرار العمل ──
+        row_actions = QHBoxLayout()
+        row_actions.setSpacing(8)
+
+        def _btn_style(color):
+            return f"""
+                QPushButton {{
+                    background: transparent; color: {color};
+                    border: 1px solid {color}; border-radius: 7px;
+                    font-weight: bold; font-size: 11px; padding: 0 14px;
+                }}
+                QPushButton:hover {{ background: {color}; color: #fff; }}
+            """
+
+        if not status["installed"]:
+            install_btn = QPushButton("📥  تثبيت Unreal Hook")
+            install_btn.setFixedHeight(34)
+            install_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            install_btn.setStyleSheet(_btn_style(c['green']))
+            install_btn.clicked.connect(lambda: self.unreal_hook_install_requested.emit(self._game_id, cfg.get("name", self._game_id)))
+            row_actions.addWidget(install_btn)
+        else:
+            launch_btn = QPushButton("▶  تشغيل اللعبة + الترجمة")
+            launch_btn.setFixedHeight(34)
+            launch_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            launch_btn.setStyleSheet(_btn_style(c['green']))
+            launch_btn.clicked.connect(lambda: self.unreal_hook_launch_requested.emit(self._game_id, cfg.get("name", self._game_id)))
+            row_actions.addWidget(launch_btn)
+
+            open_folder_btn = QPushButton("📂  Translate/")
+            open_folder_btn.setFixedHeight(34)
+            open_folder_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            open_folder_btn.setStyleSheet(_btn_style(c.get('accent2', c['primary'])))
+            open_folder_btn.clicked.connect(lambda: self.unreal_hook_open_translate_requested.emit(self._game_id, cfg.get("name", self._game_id)))
+            row_actions.addWidget(open_folder_btn)
+
+            uninstall_btn = QPushButton("🗑  إلغاء التثبيت")
+            uninstall_btn.setFixedHeight(34)
+            uninstall_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            uninstall_btn.setStyleSheet(_btn_style(c['accent']))
+            uninstall_btn.clicked.connect(lambda: self.unreal_hook_uninstall_requested.emit(self._game_id, cfg.get("name", self._game_id)))
+            row_actions.addWidget(uninstall_btn)
+
+        row_actions.addStretch()
+        cl.addLayout(row_actions)
+
+        # ── قسم تحديث Translate من الكاش (يظهر فقط لو مُثبَّت ولديه ترجمات) ──
+        if status["installed"]:
+            # شريط فاصل
+            sep = QFrame()
+            sep.setFrameShape(QFrame.HLine)
+            sep.setStyleSheet(f"background: {c['border']}; max-height: 1px;")
+            cl.addWidget(sep)
+
+            # عنوان القسم
+            update_title = QLabel("🔄  تحديث مجلد Translate من الكاش")
+            update_title.setStyleSheet(
+                f"color: {c['primary']}; font-size: 11px; font-weight: bold; "
+                "background: transparent; padding-top: 4px;"
+            )
+            cl.addWidget(update_title)
+
+            update_desc = QLabel(
+                "يُعيد إنشاء ملفات .subtitle.txt من الكاش "
+                "(للتطبيق الفوري بعد إضافة/تعديل ترجمات)."
+            )
+            update_desc.setStyleSheet(f"color: {c['muted']}; font-size: 9px; background: transparent;")
+            update_desc.setWordWrap(True)
+            cl.addWidget(update_desc)
+
+            # صف dropdown + أزرار
+            row_update = QHBoxLayout()
+            row_update.setSpacing(8)
+
+            # dropdown اختيار المودل
+            from PySide6.QtWidgets import QComboBox
+            model_combo = QComboBox()
+            model_combo.setFixedHeight(32)
+            model_combo.setStyleSheet(f"""
+                QComboBox {{
+                    background: {c.get('card2', c['card'])};
+                    color: {c['primary']};
+                    border: 1px solid {c['border']};
+                    border-radius: 6px;
+                    padding: 0 10px;
+                    font-size: 11px;
+                    min-width: 200px;
+                }}
+                QComboBox::drop-down {{ border: none; width: 24px; }}
+                QComboBox QAbstractItemView {{
+                    background: {c['card']};
+                    color: {c['primary']};
+                    selection-background-color: {c.get('accent2', c['accent'])};
+                }}
+            """)
+            # نُضيف كل المودلات الموجودة في الكاش — مع العدد الإجمالي للهرمي
+            try:
+                if self._cache:
+                    game_name = cfg.get("name", self._game_id)
+                    counts = self._cache.count_by_model(game_name) or {}
+                    total_all = 0
+                    try:
+                        total_all = self._cache.count_entries(game_name)
+                    except Exception:
+                        total_all = sum(counts.values()) if counts else 0
+                    # خيار "دمج هرمي" (افتراضي) — نفس UX Flotsam
+                    model_combo.addItem(
+                        f"🏆  دمج هرمي ({total_all:,} ترجمة من كل المودلات)", ""
+                    )
+                    for model_name in sorted(counts.keys()):
+                        cnt = counts[model_name]
+                        if model_name:
+                            model_combo.addItem(f"🤖 {model_name}  ({cnt:,} ترجمة)", model_name)
+                else:
+                    model_combo.addItem("🏆  دمج هرمي (الأفضل من كل المودلات)", "")
+            except Exception:
+                model_combo.addItem("🏆  دمج هرمي (الأفضل من كل المودلات)", "")
+            row_update.addWidget(model_combo, 1)
+
+            # زر تحديث
+            update_btn = QPushButton("🔄  تحديث الآن")
+            update_btn.setFixedHeight(32)
+            update_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            update_btn.setStyleSheet(_btn_style(c['green']))
+            update_btn.clicked.connect(
+                lambda: self.unreal_hook_update_translate_requested.emit(
+                    self._game_id,
+                    cfg.get("name", self._game_id),
+                    model_combo.currentData() or "",
+                )
+            )
+            row_update.addWidget(update_btn)
+
+            # زر أولوية المودلات (يفتح نفس حوار Flotsam)
+            priority_btn = QPushButton("🎯  الأولوية")
+            priority_btn.setFixedHeight(32)
+            priority_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            priority_btn.setStyleSheet(_btn_style(c.get('accent2', c['accent'])))
+            priority_btn.setToolTip("ترتيب أولوية المودلات للدمج الهرمي")
+            priority_btn.clicked.connect(
+                lambda: self.unreal_hook_priority_requested.emit(self._game_id)
+            )
+            row_update.addWidget(priority_btn)
+
+            cl.addLayout(row_update)
+
+        # ملاحظة
+        note = QLabel(
+            "💡 تأكّد Steam يعمل في الخلفية + Ollama في GUI الإعدادات. "
+            "زر التشغيل سيفتح: بروكسي + watcher + اللعبة (مع injection)."
+        )
+        note.setStyleSheet(f"color: {c['muted']}; font-size: 9px; background: transparent; padding-top: 4px;")
+        note.setWordWrap(True)
+        cl.addWidget(note)
+
+        lay.addWidget(card)
+
+    def _render_ue4ss_card(self, lay, cfg: dict):
+        """بطاقة تثبيت + إدارة UE4SS Arabic Translator لألعاب UE."""
+        try:
+            from games.ue4ss_mod import UE4SSMod
+        except ImportError:
+            return
+        c          = theme.c
+        game_path  = cfg.get("game_path", "")
+        game_name  = cfg.get("name", self._game_id)
+        if not game_path:
+            return
+
+        mod = UE4SSMod()
+        ue4ss_ok = False
+        mod_ok   = False
+        ue4ss_runtime_error = ""
+        try:
+            ue4ss_ok = mod.is_ue4ss_installed(game_path, self._game_id)
+            mod_ok   = mod.is_mod_installed(game_path, self._game_id)
+            # افحص log إن وُجد لاكتشاف Fatal errors (PS scan failures مثلاً)
+            if ue4ss_ok:
+                w64 = mod._win64_dir(game_path, self._game_id)
+                log_path = os.path.join(w64, "UE4SS.log")
+                if os.path.isfile(log_path):
+                    try:
+                        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                            # اقرأ آخر 5KB فقط (سريع)
+                            f.seek(0, 2)
+                            size = f.tell()
+                            f.seek(max(0, size - 5000))
+                            tail = f.read()
+                        if "Fatal Error" in tail or "PS scan timed out" in tail:
+                            ue4ss_runtime_error = "فشل scan — UE4SS غير متوافق مع إصدار اللعبة"
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        card = self._card()
+        cl   = QVBoxLayout(card)
+        cl.setContentsMargins(16, 14, 16, 14)
+        cl.setSpacing(8)
+
+        # ── رأس البطاقة ──
+        hdr_row = QHBoxLayout()
+        ttl = QLabel("🎮  UE4SS Arabic Translator (بدون lag)")
+        ttl.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {c['primary']};"
+            " background: transparent; border: none;"
+        )
+        if ue4ss_ok and mod_ok:
+            st_text, st_color = "● مُثبَّت", c["green"]
+        elif ue4ss_ok:
+            st_text, st_color = "● UE4SS فقط (المود ناقص)", c["yellow"]
+        else:
+            st_text, st_color = "● غير مُثبَّت", c["muted"]
+        st_lbl = QLabel(st_text)
+        st_lbl.setStyleSheet(
+            f"color: {st_color}; font-size: 11px;"
+            " background: transparent; border: none;"
+        )
+        hdr_row.addWidget(ttl)
+        hdr_row.addStretch()
+        hdr_row.addWidget(st_lbl)
+        cl.addLayout(hdr_row)
+
+        # ── حالة المكوّنات ──
+        def _status_line(icon, text, color):
+            lbl = QLabel(f"{icon} {text}")
+            lbl.setStyleSheet(
+                f"color: {color}; font-size: 10px;"
+                " background: transparent; border: none;"
+            )
+            cl.addWidget(lbl)
+
+        _status_line("✓" if ue4ss_ok else "✗",
+                     "UE4SS — " + ("مُحمَّل" if ue4ss_ok else "غير محمَّل"),
+                     c["green"] if ue4ss_ok else c["muted"])
+        _status_line("✓" if mod_ok else "✗",
+                     "UE4ArabicTranslator — " + ("مُحمَّل" if mod_ok else "غير محمَّل"),
+                     c["green"] if mod_ok else c["muted"])
+        if ue4ss_runtime_error:
+            _status_line("⚠", ue4ss_runtime_error, c.get("accent", "#e94560"))
+
+        # عدد الترجمات في القاموس + missing
+        dict_count = 0
+        missing_count = 0
+        if mod_ok:
+            try:
+                dict_path = os.path.join(
+                    mod._mod_target(game_path, self._game_id),
+                    "dict", "translations.txt"
+                )
+                if os.path.isfile(dict_path):
+                    with open(dict_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip() and not line.startswith("#") and "=" in line:
+                                dict_count += 1
+                missing_count = len(mod.read_missing(game_path, self._game_id))
+            except Exception:
+                pass
+
+        if mod_ok:
+            _status_line("📖", f"القاموس — {dict_count:,} ترجمة في translations.txt",
+                         c.get("teal", "#00d2ff"))
+            if missing_count > 0:
+                _status_line("⚠", f"نصوص جديدة بانتظار الترجمة — {missing_count}",
+                             c.get("yellow", "#ffa600"))
+
+        # ── أزرار ──
+        def _mini_btn(label, color_key, slot):
+            btn = QPushButton(label)
+            btn.setFixedHeight(32)
+            btn.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: rgba(0,0,0,38);
+                    color: {clr};
+                    border: 1px solid {clr};
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 0 12px;
+                    font-size: 11px;
+                }}
+                QPushButton:hover {{ background: {clr}; color: #fff; }}
+            """)
+            btn.clicked.connect(slot)
+            return btn
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(6)
+        if not ue4ss_ok or not mod_ok:
+            # غير مُثبَّت → زر تثبيت كبير
+            install_btn = QPushButton("✅  تثبيت UE4SS + المود")
+            install_btn.setFixedHeight(36)
+            install_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            install_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {c['green']};
+                    color: #fff;
+                    border: none; border-radius: 8px;
+                    font-weight: bold; font-size: 12px; padding: 0 18px;
+                }}
+                QPushButton:hover {{ background: #2e7d32; }}
+            """)
+            install_btn.clicked.connect(
+                lambda: self.ue4ss_install_requested.emit(self._game_id)
+            )
+            row1.addWidget(install_btn)
+        else:
+            # مُثبَّت → أزرار التحديث + الاستيراد (دائماً مرئي) + إلغاء
+            row1.addWidget(_mini_btn(
+                "🔄  تحديث القاموس", "teal",
+                lambda: self.ue4ss_update_requested.emit(self._game_id),
+            ))
+            # زر استيراد دائماً مرئي — لو لا يوجد نصوص يعرض رسالة معلوماتية
+            import_label = (
+                f"📥  استيراد {missing_count} نص جديد"
+                if missing_count > 0
+                else "📥  استيراد نصوص (لا يوجد)"
+            )
+            row1.addWidget(_mini_btn(
+                import_label,
+                "yellow" if missing_count > 0 else "muted",
+                lambda: self.ue4ss_import_missing_requested.emit(self._game_id),
+            ))
+            row1.addWidget(_mini_btn(
+                "🗑️  إلغاء التثبيت", "accent",
+                lambda: self.ue4ss_uninstall_requested.emit(self._game_id),
+            ))
+
+        row1.addStretch()
+        cl.addLayout(row1)
+        lay.addWidget(card)
 
     def _render_bepinex_card(self, lay, cfg: dict):
         """بطاقة تثبيت BepInEx+XUnity (Method 2) أو plugin خاص (Method 1)."""
@@ -701,6 +1174,11 @@ class GameDetailPanel(QFrame):
                         "🔄  تحديث الترجمات", "teal",
                         lambda: self.bepinex_update_requested.emit(self._game_id, game_path)
                     ))
+                    # زر أولوية المودلات — يُفعَّل للدمج الهرمي عند "كل النماذج"
+                    row1.addWidget(_mini_btn(
+                        "🎯  أولوية المودلات", "purple",
+                        lambda: self.model_priority_requested.emit(self._game_id)
+                    ))
                     row1.addWidget(_mini_btn(
                         "🔄  تحديث plugins", "blue",
                         lambda: self.bepinex_install_requested.emit(self._game_id, game_path)
@@ -722,6 +1200,10 @@ class GameDetailPanel(QFrame):
                     row1.addWidget(_mini_btn(
                         "🔄  تحديث الترجمات", "teal",
                         lambda: self.bepinex_update_requested.emit(self._game_id, game_path)
+                    ))
+                    row1.addWidget(_mini_btn(
+                        "🎯  أولوية المودلات", "purple",
+                        lambda: self.model_priority_requested.emit(self._game_id)
                     ))
                     row1.addWidget(_mini_btn(
                         "🗑️  إلغاء التثبيت", "accent",
@@ -1003,6 +1485,238 @@ class GameDetailPanel(QFrame):
         """)
         return f
 
+    # ── Launch / close game ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_process_running(process_name: str) -> bool:
+        """يفحص ما إذا كانت عملية بهذا الاسم تعمل حالياً (لا حساسية لحالة الأحرف)."""
+        if not process_name:
+            return False
+        try:
+            import psutil
+        except ImportError:
+            return False
+        target = process_name.lower()
+        try:
+            for proc in psutil.process_iter(attrs=["name"]):
+                try:
+                    if (proc.info.get("name") or "").lower() == target:
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            return False
+        return False
+
+    def _refresh_launch_btn(self):
+        """يحدّث نص وألوان زر تشغيل/إغلاق اللعبة بناءً على حالة العملية."""
+        btn = self._btn_launch_game
+        if btn is None:
+            return
+        process_name = (self._game_cfg or {}).get("process_name", "").strip()
+        if not process_name:
+            return
+        c = theme.c
+        running = self._is_process_running(process_name)
+        if running:
+            label = "إغلاق اللعبة"
+            icon  = "⏹"
+            color = c.get("accent", "#e94560")    # أحمر = تحذيري
+        else:
+            label = "تشغيل اللعبة"
+            icon  = "🎮"
+            color = c.get("green", "#2e7d32")
+        btn.setText(f"{icon}  {label}")
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba(0,0,0,38);
+                color: {color};
+                border: 1px solid {color};
+                border-radius: 8px;
+                font-weight: bold;
+                padding: 0 16px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background: {color};
+                color: #fff;
+            }}
+        """)
+
+    def _on_launch_clicked(self):
+        """تشغيل اللعبة أو إغلاقها حسب حالتها الحالية."""
+        cfg = self._game_cfg or {}
+        process_name = cfg.get("process_name", "").strip()
+        game_path    = cfg.get("game_path", "").strip()
+        if not process_name or not game_path:
+            QMessageBox.warning(
+                self, "إعداد ناقص",
+                "اسم العملية أو مسار اللعبة غير محدّد — "
+                "حدّدهما من «تعديل الإعدادات»."
+            )
+            return
+
+        if self._is_process_running(process_name):
+            # ── إغلاق ─────────────────────────────────────────────────────────
+            if QMessageBox.question(
+                self, "تأكيد الإغلاق",
+                f"إغلاق «{process_name}»؟\n"
+                "أي تقدّم لم يُحفَظ سيُفقد.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            ) != QMessageBox.Yes:
+                return
+            self._terminate_process(process_name)
+            QTimer.singleShot(800, self._refresh_launch_btn)
+            return
+
+        # ── تشغيل ─────────────────────────────────────────────────────────────
+        # الأولوية:
+        #   1) Steam URL لو appid موجود (يتعامل مع Steam API init بشكل صحيح)
+        #      → لو فيه نسخ متعدّدة، Steam يعرض picker (المستخدم يفعّل "Always use this option")
+        #   2) exe مباشر فقط لو prefer_direct_launch=true أو لا يوجد appid
+        appid = self._find_steam_appid(game_path) or (cfg.get("steam_appid") or "").strip()
+        prefer_direct = bool(cfg.get("prefer_direct_launch"))
+        direct_exe = os.path.join(game_path, process_name)
+        has_direct_exe = os.path.isfile(direct_exe)
+        # Direct فقط لو الإعداد يطلبها صراحةً أو لا يوجد Steam appid
+        use_direct = has_direct_exe and (prefer_direct or not appid)
+
+        try:
+            if use_direct:
+                # تشغيل مباشر — يضمن النسخة المحدَّدة في game_path
+                os.startfile(direct_exe)
+            elif appid:
+                # Steam URL — يفتح Steam إن لم يكن يعمل، ثم يبدأ اللعبة
+                os.startfile(f"steam://run/{appid}")
+            else:
+                # ليست لعبة Steam → نحتاج exe في موقع متوقّع
+                exe_path = direct_exe if has_direct_exe else ""
+                if not exe_path:
+                    # جرّب موقع شائع: <game_path>/<game_name>/Binaries/Win64/<exe>
+                    game_name = (cfg.get("name", "") or "").strip()
+                    candidates = [
+                        os.path.join(game_path, game_name, "Binaries", "Win64", process_name),
+                        os.path.join(game_path, game_name.replace(" ", ""), "Binaries", "Win64", process_name),
+                    ]
+                    for c_path in candidates:
+                        if os.path.isfile(c_path):
+                            exe_path = c_path
+                            break
+                if not exe_path or not os.path.isfile(exe_path):
+                    QMessageBox.warning(
+                        self, "الملف غير موجود",
+                        f"لم أجد ملف التشغيل:\n{process_name}\n\n"
+                        f"بحثت في:\n  {game_path}\n\n"
+                        "تحقق من مسار اللعبة في «تعديل الإعدادات»."
+                    )
+                    return
+                os.startfile(exe_path)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "فشل التشغيل",
+                f"تعذّر تشغيل اللعبة:\n{e}"
+            )
+            return
+        # تأخير التحديث: Steam URL أبطأ، التشغيل المباشر أسرع
+        delay = 1200 if use_direct else (3000 if appid else 1200)
+        QTimer.singleShot(delay, self._refresh_launch_btn)
+
+    @staticmethod
+    def _find_steam_appid(game_path: str) -> str:
+        """يستنتج appid اللعبة من Steam.
+        المراحل (بالترتيب):
+          1) steam_appid.txt في مجلد اللعبة (بعض المطوّرين يضعونه)
+          2) مطابقة installdir في appmanifest_*.acf داخل steamapps/
+        يُرجع '' إذا لم يجد.
+        """
+        if not game_path or not os.path.isdir(game_path):
+            return ""
+
+        # 1) steam_appid.txt مباشرة في مجلد اللعبة
+        candidate = os.path.join(game_path, "steam_appid.txt")
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    appid = f.read().strip()
+                if appid.isdigit():
+                    return appid
+            except Exception:
+                pass
+
+        # 2) ابحث عن مجلد steamapps في المسار الأبوي
+        # game_path نموذجي: .../Steam/steamapps/common/<InstallDir>
+        norm = os.path.normpath(game_path)
+        parts = norm.split(os.sep)
+        try:
+            idx = next(i for i, p in enumerate(parts) if p.lower() == "steamapps")
+        except StopIteration:
+            return ""
+        steamapps_dir = os.sep.join(parts[: idx + 1])
+        install_dir   = parts[-1]   # اسم مجلد اللعبة (Flotsam)
+        if not os.path.isdir(steamapps_dir):
+            return ""
+
+        # ابحث في كل appmanifest_*.acf عن installdir المطابق
+        try:
+            for fname in os.listdir(steamapps_dir):
+                if not (fname.startswith("appmanifest_") and fname.endswith(".acf")):
+                    continue
+                try:
+                    with open(os.path.join(steamapps_dir, fname),
+                              "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                except Exception:
+                    continue
+                # ابحث عن installdir "..." (case-insensitive)
+                import re as _re
+                m = _re.search(
+                    r'"installdir"\s*"([^"]+)"', content, _re.IGNORECASE
+                )
+                if not m:
+                    continue
+                if m.group(1).strip().lower() == install_dir.lower():
+                    # appid من اسم الملف: appmanifest_<APPID>.acf
+                    appid = fname[len("appmanifest_"): -len(".acf")]
+                    if appid.isdigit():
+                        return appid
+        except Exception:
+            pass
+        return ""
+
+    @staticmethod
+    def _terminate_process(process_name: str):
+        """ينهي كل العمليات بهذا الاسم بأمان (terminate ثم kill عند الحاجة)."""
+        try:
+            import psutil
+        except ImportError:
+            return
+        target = process_name.lower()
+        victims = []
+        try:
+            for proc in psutil.process_iter(attrs=["name"]):
+                try:
+                    if (proc.info.get("name") or "").lower() == target:
+                        victims.append(proc)
+                except Exception:
+                    continue
+        except Exception:
+            return
+        for p in victims:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        # امهلهم 3 ثوان للإغلاق النظيف، ثم اقتل المتعنّت
+        try:
+            _, alive = psutil.wait_procs(victims, timeout=3)
+            for p in alive:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
 
 # ── Log panel ─────────────────────────────────────────────────────────────────
 
@@ -1145,6 +1859,66 @@ class LogPanel(QWidget):
         cb_lay.addWidget(self._timeout_spin)
         lay.addWidget(self._ctrl_bar)
 
+        # ⭐ شريط فلتر ديناميكي للسجل
+        self._filter_bar = QFrame()
+        self._filter_bar.setStyleSheet(
+            f"QFrame    {{ background: {c['card']}; border: 1px solid {c['border']};"
+            f"             border-radius: 6px; padding: 4px 8px; }}"
+            f"QLabel    {{ background: transparent; border: none; font-size: 11px;"
+            f"             color: {c['secondary']}; }}"
+            f"QCheckBox {{ background: transparent; border: none; font-size: 10px;"
+            f"             color: {c['secondary']}; spacing: 4px; }}"
+            f"QLineEdit {{ background: {c['bg']}; color: {c['primary']};"
+            f"             border: 1px solid {c['border']}; border-radius: 4px;"
+            f"             padding: 2px 6px; font-size: 11px; }}"
+        )
+        fb_lay = QHBoxLayout(self._filter_bar)
+        fb_lay.setContentsMargins(8, 2, 8, 2)
+        fb_lay.setSpacing(10)
+
+        fb_lay.addWidget(QLabel("🔎  فلتر:"))
+
+        # checkboxes: ما يُخفى من السجل
+        self._flt_show_translated = QCheckBox("ترجمات جديدة")
+        self._flt_show_translated.setChecked(True)
+        self._flt_show_translated.setToolTip("النصوص التي يترجمها الـ AI لأول مرة")
+
+        self._flt_show_cache = QCheckBox("من الكاش")
+        self._flt_show_cache.setChecked(False)
+        self._flt_show_cache.setToolTip("ترجمات استُردّت من الكاش بدون استدعاء AI")
+
+        self._flt_show_skip = QCheckBox("متخطّاة")
+        self._flt_show_skip.setChecked(False)
+        self._flt_show_skip.setToolTip("نصوص تطابق skip_patterns (Nexa Bold...) أو محرف فاضل")
+
+        self._flt_show_failed = QCheckBox("فشل")
+        self._flt_show_failed.setChecked(True)
+        self._flt_show_failed.setToolTip("ترجمات فشلت")
+
+        self._flt_show_unchanged = QCheckBox("بلا تغيير")
+        self._flt_show_unchanged.setChecked(False)
+        self._flt_show_unchanged.setToolTip("نصوص رجعت كما هي (أرقام، أعلام، …)")
+
+        self._flt_show_other = QCheckBox("أخرى")
+        self._flt_show_other.setChecked(False)
+        self._flt_show_other.setToolTip("سطور لا تطابق أي فئة معروفة (تشخيص، أحداث، …)")
+
+        for cb in (self._flt_show_translated, self._flt_show_cache, self._flt_show_skip,
+                   self._flt_show_failed, self._flt_show_unchanged, self._flt_show_other):
+            cb.toggled.connect(self._reapply_filter)
+            fb_lay.addWidget(cb)
+
+        fb_lay.addStretch(1)
+
+        # بحث نصي
+        self._flt_search = QLineEdit()
+        self._flt_search.setPlaceholderText("ابحث في السجل…")
+        self._flt_search.setFixedWidth(180)
+        self._flt_search.textChanged.connect(self._reapply_filter)
+        fb_lay.addWidget(self._flt_search)
+
+        lay.addWidget(self._filter_bar)
+
         self._txt = QPlainTextEdit()
         self._txt.setReadOnly(True)
         self._txt.setMaximumBlockCount(600)
@@ -1158,12 +1932,18 @@ class LogPanel(QWidget):
         )
         lay.addWidget(self._txt)
 
+        # buffer كل الـ logs (للفلترة الديناميكية)
+        self._all_logs: list[str] = []
+
         self.setStyleSheet(
             f"LogPanel {{ background: {c['surface']};"
             f" border-top: 1px solid {c['border']}; }}"
         )
 
-        clear_btn.clicked.connect(self._txt.clear)
+        def _clear_all():
+            self._txt.clear()
+            self._all_logs.clear()
+        clear_btn.clicked.connect(_clear_all)
         self.log_message.connect(self._append)
         self.stats_signal.connect(self._on_stats)
 
@@ -1175,13 +1955,107 @@ class LogPanel(QWidget):
         self._stats_timer.start()
 
     def _append(self, msg: str):
-        self._txt.appendPlainText(msg)
-        sb = self._txt.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        # احفظ في buffer كل الـ logs (للفلترة الديناميكية)
+        self._all_logs.append(msg)
+        if len(self._all_logs) > 2000:
+            self._all_logs = self._all_logs[-1500:]
+        # طبّق الفلتر — أضِف فقط لو يطابق
+        if self._line_matches_filter(msg):
+            self._txt.appendPlainText(msg)
+            sb = self._txt.verticalScrollBar()
+            sb.setValue(sb.maximum())
 
     def append(self, msg: str):
         """واجهة عامة — آمنة من أي خيط (تستخدم Signal داخلياً)."""
         self.log_message.emit(msg)
+
+    # ── تصنيف وفلترة سطور السجل ─────────────────────────────────────────────
+
+    def _classify_log_line(self, msg: str) -> str:
+        """يصنّف السطر إلى أحد: translated, cache, skip, failed, unchanged, other.
+        مطابقة دقيقة لرموز proxy_server.py."""
+
+        # نصوص محجوبة (skip_patterns / مُمنَع / معروف فاشل / تخطّي)
+        # ⚠ افحص قبل "ترجمة جديدة" لأنها قد تحوي ⟶ كذلك
+        if any(t in msg for t in (
+            "🚫", "⏭",
+            "مُمنَع", "مُمنع", "ممنوع",
+            "معروف فاشل", "معروف فاضل",
+            "تخطّى", "تخطى", "تخطّي",
+            "skip_pattern", "skipped",
+        )):
+            return "skip"
+
+        # فشل
+        if any(t in msg for t in (
+            "❌", "✗", "⚠",
+            "fail", "Fail",
+            "تجاوز المهلة", "timeout", "Timeout",
+            "exception", "Exception",
+            "بلا ردّ", "بلا رد",
+            "queue مليان",
+        )):
+            return "failed"
+
+        # كاش / مرجع يدوي / استرجاع
+        # ملاحظة: البروكسي لا يطبع log عند SQLite cache hit (هي صامتة).
+        # لكن 📖 يدل على "يدوي من translations.txt" — استرجاع بدون استدعاء AI
+        # → نصنّفه ضمن "كاش" لأنه ليس ترجمة جديدة فعلية.
+        if any(t in msg for t in (
+            "📖", "📦", "🗄",
+            "يدوي:", "يدوي ⟶",
+            "من الكاش", "cache hit", "[cache]", "[Cache]",
+        )):
+            return "cache"
+
+        # بلا تغيير
+        if any(t in msg for t in ("بلا تغيير", "unchanged", "نص كما هو")):
+            return "unchanged"
+
+        # جدولة خلفية (long text async) — اعتبرها "translated" لأنها قيد المعالجة
+        if "⏳" in msg or "جدولة خلفية" in msg:
+            return "translated"
+
+        # ترجمة AI جديدة — البروكسي يطبع `text ⟶ arabic` (سطر 151)
+        # هذه فقط بعد cache miss + استدعاء AI ناجح.
+        if any(t in msg for t in (
+            "⟶", "→", "⇨", "->",
+            "🔄", "✓",
+            "translated", "[AI]", "[Ollama]",
+        )):
+            return "translated"
+
+        return "other"
+
+    def _line_matches_filter(self, msg: str) -> bool:
+        # filter checkboxes غير مرئية بعد (init) → اقبل كل شيء
+        if not hasattr(self, "_flt_show_translated"):
+            return True
+        category = self._classify_log_line(msg)
+        category_visible = {
+            "translated": self._flt_show_translated.isChecked(),
+            "cache":      self._flt_show_cache.isChecked(),
+            "skip":       self._flt_show_skip.isChecked(),
+            "failed":     self._flt_show_failed.isChecked(),
+            "unchanged":  self._flt_show_unchanged.isChecked(),
+            "other":      self._flt_show_other.isChecked(),
+        }.get(category, True)
+        if not category_visible:
+            return False
+        # بحث نصي
+        q = self._flt_search.text().strip()
+        if q and q.lower() not in msg.lower():
+            return False
+        return True
+
+    def _reapply_filter(self):
+        """يعيد رسم السجل بناءً على الفلتر الحالي. يبقي scrollbar في النهاية."""
+        self._txt.clear()
+        for line in self._all_logs:
+            if self._line_matches_filter(line):
+                self._txt.appendPlainText(line)
+        sb = self._txt.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     def attach_proxy(self, proxy):
         """يربط البروكسي لتحديث الإحصاءات وعرض الإعدادات الحالية."""
@@ -1198,9 +2072,19 @@ class LogPanel(QWidget):
             self._on_stats({"pending": 0, "engine_count": 0, "cache_count": 0, "rate_per_sec": 0})
 
     def _refresh_tag_mode_label(self):
-        """يُحدّث label الوضع الحالي بناءً على حالة البروكسي."""
-        if self._proxy_ref and hasattr(self._proxy_ref, "get_tag_mode"):
+        """يُحدّث label الوضع الحالي. يفضّل الفلتر العام (config.json)
+        ويعود للبروكسي لو لم يكن متاحاً."""
+        mode = None
+        # 1) اقرأ من الفلتر العام (الأولوية)
+        try:
+            from engine.filtered_translator import get_global_tag_mode
+            mode = get_global_tag_mode()
+        except Exception:
+            mode = None
+        # 2) fallback للبروكسي
+        if not mode and self._proxy_ref and hasattr(self._proxy_ref, "get_tag_mode"):
             mode = self._proxy_ref.get_tag_mode()
+        if mode:
             mode_display = {
                 "inline":      "🏷 Inline",
                 "strip":       "🔒 Strip",
@@ -1270,7 +2154,7 @@ class LogPanel(QWidget):
         self._failed_lbl.setText(label)
 
     def _show_recent_failures(self):
-        """يعرض حواراً صغيراً بآخر الإخفاقات وأسبابها لتشخيص المشاكل."""
+        """يعرض حواراً قابلاً للتوسيع بآخر الإخفاقات وأسبابها لتشخيص المشاكل."""
         if not self._proxy_ref or not hasattr(self._proxy_ref, "get_recent_failures"):
             return
         failures = self._proxy_ref.get_recent_failures()
@@ -1280,18 +2164,87 @@ class LogPanel(QWidget):
             return
         lines = []
         for i, f in enumerate(reversed(failures), 1):
-            text = (f.get("text") or "")[:80].replace("\n", " ↵ ")
-            reason = (f.get("reason") or "")[:120]
+            # نُظهر النص الكامل بلا قطع — الحوار قابل للتوسيع الآن
+            text = (f.get("text") or "").replace("\n", " ↵ ")
+            reason = (f.get("reason") or "")
             modes = f.get("modes_tried", "")
             modes_str = f"  [tried: {modes}]" if modes else ""
             lines.append(f"{i}. النص: {text!r}\n   السبب: {reason}{modes_str}")
         body = "\n\n".join(lines)
-        msg = QMessageBox(self)
-        msg.setWindowTitle(f"آخر {len(failures)} إخفاق")
-        msg.setText(f"يُعرض من الأحدث إلى الأقدم:")
-        msg.setDetailedText(body)
-        msg.setIcon(QMessageBox.Information)
-        msg.exec()
+
+        from PySide6.QtWidgets import QDialog, QTextEdit, QSizeGrip
+        c = theme.c
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"آخر {len(failures)} إخفاق")
+        # حوار قابل للتوسيع — حجم افتراضي مريح، حد أدنى صغير
+        dlg.setMinimumSize(520, 380)
+        dlg.resize(820, 600)
+        dlg.setSizeGripEnabled(True)
+        # نضيف min/max + close بدون استبدال الأعلام الافتراضية
+        dlg.setWindowFlags(
+            dlg.windowFlags()
+            | Qt.WindowMinMaxButtonsHint
+            | Qt.WindowCloseButtonHint
+        )
+        dlg.setStyleSheet(f"QDialog {{ background: {c['bg']}; }}")
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
+
+        # Header
+        hdr = QLabel(f"🛈  يُعرض من الأحدث إلى الأقدم  •  {len(failures)} إخفاق")
+        hdr.setStyleSheet(
+            f"color: {c['primary']}; font-size: 13px; font-weight: bold;"
+            " background: transparent; border: none;"
+        )
+        lay.addWidget(hdr)
+
+        # Body — قابل للتمرير ويتمدّد مع النافذة
+        body_widget = QTextEdit()
+        body_widget.setReadOnly(True)
+        body_widget.setLineWrapMode(QTextEdit.NoWrap)
+        body_widget.setLayoutDirection(Qt.LeftToRight)
+        body_widget.setPlainText(body)
+        body_widget.setStyleSheet(
+            f"QTextEdit {{ background: {c['surface']}; color: {c['primary']};"
+            f"             border: 1px solid {c['border']}; border-radius: 6px;"
+            f"             padding: 8px; font-family: Consolas, monospace;"
+            f"             font-size: 12px; selection-background-color: {c['accent']}; }}"
+        )
+        lay.addWidget(body_widget, 1)
+
+        # Footer
+        foot = QHBoxLayout()
+        foot.addStretch()
+        copy_btn = QPushButton("📋  نسخ الكل")
+        copy_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        copy_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['primary']};"
+            f"               border: 1px solid {c['border']}; border-radius: 4px;"
+            f"               padding: 6px 14px; }}"
+            f"QPushButton:hover {{ background: {c['hover']}; color: white;"
+            f"                     border-color: {c['accent']}; }}"
+        )
+        copy_btn.clicked.connect(lambda: (
+            __import__("PySide6.QtWidgets", fromlist=["QApplication"])
+            .QApplication.clipboard().setText(body)
+        ))
+        close_btn = QPushButton("إغلاق")
+        close_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        close_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['accent']}; color: white;"
+            f"               border: none; border-radius: 4px; padding: 6px 18px;"
+            f"               font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {c.get('teal', '#00d2ff')}; }}"
+        )
+        close_btn.clicked.connect(dlg.accept)
+        foot.addWidget(copy_btn)
+        foot.addSpacing(8)
+        foot.addWidget(close_btn)
+        lay.addLayout(foot)
+
+        dlg.exec()
 
 
 # ── Games page ────────────────────────────────────────────────────────────────
@@ -1374,12 +2327,23 @@ class GamesPage(QWidget):
         self._detail.bepinex_install_requested.connect(self._on_bepinex_install)
         self._detail.bepinex_uninstall_requested.connect(self._on_bepinex_uninstall)
         self._detail.bepinex_update_requested.connect(self._on_bepinex_update)
+        self._detail.model_priority_requested.connect(self._on_model_priority)
+        self._detail.ue4ss_install_requested.connect(self._on_ue4ss_install)
+        self._detail.ue4ss_update_requested.connect(self._on_ue4ss_update)
+        self._detail.ue4ss_import_missing_requested.connect(self._on_ue4ss_import_missing)
+        self._detail.ue4ss_uninstall_requested.connect(self._on_ue4ss_uninstall)
         self._detail.bepinex_import_requested.connect(self._on_bepinex_import)
         self._detail.bepinex_import_from_requested.connect(self._on_bepinex_import_from)
         self._detail.bepinex_copy_dll_requested.connect(self._on_bepinex_copy_dll)
         self._detail.bepinex_collect_requested.connect(self._on_bepinex_collect)
         self._detail.bepinex_collect_from_requested.connect(self._on_bepinex_collect_from)
         self._detail.proxy_server_toggle_requested.connect(self._on_proxy_server_toggle)
+        self._detail.unreal_hook_install_requested.connect(self._on_unreal_hook_install)
+        self._detail.unreal_hook_uninstall_requested.connect(self._on_unreal_hook_uninstall)
+        self._detail.unreal_hook_launch_requested.connect(self._on_unreal_hook_launch)
+        self._detail.unreal_hook_open_translate_requested.connect(self._on_unreal_hook_open_translate)
+        self._detail.unreal_hook_update_translate_requested.connect(self._on_unreal_hook_update_translate)
+        self._detail.unreal_hook_priority_requested.connect(self._on_model_priority)  # reuse Flotsam dialog
         self._dl_worker: DownloadWorker | None = None
 
         self._log_panel = LogPanel()
@@ -1550,6 +2514,11 @@ class GamesPage(QWidget):
                 pass
 
         self._detail.load(game_id, cfg, self._cache)
+
+    def select_game(self, game_id: str):
+        """Public API — يُستخدَم من app.py عند الانتقال من home بزر 'إدارة اللعبة'."""
+        if game_id:
+            self._select_game(game_id)
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
@@ -1755,6 +2724,183 @@ class GamesPage(QWidget):
             QMessageBox.warning(self, "خطأ في التحديث", msg)
         self.refresh()
 
+    # ── UE4SS Arabic Translator handlers ───────────────────────────────────
+
+    def _on_ue4ss_install(self, game_id: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        game_path = cfg.get("game_path", "")
+        if not game_path:
+            QMessageBox.warning(self, "خطأ", "مسار اللعبة غير محدد")
+            return
+        from games.ue4ss_mod import UE4SSMod
+        mod = UE4SSMod()
+        # 1) ثبّت UE4SS
+        ok1, log1 = mod.install_ue4ss(game_path, game_id)
+        # 2) ثبّت المود
+        ok2, log2 = mod.install_translator_mod(game_path, game_id)
+        # 3) صدّر القاموس فوراً من الكاش (إن وُجد)
+        ok3 = False
+        msg3 = ""
+        count3 = 0
+        try:
+            ok3, msg3, count3 = mod.export_dict(
+                game_path, game_id, self._cache,
+                game_name=cfg.get("name", game_id),
+            )
+        except Exception as e:
+            msg3 = str(e)
+
+        all_log = log1 + log2
+        if ok3:
+            all_log.append(f"✓ {msg3}")
+        elif msg3:
+            all_log.append(f"⚠ تصدير القاموس: {msg3}")
+        msg = "\n".join(all_log)
+        if ok1 and ok2:
+            QMessageBox.information(self, "✅  تم التثبيت",
+                f"تم تثبيت UE4SS + المود بنجاح.\n\n{msg}\n\n"
+                "شغّل اللعبة لاختبار الترجمة.")
+            self.status_message.emit(f"✓ UE4SS مُثبَّت + {count3:,} ترجمة")
+        else:
+            QMessageBox.critical(self, "❌  فشل التثبيت", msg)
+        self.refresh()
+
+    def _on_ue4ss_update(self, game_id: str):
+        """يُصدِّر القاموس من الكاش لـ UE4SS dict/translations.txt."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        game_path = cfg.get("game_path", "")
+        if not game_path or not self._cache:
+            QMessageBox.warning(self, "خطأ", "مسار اللعبة أو الكاش غير متاح")
+            return
+        from games.ue4ss_mod import UE4SSMod
+        from PySide6.QtWidgets import QInputDialog
+        mod = UE4SSMod()
+        game_name = cfg.get("name", game_id)
+
+        # حوار اختيار النموذج (نفس نمط BepInEx)
+        model_filter = ""
+        try:
+            models = self._cache.get_models_for_game(game_name)
+        except Exception:
+            models = []
+        if models:
+            total_all = self._cache.count_entries(game_name)
+            items = [f"🌐 كل النماذج ({total_all:,} ترجمة)"]
+            item_to_model = {items[0]: ""}
+            for m in models:
+                try:
+                    cnt = self._cache.count_by_model(game_name, m)
+                except Exception:
+                    cnt = 0
+                label = f"🤖 {m} ({cnt:,} ترجمة)"
+                items.append(label)
+                item_to_model[label] = m
+            selected, ok_c = QInputDialog.getItem(
+                self, "اختر نموذج",
+                "أيّ نموذج تريد تصدير ترجماته لـ UE4SS dict؟",
+                items, 0, False,
+            )
+            if not ok_c:
+                return
+            model_filter = item_to_model.get(selected, "")
+
+        ok, msg, count = mod.export_dict(
+            game_path, game_id, self._cache,
+            game_name=game_name, model_filter=model_filter,
+        )
+        if ok:
+            QMessageBox.information(self, "✅  تم التصدير", msg)
+            self.status_message.emit(f"✓ {count:,} ترجمة → UE4SS dict")
+        else:
+            QMessageBox.warning(self, "خطأ", msg)
+        self.refresh()
+
+    def _on_ue4ss_import_missing(self, game_id: str):
+        """يقرأ missing.txt + يُضيف النصوص للكاش كـ failed_translations
+        لتعرض في صفحة الكاش ويستطيع المستخدم ترجمتها."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        game_path = cfg.get("game_path", "")
+        game_name = cfg.get("name", game_id)
+        if not game_path or not self._cache:
+            QMessageBox.warning(self, "خطأ", "مسار اللعبة أو الكاش غير متاح")
+            return
+        from games.ue4ss_mod import UE4SSMod
+        mod = UE4SSMod()
+        missing = mod.read_missing(game_path, game_id)
+        if not missing:
+            QMessageBox.information(self, "لا يوجد",
+                "ملف missing.txt فارغ — لا توجد نصوص جديدة بانتظار الترجمة.")
+            return
+        # أضِف للكاش كـ failed (سبب: pending_ue4ss)
+        added = 0
+        for text in missing:
+            try:
+                # mark_failed للسماح للمستخدم باستعراضها وترجمتها
+                self._cache.mark_failed(
+                    game_name, text, "pending_ue4ss", model_used=""
+                )
+                added += 1
+            except Exception:
+                pass
+        # امسح missing.txt
+        mod.clear_missing(game_path, game_id)
+        QMessageBox.information(self, "✅  استيراد",
+            f"تم استيراد {added} نص جديد إلى الكاش.\n\n"
+            "اذهب إلى صفحة الكاش → عرض «فاشل» لرؤيتها وترجمتها.\n"
+            "ثم اضغط «تحديث القاموس» لإعادة تصدير translations.txt.")
+        self.status_message.emit(f"📥 {added} نص جديد من UE4SS")
+        self.refresh()
+
+    def _on_ue4ss_uninstall(self, game_id: str):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        game_path = cfg.get("game_path", "")
+        if not game_path:
+            return
+        reply = QMessageBox.question(
+            self, "تأكيد الإلغاء",
+            "ستُحذَف UE4SS + UE4ArabicTranslator من اللعبة.\n"
+            "translations.txt و missing.txt سيُحذَفان أيضاً.\n\n"
+            "متابعة؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        from games.ue4ss_mod import UE4SSMod
+        mod = UE4SSMod()
+        ok1, log1 = mod.uninstall_mod(game_path, game_id)
+        ok2, log2 = mod.uninstall_ue4ss(game_path, game_id)
+        msg = "\n".join(log1 + log2)
+        if ok1 and ok2:
+            QMessageBox.information(self, "تم الإلغاء", msg)
+            self.status_message.emit("🗑 UE4SS أُلغي تثبيته")
+        else:
+            QMessageBox.warning(self, "خطأ", msg)
+        self.refresh()
+
+    def _on_model_priority(self, game_id: str):
+        """يفتح حوار ترتيب أولوية المودلات للعبة (drag-drop)."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        game_name = cfg.get("name", game_id)
+        if not self._cache:
+            QMessageBox.warning(self, "خطأ", "الكاش غير متاح.")
+            return
+        from gui.qt.dialogs.model_priority_dialog import ModelPriorityDialog
+        # نخزّن مرجعاً لتجنّب جمع القمامة (الحوار غير modal)
+        if not hasattr(self, "_open_priority_dialogs"):
+            self._open_priority_dialogs = []
+        dlg = ModelPriorityDialog(game_name, self._cache, self)
+        dlg.saved.connect(lambda: self.status_message.emit(
+            "🎯  حُفظت أولوية المودلات — تُطبَّق عند الدمج الهرمي"
+        ))
+        dlg.finished.connect(
+            lambda _r, d=dlg: self._open_priority_dialogs.remove(d)
+            if d in self._open_priority_dialogs else None
+        )
+        self._open_priority_dialogs.append(dlg)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
     def _on_bepinex_import(self, game_id: str, game_path: str):
         cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
         from games.bepinex_mod import BepInExMod
@@ -1847,34 +2993,16 @@ class GamesPage(QWidget):
             # عبر زر "🔄 تحديث الترجمات" في صفحة تفاصيل اللعبة فقط
         else:
             game_cfg = self._game_manager.get_game(game_id) if self._game_manager else {}
-            # حوار تأكيد وضع التاقات قبل بدء الخادم
-            from gui.qt.dialogs.tag_mode_confirm_dialog import TagModeConfirmDialog
-            current_mode = (game_cfg or {}).get("tag_mode", "bulletproof")
-            confirm = TagModeConfirmDialog(
-                current_mode=current_mode,
-                game_name=game_name or game_id,
-                cache=self._cache,
-                parent=self,
-            )
-            if confirm.exec() != QDialog.Accepted:
-                self.status_message.emit("⏹  أُلغي تشغيل الخادم")
-                return
-            chosen = confirm.selected_mode
-            chosen_cache = confirm.selected_cache_filter
-            # طبّق الوضع وفلتر الكاش في cfg قبل start
+            # tag_mode يُقرأ من config.json (الفلتر العام في صفحة AI Models)
+            from engine.filtered_translator import get_global_tag_mode
+            chosen = get_global_tag_mode()
             game_cfg = dict(game_cfg or {})
             game_cfg["tag_mode"] = chosen
-            game_cfg["cache_model_filter"] = chosen_cache
             ok, msg  = proxy.start(game_id, cfg=game_cfg)
             self.status_message.emit(msg)
             if ok:
-                if chosen != current_mode:
-                    self.status_message.emit(f"🏷  وضع التاقات الآن: {chosen}")
-                if chosen_cache == "none":
-                    self.status_message.emit("⚠  وضع الكاش: بدون — كل النصوص ستُترجَم من جديد")
-                elif chosen_cache:
-                    self.status_message.emit(f"💾  مصدر الكاش: {chosen_cache} فقط")
-            if not ok:
+                self.status_message.emit(f"🏷  فلتر التاقات: {chosen} (من إعدادات Models)")
+            else:
                 QMessageBox.warning(self, "خطأ في الخادم", msg)
 
         # تحديث البطاقة لتعكس الحالة الجديدة
@@ -1905,6 +3033,228 @@ class GamesPage(QWidget):
         win.show()
         win.raise_()
         win.activateWindow()
+
+    # ======================= UNREAL HOOK handlers =======================
+
+    def _on_unreal_hook_install(self, game_id: str, game_name: str):
+        """Install hook DLLs to the game's Win64 folder."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.unreal_hook_mod import UnrealHookMod
+        mod = UnrealHookMod()
+        ok, msg = mod.install(cfg)
+        icon = QMessageBox.Information if ok else QMessageBox.Warning
+        QMessageBox(icon, "تثبيت Unreal Hook", msg, parent=self).exec()
+        if ok:
+            self.status_message.emit(f"✓ Unreal Hook مُثبَّت على {game_name}")
+            self.refresh_game(game_id)
+
+    def _on_unreal_hook_uninstall(self, game_id: str, game_name: str):
+        """Remove hook DLLs from game folder."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        confirm = QMessageBox.question(
+            self, "إلغاء تثبيت Unreal Hook",
+            f"هل أنت متأكّد من إزالة Unreal Hook من {game_name}?\n\n"
+            "سيُحذف الـ DLLs لكن مجلد Translate/ ستبقى ترجماته.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        from games.unreal_hook_mod import UnrealHookMod
+        mod = UnrealHookMod()
+        ok, msg = mod.uninstall(cfg)
+        QMessageBox.information(self, "إلغاء تثبيت Unreal Hook", msg)
+        if ok:
+            self.status_message.emit(f"✓ Unreal Hook أُزيل من {game_name}")
+            self.refresh_game(game_id)
+
+    def _on_unreal_hook_launch(self, game_id: str, game_name: str):
+        """Launch game with Unreal Hook pre-injected (uses launch_unreal_game.py).
+        tag_mode يُقرأ من الفلتر العام في صفحة AI Models (config.json).
+        """
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+
+        # 1. شغّل البروكسي (بدون حوار — الفلتر العام يُطبَّق تلقائياً)
+        proxy = getattr(self, "_proxy_server", None)
+        proxy_running_for_us = (
+            proxy is not None and proxy.is_running and proxy.game_name == game_id
+        )
+        if not proxy_running_for_us:
+            from engine.filtered_translator import get_global_tag_mode
+            chosen_mode = get_global_tag_mode()
+            try:
+                if proxy is None:
+                    from engine.proxy_server import ProxyServer
+                    self._proxy_server = ProxyServer(
+                        getattr(self, "_engine", None),
+                        getattr(self, "_cache", None),
+                    )
+                    proxy = self._proxy_server
+                proxy_cfg = {
+                    "apply_bidi": False,                  # Unreal hook لا يحتاج bidi
+                    "text_reorder_char_limit": 0,
+                    "tag_mode": chosen_mode,
+                    "translate_timeout": cfg.get("translate_timeout", 0),
+                }
+                ok, msg = proxy.start(game_id, proxy_cfg)
+                if not ok:
+                    QMessageBox.warning(self, "خطأ", f"فشل تشغيل البروكسي:\n{msg}")
+                    return
+                self.status_message.emit(f"✓ بروكسي شغّال لـ {game_name} (الفلتر: {chosen_mode})")
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ في البروكسي", str(e))
+                return
+
+        # 2. Launch external scripts (each in its own console window)
+        # Use CREATE_NEW_CONSOLE flag directly — no cmd shell needed
+        import subprocess
+        proj_root = Path(__file__).resolve().parents[3]
+        # تحديد Python interpreter — نختار python.exe (console) بدل pythonw.exe
+        # حتى لو التطبيق يستخدم pythonw، نريد console للنوافذ الجديدة
+        py_candidates = [
+            sys.executable,                              # نفس اللي شغّال
+            "C:\\Python314\\python.exe",                 # المسار المتوقّع
+            "C:\\Python313\\python.exe",
+            "C:\\Python312\\python.exe",
+        ]
+        py = None
+        for candidate in py_candidates:
+            if candidate and Path(candidate).exists() and "pythonw" not in candidate.lower():
+                py = candidate
+                break
+        if not py:
+            # fallback: ابحث في PATH
+            import shutil
+            py = shutil.which("python") or shutil.which("python3")
+        if not py:
+            QMessageBox.critical(
+                self, "Python غير موجود",
+                "لم أجد python.exe (console version).\n\n"
+                "تأكّد من تثبيت Python 3.12+ على المسار C:\\Python314\\ أو ضمن PATH."
+            )
+            return
+
+        CREATE_NEW_CONSOLE = 0x00000010  # Windows API flag
+
+        watcher_script  = proj_root / "tools" / "unreal_hook_watcher.py"
+        launcher_script = proj_root / "tools" / "launch_unreal_game.py"
+
+        # تأكّد من وجود السكريبتات
+        for script in (watcher_script, launcher_script):
+            if not script.exists():
+                QMessageBox.critical(
+                    self, "ملف ناقص",
+                    f"السكريبت غير موجود:\n{script}\n\nأعد فحص التطبيق."
+                )
+                return
+
+        # نقرأ translate_dir من config (مهم! وإلا الـ watcher يستخدم Manor Lords default)
+        hook_cfg = cfg.get("unreal_hook", {})
+        translate_dir = hook_cfg.get("translate_dir", "")
+        if not translate_dir:
+            # fallback: نحاول نشتقّه من win64_dir
+            win64_dir = hook_cfg.get("win64_dir", "")
+            if win64_dir:
+                translate_dir = str(Path(win64_dir) / "Translate")
+        if not translate_dir:
+            QMessageBox.critical(
+                self, "إعداد ناقص",
+                f"لم أجد 'unreal_hook.translate_dir' في config اللعبة:\n{game_name}\n\n"
+                "افحص games/configs/<اسم>.json"
+            )
+            return
+
+        try:
+            # Watcher in new console — نمرّر --translate-dir للعبة المحدّدة
+            self.status_message.emit(f"▶ تشغيل Watcher: {watcher_script.name}")
+            wp = subprocess.Popen(
+                [py, str(watcher_script), "--translate-dir", translate_dir],
+                cwd=str(proj_root),
+                creationflags=CREATE_NEW_CONSOLE,
+            )
+            import time
+            time.sleep(1)
+
+            # Launcher in new console — يحتاج --game arg
+            self.status_message.emit(f"▶ تشغيل Launcher: {launcher_script.name} --game {game_name}")
+            lp = subprocess.Popen(
+                [py, str(launcher_script), "--game", game_name],
+                cwd=str(proj_root),
+                creationflags=CREATE_NEW_CONSOLE,
+            )
+
+            self.status_message.emit(
+                f"▶ {game_name}: watcher PID={wp.pid} | launcher PID={lp.pid}"
+            )
+            QMessageBox.information(
+                self, "تم بدء التشغيل",
+                f"تم بدء تشغيل {game_name}.\n\n"
+                "ستفتح نافذتان:\n"
+                f"  • Watcher (PID {wp.pid}): يترجم النصوص الجديدة\n"
+                f"  • Launcher (PID {lp.pid}): يشغّل اللعبة مع injection\n\n"
+                f"مجلد Translate:\n  {translate_dir}\n\n"
+                f"Python: {py}\n\n"
+                "تأكّد Steam شغّال في الخلفية.\n"
+                "لو ما اشتغلت اللعبة: ابحث في النوافذ عن رسائل الأخطاء."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self, "فشل التشغيل",
+                f"فشل التشغيل:\n{type(e).__name__}: {e}\n\n"
+                f"Python:   {py}\n"
+                f"Watcher:  {watcher_script}\n"
+                f"Launcher: {launcher_script}"
+            )
+
+    def _on_unreal_hook_open_translate(self, game_id: str, game_name: str):
+        """Open the Translate/ folder in Explorer."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.unreal_hook_mod import UnrealHookMod
+        mod = UnrealHookMod()
+        translate_dir = mod.get_translate_dir(cfg)
+        if not translate_dir or not translate_dir.exists():
+            QMessageBox.warning(self, "خطأ", f"مجلد Translate غير موجود:\n{translate_dir}")
+            return
+        try:
+            os.startfile(str(translate_dir))
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"فشل فتح المجلد: {e}")
+
+    def _on_unreal_hook_update_translate(self, game_id: str, game_name: str, model_filter: str):
+        """Regenerate all .subtitle.txt files from cache using chosen model filter."""
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.unreal_hook_mod import UnrealHookMod
+        mod = UnrealHookMod()
+
+        if not self._cache:
+            QMessageBox.warning(self, "خطأ", "الكاش غير متاح")
+            return
+
+        # تأكيد قبل الكتابة (سيستبدل ملفات موجودة)
+        filter_desc = f"المودل: {model_filter}" if model_filter else "دمج هرمي (best of all)"
+        confirm = QMessageBox.question(
+            self, "تحديث مجلد Translate",
+            f"سيُعاد إنشاء كل ملفات .subtitle.txt في مجلد Translate من الكاش.\n\n"
+            f"الفلتر: {filter_desc}\n\n"
+            "هذا سيستبدل أي ترجمات حالية (لكن .en.txt تبقى).\n\nمتابعة؟",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            ok, msg, stats = mod.export_translate_folder(
+                cfg, self._cache, game_name, model_filter=model_filter, apply_reshape=True
+            )
+            icon = QMessageBox.Information if ok else QMessageBox.Warning
+            QMessageBox(icon, "تحديث Translate", msg, parent=self).exec()
+            if ok:
+                written = stats.get("written", 0)
+                self.status_message.emit(
+                    f"🔄  {game_name}: تم تحديث {written:,} ملف ترجمة"
+                )
+                self.refresh_game(game_id)
+        except Exception as e:
+            QMessageBox.critical(self, "خطأ", f"فشل تحديث Translate:\n{e}")
 
     def _on_locres_translate(self, game_id: str, folder: str):
         cfg       = self._game_manager.get_game(game_id) if self._game_manager else {}

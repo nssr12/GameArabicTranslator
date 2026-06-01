@@ -5,14 +5,20 @@ gui/qt/app.py  —  النافذة الرئيسية لـ PySide6
 from __future__ import annotations
 import json
 import os
+import subprocess
 import sys
+import tempfile
+import zipfile
+
+_CREATE_NO_WINDOW = 0x08000000   # win32 flag — suppresses console window entirely
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QStackedWidget,
-    QLabel, QPushButton, QVBoxLayout, QFrame
+    QLabel, QPushButton, QVBoxLayout, QFrame, QProgressBar, QMessageBox,
+    QToolButton, QApplication
 )
 from PySide6.QtCore  import QThread, Signal, Qt
-from PySide6.QtGui   import QFont, QDesktopServices
+from PySide6.QtGui   import QFont, QDesktopServices, QCursor
 from PySide6.QtCore  import QUrl
 
 from gui.qt.theme           import theme
@@ -70,19 +76,78 @@ class BackendLoader(QThread):
             print(f"[BackendLoader registry] {e}")
 
 
+# ── Update downloader ─────────────────────────────────────────────────────────
+
+class UpdateDownloader(QThread):
+    progress = Signal(int)        # 0-100
+    done     = Signal(bool, str)  # success, extracted_dir_or_error
+
+    def __init__(self, url: str):
+        super().__init__()
+        self._url = url
+
+    def run(self):
+        try:
+            import ssl, urllib.request
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode    = ssl.CERT_NONE
+
+            tmp_dir  = tempfile.mkdtemp(prefix="GAT_update_")
+            zip_path = os.path.join(tmp_dir, "update.zip")
+
+            req = urllib.request.Request(
+                self._url,
+                headers={"User-Agent": "GameArabicTranslator/1.0"},
+            )
+            with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
+                total      = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(zip_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            self.progress.emit(int(downloaded * 100 / total))
+
+            self.progress.emit(100)
+
+            # Extract ZIP
+            extract_dir = os.path.join(tmp_dir, "extracted")
+            with zipfile.ZipFile(zip_path, "r") as z:
+                z.extractall(extract_dir)
+
+            # ZIP contains GameArabicTranslator/ subfolder
+            inner = os.path.join(extract_dir, "GameArabicTranslator")
+            if not os.path.isdir(inner):
+                inner = extract_dir   # fallback: files directly in zip root
+
+            self.done.emit(True, inner)
+        except Exception as e:
+            self.done.emit(False, str(e))
+
+
 # ── Main window ───────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Game Arabic Translator  v2.0  🎮")
+        try:
+            from games.translation_registry import APP_VERSION as _ver
+        except Exception:
+            _ver = "?"
+        self.setWindowTitle(f"Game Arabic Translator  v{_ver}  🎮")
         self.setMinimumSize(1100, 660)
         self.resize(1350, 820)
 
         self._engine       = None
         self._cache        = None
         self._game_manager = None
+        self._proxy_server = None
         self._config:      dict = {}
         self._config_path: str  = ""
         self._pages: dict[str, QWidget] = {}
@@ -108,18 +173,36 @@ class MainWindow(QMainWindow):
         self._update_banner.setVisible(False)
         bl = QHBoxLayout(self._update_banner)
         bl.setContentsMargins(16, 6, 16, 6)
+        bl.setSpacing(8)
+
         self._update_lbl = QLabel()
         self._update_lbl.setStyleSheet("color: #c8ffc8; font-size: 13px;")
         self._update_lbl.setLayoutDirection(Qt.RightToLeft)
         bl.addWidget(self._update_lbl, 1)
-        self._update_btn = QPushButton("⬇️  تحميل التحديث")
+
+        # Progress bar (hidden while idle)
+        self._update_progress = QProgressBar()
+        self._update_progress.setRange(0, 100)
+        self._update_progress.setFixedWidth(180)
+        self._update_progress.setFixedHeight(18)
+        self._update_progress.setVisible(False)
+        self._update_progress.setStyleSheet(
+            "QProgressBar { border:1px solid #4a9e4a; border-radius:3px;"
+            " background:#1a3d1a; color:white; font-size:11px; text-align:center; }"
+            "QProgressBar::chunk { background:#6fcf6f; border-radius:2px; }"
+        )
+        bl.addWidget(self._update_progress)
+
+        self._update_btn = QPushButton("⬇️  تثبيت التحديث")
         self._update_btn.setStyleSheet(
             "QPushButton { background:#4a9e4a; color:white; border-radius:4px;"
             " padding:3px 12px; font-size:12px; }"
             "QPushButton:hover { background:#5abf5a; }"
+            "QPushButton:disabled { background:#2d5a2d; color:#7ab07a; }"
         )
-        self._update_btn.clicked.connect(self._open_update_url)
+        self._update_btn.clicked.connect(self._start_update)
         bl.addWidget(self._update_btn)
+
         dismiss = QPushButton("✕")
         dismiss.setFixedWidth(28)
         dismiss.setStyleSheet(
@@ -127,22 +210,35 @@ class MainWindow(QMainWindow):
         )
         dismiss.clicked.connect(lambda: self._update_banner.setVisible(False))
         bl.addWidget(dismiss)
+
         cl.addWidget(self._update_banner)
 
         # ── Main row: sidebar + page stack ───────────────────────────────────
-        row = QWidget()
-        rl  = QHBoxLayout(row)
+        self._row = QWidget()
+        rl  = QHBoxLayout(self._row)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(0)
-        cl.addWidget(row, 1)
+        cl.addWidget(self._row, 1)
 
         self._sidebar = Sidebar()
         self._sidebar.page_requested.connect(self._navigate)
         self._sidebar.admin_requested.connect(self._open_admin)
+        self._sidebar.toggle_requested.connect(self._toggle_sidebar)
         rl.addWidget(self._sidebar)
 
         self._stack = QStackedWidget()
         rl.addWidget(self._stack, 1)
+
+        # Floating ☰ button — visible only when sidebar is hidden
+        self._sidebar_show_btn = QToolButton(self._row)
+        self._sidebar_show_btn.setText("☰")
+        self._sidebar_show_btn.setObjectName("sidebar_toggle_btn")
+        self._sidebar_show_btn.setFixedSize(32, 32)
+        self._sidebar_show_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._sidebar_show_btn.setToolTip("إظهار القائمة")
+        self._sidebar_show_btn.clicked.connect(self._toggle_sidebar)
+        self._sidebar_show_btn.setVisible(False)
+        self._sidebar_show_btn.raise_()
 
         self.statusBar().showMessage("جاري تحميل المحرك...")
         self._register_pages()
@@ -157,12 +253,14 @@ class MainWindow(QMainWindow):
 
         home = HomePage()
         home.navigate_requested.connect(self._navigate)
+        home.manage_game_requested.connect(self._manage_game)
         home.status_message.connect(self.statusBar().showMessage)
         self._pages["home"] = home
         self._stack.addWidget(home)
 
         settings = SettingsPage()
         settings.status_message.connect(self.statusBar().showMessage)
+        settings.theme_changed.connect(self._on_theme_changed)
         self._pages["settings"] = settings
         self._stack.addWidget(settings)
 
@@ -184,6 +282,9 @@ class MainWindow(QMainWindow):
         from gui.qt.pages.games import GamesPage
         games_page = GamesPage()
         games_page.status_message.connect(self.statusBar().showMessage)
+        games_page.games_changed.connect(
+            lambda: self._pages["home"].refresh() if "home" in self._pages else None
+        )
         self._pages["games"] = games_page
         self._stack.addWidget(games_page)
 
@@ -195,6 +296,30 @@ class MainWindow(QMainWindow):
         self._pages["translate"] = translate_page
         self._stack.addWidget(translate_page)
 
+        # ── صفحة UnrealPak ──────────────────────────────────────────────────
+        from gui.qt.pages.unrealpak import UnrealPakPage
+        unrealpak_page = UnrealPakPage()
+        unrealpak_page.status_message.connect(self.statusBar().showMessage)
+        self._pages["unrealpak"] = unrealpak_page
+        self._stack.addWidget(unrealpak_page)
+
+        # ── صفحة ترجمة I2Languages JSON ─────────────────────────────────────
+        from gui.qt.pages.i2_translate import I2TranslatePage
+        i2_page = I2TranslatePage()
+        i2_page.status_message.connect(self.statusBar().showMessage)
+        self._pages["i2_translate"] = i2_page
+        self._stack.addWidget(i2_page)
+
+    # ── Theme refresh ─────────────────────────────────────────────────────────
+
+    def _on_theme_changed(self):
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(theme.qss())
+        for page in self._pages.values():
+            if hasattr(page, "refresh_theme"):
+                page.refresh_theme()
+
     # ── Navigation ────────────────────────────────────────────────────────────
 
     def _navigate(self, page_id: str):
@@ -202,6 +327,13 @@ class MainWindow(QMainWindow):
             return
         self._stack.setCurrentWidget(self._pages[page_id])
         self._sidebar.set_active_page(page_id)
+
+    def _manage_game(self, game_id: str):
+        """انتقل لصفحة الألعاب واختر اللعبة المحدَّدة (من زر 'إدارة اللعبة')."""
+        self._navigate("games")
+        games_page = self._pages.get("games")
+        if games_page and hasattr(games_page, "select_game") and game_id:
+            games_page.select_game(game_id)
 
     # ── Backend init ──────────────────────────────────────────────────────────
 
@@ -214,13 +346,21 @@ class MainWindow(QMainWindow):
 
     def _open_admin(self):
         from gui.qt.dialogs.admin_panel import open_admin
-        open_admin(
+        panel = open_admin(
             game_manager=self._game_manager,
             cache=self._cache,
             config=self._config,
             config_path=self._config_path,
             parent=self,
         )
+        if panel is None:
+            return
+        # Keep reference so GC doesn't collect it
+        self._admin_panel = panel
+        # Refresh games page whenever features are saved
+        games_page = self._pages.get("games")
+        if games_page:
+            panel.features_saved.connect(games_page.refresh_game)
 
     def _on_backend_ready(self, engine, cache, game_manager):
         self._engine       = engine
@@ -257,9 +397,21 @@ class MainWindow(QMainWindow):
         if games_page:
             games_page.set_backend(engine, cache, game_manager)
 
+        # ── Translation proxy server ──────────────────────────────────────────
+        from engine.proxy_server import ProxyServer
+        self._proxy_server = ProxyServer(engine, cache)
+        if games_page:
+            games_page.set_proxy_server(self._proxy_server)
+        if home:
+            home.set_proxy_server(self._proxy_server)
+
         translate_page: "TranslatePage" = self._pages.get("translate")
         if translate_page:
             translate_page.set_backend(engine, cache)
+
+        i2_page = self._pages.get("i2_translate")
+        if i2_page and hasattr(i2_page, "set_backend"):
+            i2_page.set_backend(engine, cache, game_manager)
 
         # ── Sidebar model chip ────────────────────────────────────────────────
         if engine:
@@ -278,22 +430,129 @@ class MainWindow(QMainWindow):
 
         # Show update banner if a newer app version exists
         if update_info:
-            ver = update_info.get("version", "")
+            ver   = update_info.get("version", "")
             notes = update_info.get("release_notes", "")
             self._update_url = update_info.get("download_url", "")
             self._update_lbl.setText(
-                f"🚀  يتوفر إصدار جديد: v{ver}  —  {notes}"
+                f"🚀  يتوفر إصدار جديد: v{ver}  —  انقر لتثبيت التحديث"
             )
             self._update_banner.setVisible(True)
 
-    def _open_update_url(self):
-        if self._update_url:
+    # ── In-app update ─────────────────────────────────────────────────────────
+
+    def _start_update(self):
+        if not self._update_url:
+            return
+
+        # In dev (non-frozen) mode fall back to browser — no exe to replace
+        if not getattr(sys, "frozen", False):
             QDesktopServices.openUrl(QUrl(self._update_url))
+            return
+
+        self._update_btn.setEnabled(False)
+        self._update_btn.setText("جارٍ التحميل…")
+        self._update_progress.setValue(0)
+        self._update_progress.setVisible(True)
+        self.statusBar().showMessage("⬇️  جارٍ تحميل التحديث…")
+
+        self._downloader = UpdateDownloader(self._update_url)
+        self._downloader.progress.connect(self._on_update_progress)
+        self._downloader.done.connect(self._on_update_done)
+        self._downloader.start()
+
+    def _on_update_progress(self, pct: int):
+        self._update_progress.setValue(pct)
+        self._update_btn.setText(f"جارٍ التحميل… {pct}%")
+        self.statusBar().showMessage(f"⬇️  تحميل التحديث: {pct}%")
+
+    def _on_update_done(self, success: bool, path_or_error: str):
+        if not success:
+            self._update_progress.setVisible(False)
+            self._update_btn.setEnabled(True)
+            self._update_btn.setText("⬇️  تثبيت التحديث")
+            self.statusBar().showMessage(f"❌  فشل التحميل: {path_or_error}")
+            return
+
+        install_dir = os.path.dirname(sys.executable)
+        exe_name    = os.path.basename(sys.executable)   # GameArabicTranslator.exe
+        exe_path    = sys.executable
+        src         = path_or_error  # native Windows path from tempfile/os.path
+
+        # Strategy: rename the running exe (Windows allows this on a live process),
+        # then copy the new exe in its place, then start it.
+        # robocopy handles all other files first with /XF to skip the exe.
+        bat = "\r\n".join([
+            "@echo off",
+            # Give the process ~3 s to fully exit (os._exit fires after 300 ms)
+            "timeout /t 3 /nobreak >nul",
+            # Copy everything except the exe (exe is still locked until process dies)
+            f'robocopy "{src}" "{install_dir}" /E /IS /IT /NFL /NDL /NJH /NJS'
+            f' /XF {exe_name} /W:0 /R:1 >nul 2>&1',
+            # Rename the running exe — Windows permits this even while the file is mapped
+            f'ren "{install_dir}\\{exe_name}" "{exe_name}.old"',
+            # Copy the new exe with the original name
+            f'copy /y "{src}\\{exe_name}" "{install_dir}\\{exe_name}" >nul',
+            # Delete the old renamed exe (it's unlocked now that the process died)
+            f'del /f /q "{install_dir}\\{exe_name}.old" 2>nul',
+            # Launch the updated exe
+            f'start "" "{exe_path}"',
+            'del "%~f0"',
+        ])
+
+        bat_path = os.path.join(tempfile.gettempdir(), "gat_update.bat")
+        with open(bat_path, "w", encoding="cp1252") as f:
+            f.write(bat)
+
+        # CREATE_NO_WINDOW suppresses the console entirely (unlike DETACHED_PROCESS).
+        subprocess.Popen(
+            ["cmd", "/c", bat_path],
+            creationflags=_CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        self.statusBar().showMessage("✅  اكتمل التحميل — جارٍ إعادة التشغيل…")
+
+        # os._exit kills the process immediately (no lingering threads).
+        # QTimer gives 300 ms for the status bar to render before dying.
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(300, lambda: os._exit(0))
+
+    # ── Sidebar toggle ────────────────────────────────────────────────────────
+
+    def _toggle_sidebar(self):
+        if self._sidebar.isVisible():
+            self._sidebar.setVisible(False)
+            self._sidebar_show_btn.setVisible(True)
+            self._position_show_btn()
+        else:
+            self._sidebar.setVisible(True)
+            self._sidebar_show_btn.setVisible(False)
+
+    def _position_show_btn(self):
+        btn = self._sidebar_show_btn
+        row = self._row
+        # Sidebar is on the physical right (RTL layout) → button at top-right
+        btn.move(row.width() - btn.width() - 6, 6)
+        btn.raise_()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if hasattr(self, '_sidebar_show_btn') and self._sidebar_show_btn.isVisible():
+            self._position_show_btn()
+
+    # ── Window events ─────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
         tp = self._pages.get("translate")
         if tp and hasattr(tp, "cancel_worker"):
             tp.cancel_worker()
+        i2p = self._pages.get("i2_translate")
+        if i2p and hasattr(i2p, "cancel_worker"):
+            i2p.cancel_worker()
+        if self._proxy_server and self._proxy_server.is_running:
+            self._proxy_server.stop()
         event.accept()
 
     def _on_session_translate(self, count: int):

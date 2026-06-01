@@ -13064,7 +13064,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "جلد الكريساليس"
+                              "Value": "جلد الشرنقة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21786,7 +21786,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "قطعة جزر مقرمشة وغنية بالألياف. وجبة خفيفة مُرضية تستعيد كمية معقولة من {0}. <GlobalColor.Attention>جوع</>."
+                              "Value": "قطعة جزر مقرمشة وغنية بالألياف. وجبة خفيفة مُرضية تستعيد كمية معقولة من <GlobalColor.Attention>الجوع</>."
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",

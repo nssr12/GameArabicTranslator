@@ -3,6 +3,7 @@ Embedded HTTP proxy server — bridges XUnity.AutoTranslator to the translation 
 XUnity sends GET /?text=<english>  →  expects plain-text Arabic back.
 """
 import http.server
+import queue
 import re as _re
 import time
 import urllib.parse
@@ -11,6 +12,8 @@ from collections import deque
 
 from .tag_filter import TieredTagFilter, BulletproofTagFilter
 from .tag_validator import validate_bulletproof_markers, summarize_issues
+from . import skip_patterns
+from . import static_translations
 
 
 def _needs_translation(text: str) -> bool:
@@ -18,8 +21,11 @@ def _needs_translation(text: str) -> bool:
     t = text.strip()
     if len(t) < 3:
         return False
-    # نطلب على الأقل تتابع حرفين لاتينيين أو عربيين — يستبعد "3x4", "+40x40"
-    if not _re.search(r'[a-zA-Z؀-ۿ]{2,}', t):
+    # نطلب على الأقل تتابع 3 أحرف لاتينية أو عربية — يستبعد:
+    #   "3x4", "+40x40"             (لا حروف)
+    #   "+10%", "-20%", "1x", "2K"  (حرفان أو أقل)
+    #   "OK", "No"                  (كلمة قصيرة جداً — تكلفة الترجمة > الفائدة)
+    if not _re.search(r'[a-zA-Z؀-ۿ]{3,}', t):
         return False
     # يحتوي خطوطاً غير إنجليزية (صيني/ياباني/روسي/كوري)
     if _re.search(r'[　-鿿Ѐ-ӿ぀-ヿ가-힯]', t):
@@ -142,10 +148,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                 char_limit=srv._char_limit if srv else 0)
             tag = "📦" if from_cache else ("⏭" if was_unchanged else "🔄")
             print(f"[Proxy] {tag} {text[:40]:40s} => {arabic[:40]}")
-            if srv and srv.log_callback and not was_unchanged:
-                # لا نسجّل النصوص بلا تغيير في الـ log حتى لا تُغرقه
+            # نطبع 🔄 فقط للترجمات الجديدة (AI). الـ cache hits (📦/📖) طُبعت
+            # بالفعل من داخل _translate. النصوص بلا تغيير ما نلوّثها بالـ log.
+            if srv and srv.log_callback and not was_unchanged and not from_cache:
                 try:
-                    srv.log_callback(f"{text[:45]}  ⟶  {arabic[:45]}")
+                    srv.log_callback(f"🔄 {text[:45]}  ⟶  {arabic[:45]}")
                 except Exception:
                     pass
             if srv:
@@ -221,6 +228,22 @@ class ProxyServer:
         self._consecutive_failures = 0
         self.stats_callback  = None   # callable(dict) | None — تُستدعى بعد كل تحديث إحصاءات
 
+        # ── Async background translation infrastructure ───────────────────────
+        # النصوص الطويلة تُجدوَل للخلفية بدل ما تجمّد البروكسي.
+        # الطلب الأولي يستلم النص الإنجليزي فوراً (لا timeout عند العميل)،
+        # ثم AI يكمل في الخلفية ويحفظ في cache. الطلب التالي لنفس النص → cache hit.
+        self._bg_queue: queue.Queue[str] = queue.Queue()
+        self._bg_in_progress: set[str] = set()
+        self._bg_lock = threading.Lock()
+        self._bg_worker: threading.Thread | None = None
+        self._bg_stop_event = threading.Event()
+        # الحد الأقصى لطول النص الذي يُعالَج متزامناً (sync). فوق هذا → async.
+        # 200 حرف = ~30 ث AI كحد أعلى = أقل من XUnity timeout الافتراضي (5 ث... للاتصال).
+        # يمكن تعديله من config.json["proxy"]["async_threshold_chars"]
+        self._async_threshold_chars = 200
+        # الحد الأقصى لحجم الـ queue — يمنع تراكم لانهائي عند الحاجة
+        self._bg_max_queue_size = 500
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     @property
@@ -286,6 +309,25 @@ class ProxyServer:
         _cfg = cfg or {}
         self._apply_bidi  = _cfg.get("apply_bidi", True)
         self._char_limit  = int(_cfg.get("text_reorder_char_limit", 0))
+        game_path = (_cfg.get("game_path") or "").strip()
+
+        # ملاحظة: لا تصدير تلقائي للكاش → translations.txt هنا.
+        # المستخدم يفضّل التحكّم اليدوي عبر زر "تحديث الترجمات" في صفحة اللعبة.
+
+        # حمّل translations.txt اليدوي إن وُجد — مصدر الأولوية على الكاش
+        try:
+            data, path = static_translations.load(game_path)
+            if data:
+                msg = f"📖  حُمّل translations.txt: {len(data):,} ترجمة"
+                if self.log_callback:
+                    self.log_callback(msg)
+                print(f"[Proxy] {msg}")
+            else:
+                # لا تحذير — الملف اختياري
+                static_translations.clear()
+        except Exception as e:
+            print(f"[Proxy] static_translations load error: {e}")
+            static_translations.clear()
         # tag_mode: المفضّل. strip_tags_before_translate: قديم — للتوافق
         tag_mode_cfg = _cfg.get("tag_mode")
         if tag_mode_cfg in ("inline", "strip", "tiered", "bulletproof"):
@@ -308,12 +350,59 @@ class ProxyServer:
         self._game_name = game_name
         _Handler.proxy  = self
 
+        # تجديد engine_lock — طلبات الـ AI القديمة (إن وُجدت من تشغيل سابق) لا تزال
+        # محاصرة على القفل القديم لكن لن يحاصرها أحد. الـ threads الجديدة تستخدم القفل الجديد.
+        # هذا حاسم لإعادة التشغيل بعد timeout طويل: لا ننتظر threads قديمة لتُحرّر القفل.
+        self._engine_lock = threading.Lock()
+
+        # أعد تعيين أعلام فشل تحميل المترجمات — قد تكون مُفعَّلة من جلسة سابقة
+        # (مثلاً Ollama انقطع → _is_loaded=False → _load_failed_session=True بعد محاولة فاشلة).
+        # هذا الإصلاح يضمن أن restart يعمل بعد ConnectionError دون الحاجة لإعادة تشغيل التطبيق.
+        try:
+            if self._engine is not None and hasattr(self._engine, "_translators"):
+                for tr in self._engine._translators.values():
+                    if hasattr(tr, "_load_failed_session"):
+                        tr._load_failed_session = False
+                    # أغلق الـ HTTP session القديم (إن وُجد) — يُجبر OllamaTranslator
+                    # على فتح session جديد عند الطلب التالي، فيتجنّب pipe broken
+                    if hasattr(tr, "_session") and tr._session is not None:
+                        try:
+                            tr._session.close()
+                        except Exception:
+                            pass
+                        tr._session = None
+                        # نُعلِم translator أنه يحتاج إعادة تحميل
+                        if hasattr(tr, "_is_loaded"):
+                            tr._is_loaded = False
+        except Exception:
+            pass
+
+        # تنظيف أي بقايا من تشغيل سابق — حماية من إعادة التشغيل بعد crash
+        # حيث قد يكون _server موجوداً مع socket مرتبط لكن _thread ميت
+        if self._server is not None:
+            try:
+                self._server.shutdown()
+            except Exception:
+                pass
+            try:
+                self._server.server_close()
+            except Exception:
+                pass
+            self._server = None
+        self._thread = None
+
         try:
             # ThreadingHTTPServer: كل طلب في خيط مستقل
             # → cache hits سريعة، لا تنتظر AI calls الطويلة في خيوط أخرى
-            self._server = http.server.ThreadingHTTPServer(("127.0.0.1", self.PORT), _Handler)
-            self._server.daemon_threads = True  # لا تمنع إغلاق التطبيق
+            # allow_reuse_address: يسمح بإعادة استخدام المنفذ فوراً بعد توقف
+            # (يحلّ مشكلة "Address already in use" على Windows في TIME_WAIT)
+            class _ReusableServer(http.server.ThreadingHTTPServer):
+                allow_reuse_address = True
+                daemon_threads = True
+
+            self._server = _ReusableServer(("127.0.0.1", self.PORT), _Handler)
         except OSError as e:
+            self._server = None
             return False, f"تعذّر فتح المنفذ {self.PORT}: {e}"
 
         self._thread = threading.Thread(
@@ -325,17 +414,60 @@ class ProxyServer:
         return True, f"✅  خادم الترجمة يعمل على http://127.0.0.1:{self.PORT}/"
 
     def stop(self) -> str:
-        """Stop the server. Safe to call even when already stopped."""
-        if not self.is_running:
-            return "الخادم لم يكن يعمل"
-        try:
-            self._server.shutdown()
-        except Exception:
-            pass
+        """Stop the server. Safe to call even when already stopped or crashed.
+
+        ⚠ shutdown() البلوكنغ قد يجمّد إذا كان فيه طلب AI طويل جارٍ (90-240 ث).
+        لذا نُطلق shutdown() في thread منفصل وندعه يكمل بالخلفية،
+        ونُغلق socket فوراً ليفرّر المنفذ لإعادة الاستخدام.
+        """
+        was_running = self.is_running
+        old_server = self._server
+        old_thread = self._thread
+
+        # نصفّر المراجع فوراً — لا ننتظر shutdown البطيء
         self._server    = None
         self._thread    = None
         self._game_name = ""
-        return "⛔  توقّف خادم الترجمة الفورية"
+
+        # أوقِف bg worker وامسح الـ queue — الـ thread daemon سيموت من تلقاء نفسه
+        # بعد idle_timeout أو عند رؤية stop_event.
+        self._bg_stop_event.set()
+        try:
+            while not self._bg_queue.empty():
+                self._bg_queue.get_nowait()
+                self._bg_queue.task_done()
+        except (queue.Empty, ValueError):
+            pass
+        with self._bg_lock:
+            self._bg_in_progress.clear()
+
+        # امسح translations.txt المُحمّل (في حال اللعبة التالية مختلفة)
+        try:
+            static_translations.clear()
+        except Exception:
+            pass
+
+        if old_server is not None:
+            # shutdown + close معاً في thread خلفي — لا نُجمّد الواجهة.
+            # نضمن الترتيب الصحيح (shutdown أولاً → serve_forever loop يستيقظ وينهي
+            # ثم close يحرّر الـ socket) لتجنّب OSError في selector.select().
+            # الـ threads الجارية daemon — ستُنهى تلقائياً مع إغلاق التطبيق.
+            def _bg_shutdown(srv=old_server):
+                try:
+                    srv.shutdown()
+                except Exception:
+                    pass
+                try:
+                    srv.server_close()
+                except Exception:
+                    pass
+            t = threading.Thread(target=_bg_shutdown, daemon=True, name="ProxyShutdown")
+            t.start()
+
+            # تحرير المنفذ فوراً لإعادة الاستخدام — _ReusableServer.allow_reuse_address=True
+            # يسمح لـ start جديد بربط نفس المنفذ حتى مع socket قديم مفتوح.
+            # هذا أكثر أماناً من server_close فوراً (الذي يسبب OSError مع selector).
+        return "⛔  توقّف خادم الترجمة الفورية" if was_running else "الخادم لم يكن يعمل"
 
     # ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -498,6 +630,27 @@ class ProxyServer:
             translated = translated.replace(chr(0xE000 + idx), tag)
         return translated
 
+    def _effective_timeout_for(self, text: str) -> float:
+        """يحسب timeout مناسب بناءً على طول النص.
+        نصوص طويلة (شاشات مساعدة، dialog كاملة) تحتاج وقت أطول للترجمة
+        — Ollama يولّد العربية ببطء وقد تتجاوز 60 ثانية على النصوص الكبيرة.
+
+        السلّم:
+          ≤ 500   حرف → الـ base (افتراضي 60ث)
+          ≤ 1500       → base × 1.5
+          ≤ 3000       → base × 2.5
+          > 3000       → base × 4
+        """
+        base = self._timeout if self._timeout > 0 else 60.0
+        length = len(text or "")
+        if length <= 500:
+            return base
+        if length <= 1500:
+            return base * 1.5
+        if length <= 3000:
+            return base * 2.5
+        return base * 4.0
+
     def _translate_with_bulletproof(self, text: str):
         """ترجمة بنظام Bulletproof: علامات ⟦N⟧ + تحقق صارم + cascade fallback.
 
@@ -510,10 +663,19 @@ class ProxyServer:
 
         يُرجع (translated, mode_succeeded) أو (None, modes_tried_csv)
         """
-        # في cascade نُقسّم الوقت على 3 محاولات حتى لا يتجاوز مهلة XUnity
-        # نحفظ التايم آوت الأصلي ونستعيده في finally
+        # في cascade نُقسّم الوقت على 3 محاولات حتى لا يتجاوز مهلة XUnity.
+        # للنصوص الطويلة نسمح لكل محاولة بوقت أطول (Ollama يحتاج وقتاً أكثر للنصوص الكبيرة).
         original_timeout = getattr(self._engine, "_timeout", 60.0)
-        cascade_per_attempt = max(25.0, original_timeout / 3)
+        text_len = len(text) if text else 0
+        if text_len <= 500:
+            min_per_attempt = 25.0   # نصوص UI قصيرة
+        elif text_len <= 1500:
+            min_per_attempt = 45.0   # جمل متوسطة
+        elif text_len <= 3000:
+            min_per_attempt = 75.0   # فقرات
+        else:
+            min_per_attempt = 120.0  # شاشات مساعدة كاملة
+        cascade_per_attempt = max(min_per_attempt, original_timeout / 3)
         try:
             try:
                 self._engine._timeout = cascade_per_attempt
@@ -593,12 +755,140 @@ class ProxyServer:
             return None
         return restored
 
-    def _translate(self, text: str) -> tuple[str | None, bool, bool]:
-        """Cache-first translation. Returns (result, from_cache, was_unchanged).
-        - from_cache=True   → ترجمة فعلية مسترجَعة من الكاش
-        - was_unchanged=True → النص لا يحتاج ترجمة (أُعيد كما هو)، إمّا الآن أو معروف مسبقاً
+    # ── Async background translation ──────────────────────────────────────────
+
+    def _schedule_background_translation(self, text: str) -> bool:
+        """يُجدوِل نصاً للترجمة في الخلفية.
+        يُرجع True لو جُدوِل (أو موجود مسبقاً)، False لو الـ queue مليان.
         """
-        # تطبيق فلتر مصدر الكاش:
+        if not text or not self._engine or not self._game_name:
+            return False
+        with self._bg_lock:
+            if text in self._bg_in_progress:
+                return True   # موجود سلفاً (لا تكرار)
+            if self._bg_queue.qsize() >= self._bg_max_queue_size:
+                return False   # backpressure — رفض
+            self._bg_in_progress.add(text)
+        try:
+            self._bg_queue.put_nowait(text)
+        except queue.Full:
+            with self._bg_lock:
+                self._bg_in_progress.discard(text)
+            return False
+        self._ensure_bg_worker_running()
+        return True
+
+    def _ensure_bg_worker_running(self):
+        """ينشئ thread الـ worker لو لم يكن يعمل."""
+        with self._bg_lock:
+            if self._bg_worker is not None and self._bg_worker.is_alive():
+                return
+            self._bg_stop_event.clear()
+            self._bg_worker = threading.Thread(
+                target=self._bg_worker_loop,
+                daemon=True,
+                name="ProxyBgTranslator",
+            )
+            self._bg_worker.start()
+
+    def _bg_worker_loop(self):
+        """الحلقة الخلفية: تأخذ نصاً، تترجم متزامناً، تحفظ في cache."""
+        idle_timeout = 30.0   # ينام Worker لو مافي عمل لـ 30 ث ثم يخرج (يُحيا عند الطلب)
+        while not self._bg_stop_event.is_set():
+            try:
+                text = self._bg_queue.get(timeout=idle_timeout)
+            except queue.Empty:
+                # خامل لفترة → اخرج، سيُحيا عند طلب جديد
+                return
+            if self._bg_stop_event.is_set():
+                return
+            try:
+                # نستدعي _translate بـ force_sync=True ليتجاوز إعادة الجدولة
+                # الـ AI سيُستدعى مع الـ timeout الديناميكي + cascade fallback،
+                # ويُحفَظ النتيجة تلقائياً في cache أو failed_translations.
+                if self._engine and self._game_name:
+                    self._translate(text, force_sync=True)
+                if self.log_callback:
+                    try:
+                        self.log_callback(
+                            f"✅  ترجم خلفية ({len(text)} حرف): {text[:50]}"
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[BgWorker] error: {e}")
+            finally:
+                with self._bg_lock:
+                    self._bg_in_progress.discard(text)
+                try:
+                    self._bg_queue.task_done()
+                except ValueError:
+                    pass
+
+    def _should_translate_async(self, text: str) -> bool:
+        """يقرّر هل النص يُترجَم متزامناً أم في الخلفية.
+        النصوص الطويلة → async (لا تجميد للعميل).
+        النصوص القصيرة → sync (تجربة فورية).
+        وضع "بدون كاش" → دائماً sync (المستخدم يجرب يدوياً).
+        """
+        if self._cache_model_filter == "none":
+            return False   # المستخدم يجرب — لا async
+        if not text:
+            return False
+        return len(text) >= self._async_threshold_chars
+
+    def _translate(self, text: str, force_sync: bool = False) -> tuple[str | None, bool, bool]:
+        """Translation lookup order:
+          1) translations.txt (المرجع اليدوي عالي الجودة — أولوية مطلقة)
+          2) قائمة المنع (skip_patterns)
+          3) جدول الفشل (is_failed)
+          4) الكاش (SQLite)
+          5) الـ AI (Ollama)
+
+        ملاحظة: عند "بدون كاش" (cache_model_filter == "none") يُتجاوز كل من
+        translations.txt و SQLite cache — كل النصوص تذهب مباشرة لـ AI.
+
+        Returns (result, from_cache, was_unchanged).
+        - from_cache=True   → ترجمة فعلية مسترجَعة (translations.txt أو SQLite)
+        - was_unchanged=True → النص لا يحتاج ترجمة (أُعيد كما هو)
+        """
+        no_cache_mode = (self._cache_model_filter == "none")
+
+        # 1) translations.txt — المصدر اليدوي اليدوي. لو وُجد، يُعتمد فوراً بلا
+        #    استدعاء AI ولا فحص كاش. يُعدّ "from_cache=True" لأن الترجمة جاهزة.
+        #    لكن في وضع "بدون كاش" نتخطّاه أيضاً (ترجمة من الصفر بالكامل).
+        if not no_cache_mode:
+            try:
+                static_ar = static_translations.lookup(text)
+            except Exception:
+                static_ar = None
+            if static_ar:
+                if self.log_callback:
+                    self.log_callback(f"📖  يدوي: {text[:40]}  ⟶  {static_ar[:40]}")
+                return static_ar, True, False
+
+        # 2) قائمة المنع (skip_patterns): نصوص مطابقة لا تُرسل للمحرّك أصلاً
+        # — توفير موارد + تصنيف "بدون تغيير" بدل فشل (مثل أسماء الخطوط Nexa, *SDF)
+        try:
+            matched_pat = skip_patterns.matches(text)
+        except Exception:
+            matched_pat = None
+        if matched_pat:
+            if self.log_callback:
+                self.log_callback(f"🚫  مُمنَع [{matched_pat}]: {text[:50]}")
+            return text, False, True
+
+        # فحص جدول الفشل — يُتخطّى في وضع "بدون كاش" لإعادة محاولة كل شيء
+        if self._cache and self._game_name and not no_cache_mode:
+            try:
+                if self._cache.is_failed(self._game_name, text):
+                    if self.log_callback:
+                        self.log_callback(f"⏭  معروف فاشل، تخطّي: {text[:50]}")
+                    return text, False, True
+            except Exception:
+                pass
+
+        # تطبيق فلتر مصدر الكاش (للترجمات الناجحة فقط):
         #   "none" → لا تستخدم الكاش، اذهب مباشرة للـ AI
         #   "اسم"  → فقط ترجمات هذا النموذج تُسترجَع
         #   ""    → كل النماذج (افتراضي)
@@ -609,13 +899,36 @@ class ProxyServer:
             else:
                 cached = self._cache.get(self._game_name, text)
             if cached:
+                # طبع 📦 من هنا حتى الفلتر يصنّف الـ SQLite cache hits ك "كاش"
+                # (الـ HTTP handler يتخطّى السطر لـ from_cache=True)
+                if self.log_callback:
+                    try:
+                        self.log_callback(f"📦 {text[:45]}  ⟶  {cached[:45]}")
+                    except Exception:
+                        pass
                 return cached, True, False
-            # نص معروف مسبقاً أنه لا يحتاج ترجمة أو فشل سابقاً → لا نستدعي الـ AI
-            try:
-                if self._cache.is_failed(self._game_name, text):
-                    return text, False, True
-            except Exception:
-                pass
+
+        # ── Async dispatch للنصوص الطويلة ──────────────────────────────
+        # النصوص الطويلة (>= 200 حرف عادة) تذهب لـ background queue بدل ما
+        # تحاصر العميل في انتظار AI لـ 90-240 ثانية. نُعيد النص الإنجليزي فوراً،
+        # AI يكمل في الخلفية ويحفظ في cache، الطلب التالي لنفس النص → cache hit.
+        # force_sync=True عند استدعاء من bg worker لتجنب re-scheduling.
+        if not force_sync and self._should_translate_async(text):
+            scheduled = self._schedule_background_translation(text)
+            if self.log_callback:
+                try:
+                    if scheduled:
+                        self.log_callback(
+                            f"⏳  جدولة خلفية ({len(text)} حرف): {text[:50]}"
+                        )
+                    else:
+                        self.log_callback(
+                            f"⚠  queue مليان — تخطّي ({len(text)} حرف)"
+                        )
+                except Exception:
+                    pass
+            # أعد النص الإنجليزي + علم "بدون تغيير" — العميل لا ينتظر AI
+            return text, False, True
 
         result = None
         succeeded_mode = self._tag_mode  # سنُحدّثها لو bulletproof fallback نشط
@@ -624,6 +937,14 @@ class ProxyServer:
             # Lock يمنع استدعاءين متوازيين للمحرّك (Ollama instance واحد)
             # cache lookup فوقه تَمَّ بدون lock → cache hits تظل سريعة
             with self._engine_lock:
+                # تحقق من الفشل مرة أخرى داخل الـ lock — قد يكون thread آخر
+                # سجّل النص نفسه كفاشل بينما كنا ننتظر (يُتخطّى في وضع بدون كاش)
+                if self._cache and self._game_name and not no_cache_mode:
+                    try:
+                        if self._cache.is_failed(self._game_name, text):
+                            return text, False, True
+                    except Exception:
+                        pass
                 # تحقق من الكاش مرة أخرى داخل الـ lock — قد يكون thread آخر
                 # ترجم نفس النص بينما كنا ننتظر (يحترم cache_model_filter)
                 if self._cache and self._game_name and self._cache_model_filter != "none":
@@ -633,24 +954,46 @@ class ProxyServer:
                         cached2 = self._cache.get(self._game_name, text)
                     if cached2:
                         return cached2, True, False
-                if self._tag_mode == "bulletproof":
-                    result, info = self._translate_with_bulletproof(text)
-                    if result:
-                        succeeded_mode = info  # bulletproof | tiered | strip
+                # طبّق timeout ديناميكي بناءً على طول النص — يحفظه ويستعيده
+                _saved_timeout = getattr(self._engine, "_timeout", 60.0)
+                _eff = self._effective_timeout_for(text)
+                if _eff != _saved_timeout:
+                    try:
+                        self._engine._timeout = _eff
+                        if self.log_callback and len(text) > 500:
+                            self.log_callback(
+                                f"⏱  نص طويل ({len(text)} حرف) — timeout = {int(_eff)}ث"
+                            )
+                    except Exception:
+                        pass
+                try:
+                    if self._tag_mode == "bulletproof":
+                        result, info = self._translate_with_bulletproof(text)
+                        if result:
+                            succeeded_mode = info  # bulletproof | tiered | strip
+                        else:
+                            modes_attempted = info
+                    elif self._tag_mode == "tiered":
+                        result = self._translate_with_tiered_tags(text)
+                    elif self._tag_mode == "strip" or self._strip_tags:
+                        result = self._translate_with_tag_stripping(text)
                     else:
-                        modes_attempted = info
-                elif self._tag_mode == "tiered":
-                    result = self._translate_with_tiered_tags(text)
-                elif self._tag_mode == "strip" or self._strip_tags:
-                    result = self._translate_with_tag_stripping(text)
-                else:
-                    result = self._engine.translate(text)
+                        result = self._engine.translate(text)
+                finally:
+                    # استعد timeout الأصلي حتى لا يؤثّر على النص التالي
+                    try:
+                        self._engine._timeout = _saved_timeout
+                    except Exception:
+                        pass
 
         if result and self._cache and self._game_name:
             if result == text:
                 # الـ AI أرجع نفس النص → نُسجّله كـ "بلا تغيير"
                 try:
-                    self._cache.mark_failed(self._game_name, text, "unchanged_by_ai")
+                    self._cache.mark_failed(
+                        self._game_name, text, "unchanged_by_ai",
+                        model_used=self._resolve_model_name(),
+                    )
                 except Exception:
                     pass
                 self.record_success()  # نُصفّر متتالية الفشل
@@ -673,7 +1016,10 @@ class ProxyServer:
                 reason_full = reason_base
                 if modes_attempted:
                     reason_full = f"{reason_base} [tried: {modes_attempted}]"
-                self._cache.mark_failed(self._game_name, text, reason_full[:200])
+                self._cache.mark_failed(
+                    self._game_name, text, reason_full[:200],
+                    model_used=self._resolve_model_name(),
+                )
                 # سجّل فشل كل وضع جرَّبناه في Learning cache
                 for mode in (modes_attempted.split(",") if modes_attempted else [self._tag_mode]):
                     if mode:
@@ -684,5 +1030,9 @@ class ProxyServer:
                 self.record_failure(text, reason_base, modes_attempted)
             except Exception:
                 pass
+            # نُرجع unchanged=True كي do_GET يُسجّل ⏭ بدل 🔄
+            # ويُحدّث counter كـ unchanged بدل translated. هذا يمنع تضخّم عداد
+            # الترجمات الجديدة بنصوص لم تُترجَم فعلاً.
+            return text, False, True
 
         return result, False, False

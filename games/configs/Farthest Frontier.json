@@ -1,0 +1,26 @@
+{
+  "name": "Farthest Frontier",
+  "process_name": "Farthest Frontier.exe",
+  "game_path": "D:/SteamLibrary/steamapps/common/Farthest Frontier/Farthest Frontier (Mono)",
+  "steam_appid": "1044720",
+  "engine": "unity",
+  "hook_mode": "file",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "font_path": "",
+  "notes": "Unity Mono (نسخة Mono في مجلد فرعي 'Farthest Frontier (Mono)'). فيها MelonLoader مسبقاً — قد يحتاج تعطيله قبل تثبيت BepInEx. لاحظ: التشغيل المباشر للـ exe لا يعمل (تعلّق على التحميل) لأن اللعبة تحتاج Steam API initialization → نستخدم steam://run/<appid>.",
+  "prefer_direct_launch": false,
+  "hooks": [],
+  "enabled": true,
+  "hidden_features": [
+    "locres_section",
+    "iostore_section",
+    "unreal_hook_section"
+  ],
+  "shown_features": [],
+  "bepinex_mod": {},
+  "apply_bidi": false,
+  "text_reorder_char_limit": 0,
+  "translate_timeout": 60
+}

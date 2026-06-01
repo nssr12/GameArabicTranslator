@@ -354,6 +354,7 @@ class IoStoreWizard(QWidget):
             cb.addItems(items)
             if default in items:
                 cb.setCurrentText(default)
+            theme.style_combo(cb)
             row.addWidget(lbl)
             row.addWidget(cb, 1)
             lay.addLayout(row)
@@ -422,13 +423,14 @@ class IoStoreWizard(QWidget):
         self._extr_mode_combo = QComboBox()
         for val, label in EXTRACTION_MODES:
             self._extr_mode_combo.addItem(label, val)
+        theme.style_combo(self._extr_mode_combo)
         row_mode.addWidget(lbl_mode)
         row_mode.addWidget(self._extr_mode_combo, 1)
         lay.addLayout(row_mode)
 
         # AES Key
-        self._aes_field = _field("مفتاح AES:", "", "اختياري — للحزم المشفّرة")
-        self._aes_field.setEchoMode(QLineEdit.Password)
+        self._aes_field = _field("مفتاح AES:", "", "اختياري — للحزم المشفّرة (مثال: 0xABCD1234...)")
+        self._aes_field.setFont(QFont("Courier New", 9))
 
         # Tool paths
         self._retoc_field = _path_field(
@@ -590,7 +592,7 @@ class IoStoreWizard(QWidget):
         load_frame = QFrame()
         load_frame.setStyleSheet(
             f"QFrame {{ background: {c['surface']}; border: 1px solid {c['border']};"
-            " border-radius: 8px; }}"
+            " border-radius: 8px; }"
         )
         load_lay = QVBoxLayout(load_frame)
         load_lay.setContentsMargins(12, 10, 12, 10)
@@ -663,7 +665,7 @@ class IoStoreWizard(QWidget):
         s4_status = QFrame()
         s4_status.setStyleSheet(
             f"QFrame {{ background: {c['surface']}; border: 1px solid {c['border']};"
-            " border-radius: 6px; }}"
+            " border-radius: 6px; }"
         )
         sl4 = QHBoxLayout(s4_status)
         sl4.setContentsMargins(12, 7, 12, 7)
@@ -815,7 +817,7 @@ class IoStoreWizard(QWidget):
         btn.setCursor(QCursor(Qt.PointingHandCursor))
         btn.setStyleSheet(f"""
             QPushButton {{
-                background: rgba(0,0,0,0.15); color: {color};
+                background: rgba(0,0,0,38); color: {color};
                 border: 1px solid {color}; border-radius: 8px;
                 font-weight: bold; padding: 0 14px;
             }}
@@ -912,7 +914,7 @@ class IoStoreWizard(QWidget):
     def _after_step1(self):
         self._s1_cache_btn.setEnabled(True)
         self._s1_cache_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(0,0,0,0.15); color: {theme.c['green']};"
+            f"QPushButton {{ background: rgba(0,0,0,38); color: {theme.c['green']};"
             f" border: 1px solid {theme.c['green']}; border-radius: 8px;"
             f" font-weight: bold; padding: 0 14px; }}"
             f"QPushButton:hover {{ background: {theme.c['green']}; color: #fff; }}"
@@ -1008,11 +1010,18 @@ class IoStoreWizard(QWidget):
             uniq = [x for x in all_t if x not in seen and not seen.add(x)]
             self._all_texts = uniq
 
-            msg = f"{len(paths)} ملف JSON — {len(uniq)} نص فريد"
+            total_t = len(all_t)
+            uniq_t  = len(uniq)
+            dup_t   = total_t - uniq_t
+            if dup_t > 0:
+                msg = (f"{len(paths)} ملف JSON — {total_t:,} نص إجمالاً"
+                       f" ← {uniq_t:,} فريد + {dup_t:,} مكرر")
+                lbl = f"النصوص الفريدة: {uniq_t:,}  (إجمالي: {total_t:,})"
+            else:
+                msg = f"{len(paths)} ملف JSON — {uniq_t:,} نص فريد"
+                lbl = f"النصوص المكتشفة: {uniq_t:,}"
             QTimer.singleShot(0, lambda: self._s2_info.setText(msg))
-            QTimer.singleShot(0, lambda: self._s3_strings_lbl.setText(
-                f"النصوص المكتشفة: {len(uniq)}"
-            ))
+            QTimer.singleShot(0, lambda: self._s3_strings_lbl.setText(lbl))
             return True
 
         self._run_worker(_work, self._s2_card)

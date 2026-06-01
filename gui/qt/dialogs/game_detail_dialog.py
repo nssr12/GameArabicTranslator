@@ -695,12 +695,14 @@ class GameDetailDialog(QDialog):
             elif installed is True:
                 if is_xunity_mode:
                     row1.addWidget(_mini_btn("🔄  تحديث الترجمات", "teal", self._do_bepinex_update))
+                    row1.addWidget(_mini_btn("🎯  أولوية المودلات", "purple", self._do_model_priority))
                     row1.addWidget(_mini_btn("🔄  تحديث plugins",  "blue", self._do_bepinex_install))
                     row1.addWidget(_mini_btn("🗑️  إلغاء التثبيت", "accent", self._do_bepinex_uninstall))
                 else:
                     row1.addWidget(_mini_btn("📥  استيراد الترجمات", "blue",  self._do_bepinex_import))
                     row1.addWidget(_mini_btn("📁  استيراد من مجلد",  "muted", self._do_bepinex_import_from))
                     row1.addWidget(_mini_btn("🔄  تحديث الترجمات",   "teal",  self._do_bepinex_update))
+                    row1.addWidget(_mini_btn("🎯  أولوية المودلات",  "purple", self._do_model_priority))
                     row1.addWidget(_mini_btn("🗑️  إلغاء التثبيت",   "accent", self._do_bepinex_uninstall))
 
             row1.addStretch()
@@ -887,6 +889,27 @@ class GameDetailDialog(QDialog):
             QMessageBox.warning(self, "خطأ في التحديث", msg)
         self._fill_content()
 
+    def _do_model_priority(self):
+        """يفتح حوار ترتيب أولوية المودلات (drag-drop) للدمج الهرمي."""
+        if not self._cache:
+            QMessageBox.warning(self, "خطأ", "الكاش غير متاح.")
+            return
+        cfg = self._bepinex_cfg()
+        game_name = cfg.get("name", "") or self._game_id
+        from gui.qt.dialogs.model_priority_dialog import ModelPriorityDialog
+        # نخزّن مرجعاً لتجنّب جمع القمامة (الحوار غير modal)
+        if not hasattr(self, "_open_priority_dialogs"):
+            self._open_priority_dialogs = []
+        dlg = ModelPriorityDialog(game_name, self._cache, self)
+        dlg.finished.connect(
+            lambda _r, d=dlg: self._open_priority_dialogs.remove(d)
+            if d in self._open_priority_dialogs else None
+        )
+        self._open_priority_dialogs.append(dlg)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
     def _do_bepinex_import(self):
         from games.bepinex_mod import BepInExMod
         cfg = self._bepinex_cfg()
@@ -968,22 +991,11 @@ class GameDetailDialog(QDialog):
             # لا نُصدّر translations.txt تلقائياً — يتحكّم المستخدم
             # عبر زر "🔄 تحديث الترجمات" فقط
         else:
-            # تأكيد وضع التاقات + اختيار مصدر الكاش قبل بدء الخادم
-            from gui.qt.dialogs.tag_mode_confirm_dialog import TagModeConfirmDialog
-            current_mode = self._cfg.get("tag_mode", "bulletproof")
-            confirm = TagModeConfirmDialog(
-                current_mode=current_mode,
-                game_name=game_name,
-                cache=self._cache,
-                parent=self,
-            )
-            if confirm.exec() != QDialog.Accepted:
-                return  # ألغى المستخدم
-            chosen = confirm.selected_mode
-            chosen_cache = confirm.selected_cache_filter
+            # tag_mode يُقرأ من الفلتر العام (config.json) — لا حوار
+            from engine.filtered_translator import get_global_tag_mode
+            chosen = get_global_tag_mode()
             cfg_to_use = dict(self._cfg)
             cfg_to_use["tag_mode"] = chosen
-            cfg_to_use["cache_model_filter"] = chosen_cache
             ok, msg = proxy.start(self._game_id, cfg=cfg_to_use)
             if not ok:
                 QMessageBox.warning(self, "خطأ في الخادم", msg)

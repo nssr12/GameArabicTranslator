@@ -31,9 +31,17 @@ class TagConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("إعدادات حماية التاقات")
-        self.setMinimumSize(780, 720)
-        # نافذة مستقلة (top-level) — لا تمنع التفاعل مع التطبيق
-        self.setWindowFlags(Qt.Window)
+        # حد أدنى مرن + حجم افتراضي أوسع + قابلية التكبير/التصغير
+        self.setMinimumSize(640, 540)
+        self.resize(920, 820)
+        self.setSizeGripEnabled(True)
+        # نضيف min/max بدون استبدال أعلام النافذة الافتراضية (يحافظ على زر X)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.Window
+            | Qt.WindowMinMaxButtonsHint
+            | Qt.WindowCloseButtonHint
+        )
         self.setModal(False)
         self._cfg = load_config()
         self._build()
@@ -110,24 +118,24 @@ class TagConfigDialog(QDialog):
         hint.setWordWrap(True)
         root.addWidget(hint)
 
-        # ── قسم Inline tags ─────────────────────────────────────────────
+        # ── قسم Inline tags (stretch=1) ─────────────────────────────────
         root.addWidget(self._build_section(
             "📌 تاقات Inline — تبقى مع النص للمودل",
             "تاقات بسيطة (مثل <b> <i> <u>) تُترك للمودل ليفهم سياق الجملة.\n"
             "إذا كان لها سمات، تُحمى تلقائياً بـ ⟦N⟧/⟦/N⟧.",
             "inline",
-        ))
+        ), 1)
 
-        # ── قسم Self-closing tags ───────────────────────────────────────
+        # ── قسم Self-closing tags (stretch=1) ──────────────────────────
         root.addWidget(self._build_section(
             "🎯 تاقات Self-closing — تُحمى بـ ⟦sN⟧",
             "تاقات بلا محتوى داخلي (مثل <sprite>, <br>) — تُستخرَج وتُستعاد كاملة.\n"
             "⚠ لا تضع تاقات مزدوجة (<b>...</b>) هنا — لن تعمل بشكل صحيح.",
             "selfclose",
-        ))
+        ), 1)
 
-        # ── قسم المعاينة الحية ──────────────────────────────────────────
-        root.addWidget(self._build_preview_section())
+        # ── قسم المعاينة الحية (stretch=3 — الأكبر، حيث الإدخال والإخراج) ─
+        root.addWidget(self._build_preview_section(), 3)
 
         # ── أزرار التحكم السفلية ───────────────────────────────────────
         bottom = QHBoxLayout()
@@ -171,7 +179,8 @@ class TagConfigDialog(QDialog):
         # القائمة
         lst = QListWidget()
         lst.setSelectionMode(QListWidget.ExtendedSelection)
-        lst.setMaximumHeight(140)
+        # حد أدنى مريح، لا حد أقصى — اسمح للقائمة بالتمدد مع النافذة
+        lst.setMinimumHeight(120)
         key = "inline_tags" if kind == "inline" else "selfclosing_tags"
         for t in self._cfg.get(key, []):
             lst.addItem(t)
@@ -252,9 +261,9 @@ class TagConfigDialog(QDialog):
         sub.setWordWrap(True)
         lay.addWidget(sub)
 
-        # حقل الإدخال
+        # حقل الإدخال — أكبر بكثير + يتمدّد مع النافذة (stretch=1)
         self._preview_input = QTextEdit()
-        self._preview_input.setMaximumHeight(70)
+        self._preview_input.setMinimumHeight(110)
         self._preview_input.setPlaceholderText(
             'مثلاً: Hello <b>World</b> with <color=red>RED</color> and <sprite name="x">'
         )
@@ -265,22 +274,22 @@ class TagConfigDialog(QDialog):
         self._preview_input.setStyleSheet(
             f"QTextEdit {{ background: {c['card2']}; color: {c['primary']};"
             f"             border: 1px solid {c['border']}; border-radius: 4px;"
-            f"             padding: 6px; font-family: Consolas, monospace; font-size: 11px; }}"
+            f"             padding: 8px; font-family: Consolas, monospace; font-size: 12px; }}"
         )
         self._preview_input.setText(
             'Hello <b>World</b> with <color=red>RED</color> and <sprite name="x">'
         )
         self._preview_input.textChanged.connect(self._update_preview)
-        lay.addWidget(self._preview_input)
+        lay.addWidget(self._preview_input, 1)
 
-        # حقل الإخراج (read-only)
+        # حقل الإخراج (read-only) — أكبر + يتمدّد (stretch=1)
         out_lbl = QLabel("📤 ما سيصل للمحرّك:")
         out_lbl.setStyleSheet(f"color: {c['teal']}; font-size: 10px;")
         lay.addWidget(out_lbl)
 
         self._preview_output = QTextEdit()
         self._preview_output.setReadOnly(True)
-        self._preview_output.setMaximumHeight(60)
+        self._preview_output.setMinimumHeight(110)
         self._preview_output.setLayoutDirection(Qt.LeftToRight)
         opt_out = QTextOption()
         opt_out.setTextDirection(Qt.LeftToRight)
@@ -288,9 +297,9 @@ class TagConfigDialog(QDialog):
         self._preview_output.setStyleSheet(
             f"QTextEdit {{ background: {c['card']}; color: {c['green']};"
             f"             border: 1px solid {c['border']}; border-radius: 4px;"
-            f"             padding: 6px; font-family: Consolas, monospace; font-size: 11px; }}"
+            f"             padding: 8px; font-family: Consolas, monospace; font-size: 12px; }}"
         )
-        lay.addWidget(self._preview_output)
+        lay.addWidget(self._preview_output, 1)
 
         # سجل التاقات المستخرجة
         self._preview_tokens = QLabel("")

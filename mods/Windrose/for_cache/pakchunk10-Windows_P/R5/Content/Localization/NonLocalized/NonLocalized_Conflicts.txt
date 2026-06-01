@@ -1,0 +1,8 @@
+UR5CultureInvariantWidget - CultureInvariantCheck 
+	/Engine/Binaries/Win64/Source/Editor/R5Editor/CultureInvariant/R5CultureInvariantWidget.cpp(67) - "Will check assets with FText" 
+	/Engine/Binaries/Win64/Source/Editor/R5Editor/CultureInvariant/R5CultureInvariantWidget.cpp(66) - "Check CultureInvariant" 
+
+UR5StringTableUsagesWidget - StringTableUsages 
+	/Engine/Binaries/Win64/Source/Editor/R5Editor/StringTableUsagesChecker/R5StringTableUsagesWidget.cpp(51) - "Will check assets with FText STT Keys" 
+	/Engine/Binaries/Win64/Source/Editor/R5Editor/StringTableUsagesChecker/R5StringTableUsagesWidget.cpp(50) - "Check StringTable Usages" 
+

@@ -1,0 +1,27 @@
+{
+  "name": "Palworld",
+  "process_name": "Palworld-Win64-Shipping.exe",
+  "game_path": "D:/SteamLibrary/steamapps/common/Palworld",
+  "game_exe_inject": "D:\\SteamLibrary\\steamapps\\common\\Palworld\\Pal\\Binaries\\Win64\\Palworld-Win64-Shipping.exe",
+  "engine": "unreal",
+  "hook_mode": "unreal_hook",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "replace_font": false,
+  "text_reorder_enabled": true,
+  "notes": "Unreal Engine 5.1.1. Uses dxgi.dll hijack via suspended-launch + LoadLibrary injection. Same technique as Manor Lords.",
+  "hooks": [],
+  "enabled": true,
+  "hidden_features": [
+    "locres_section",
+    "iostore_section"
+  ],
+  "shown_features": [
+    "unreal_hook_section"
+  ],
+  "font_path": "",
+  "unreal_hook": {
+    "win64_dir": "D:\\SteamLibrary\\steamapps\\common\\Palworld\\Pal\\Binaries\\Win64",
+    "translate_dir": "D:\\SteamLibrary\\steamapps\\common\\Palworld\\Pal\\Binaries\\Win64\\Translate"
+  }
+}

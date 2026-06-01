@@ -78,3 +78,35 @@ dist/
 build/
 *.spec.bak
 
+# Third-party tools (large, downloaded separately by users)
+tools/UAssetGUI/
+tools/UE4SS/
+tools/retoc/
+tools/BepInEx*.zip
+
+# Game asset backups
+*.bak
+mods/moe/
+
+# Diagnostic logs from C# mods
+*_diag.log
+arabicfontfixer_diag.log
+
+# Temporary scratch files
+tmp_*.py
+tmp_check.py
+tmp/
+
+# C# mod build outputs (rebuild via dotnet build)
+mods/*/bin/
+mods/*/obj/
+
+# BepInEx base backups (versioned snapshots, large)
+mods/_bepinex_base*backup*/
+mods/_bepinex_base_*/
+
+# Tutorial videos / large media
+*.mp4
+*.mov
+*.mkv
+

@@ -117,7 +117,7 @@ def main():
     _install_exception_hook(logger)
 
     logger.info("=" * 60)
-    logger.info("Game Arabic Translator v2.0  —  بدء التشغيل")
+    logger.info("Game Arabic Translator v1.1  —  بدء التشغيل")
     logger.info("Log file: %s", logfile)
     logger.info("Python: %s", sys.version.split()[0])
     logger.info("Platform: %s", sys.platform)
@@ -125,7 +125,7 @@ def main():
 
     try:
         from PySide6.QtWidgets import QApplication
-        from PySide6.QtGui     import QFont
+        from PySide6.QtGui     import QFont, QIcon
         from PySide6.QtCore    import Qt
 
         from gui.qt.theme import theme
@@ -135,9 +135,27 @@ def main():
         QApplication.setHighDpiScaleFactorRoundingPolicy(
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
+        from PySide6.QtCore import qInstallMessageHandler, QtMsgType
+        def _qt_msg(mode, ctx, msg):
+            if 'parse' in msg.lower() or 'stylesheet' in msg.lower():
+                prefix = {QtMsgType.QtWarningMsg: 'WARN', QtMsgType.QtCriticalMsg: 'CRIT'}.get(mode, 'INFO')
+                print(f"[QSS-{prefix}] {msg}")
+                if ctx.file:
+                    print(f"         file={ctx.file}:{ctx.line} fn={ctx.function}")
+            else:
+                if mode == QtMsgType.QtWarningMsg:
+                    print(f"[Qt-WARN] {msg}")
+        qInstallMessageHandler(_qt_msg)
+
         app = QApplication(sys.argv)
         app.setApplicationName("Game Arabic Translator")
-        app.setApplicationVersion("2.0")
+        app.setApplicationVersion("1.1")
+
+        # App icon — next to exe in frozen builds, next to main_qt.py in dev
+        _app_root  = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else ROOT
+        _icon_path = os.path.join(_app_root, "data", "icon.ico")
+        if os.path.isfile(_icon_path):
+            app.setWindowIcon(QIcon(_icon_path))
 
         app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         app.setFont(QFont(theme.font_family, theme.font_size))

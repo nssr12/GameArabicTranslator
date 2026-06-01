@@ -58,6 +58,21 @@ namespace ArabicGameTranslatorMVP.Flotsam
             RegexOptions.Compiled
         );
 
+        // \u064a\u0643\u062a\u0634\u0641 \u0648\u062c\u0648\u062f \u062a\u0627\u0642\u0627\u062a sprite \u062a\u0634\u064a\u0631 \u0625\u0644\u0649 sprite assets \u062e\u0627\u0635\u0629 \u0628\u0627\u0644\u0644\u0639\u0628\u0629
+        // (\u0645\u062b\u0644 <sprite="SurvivalGuide_Sprites" name="towntugger">).
+        // \u0647\u0630\u0647 \u0627\u0644\u062a\u0627\u0642\u0627\u062a \u0646\u062d\u062a\u0627\u062c \u0627\u0644\u062e\u0637 \u0627\u0644\u0623\u0635\u0644\u064a \u0644\u0644\u0639\u0628\u0629 \u0644\u064a\u062a\u0639\u0631\u0651\u0641 \u0639\u0644\u064a\u0647\u0627 \u2014 \u0644\u0648 \u0627\u0633\u062a\u0628\u062f\u0644\u0646\u0627\u0647 \u0628\u062e\u0637\u0646\u0627
+        // \u0627\u0644\u0639\u0631\u0628\u064a \u064a\u0641\u0634\u0644 TMP \u0641\u064a \u0627\u0644\u0639\u062b\u0648\u0631 \u0639\u0644\u0649 \u0627\u0644\u0640 asset \u0648\u064a\u0639\u0631\u0636 \u0646\u0635 \u0627\u0644\u062a\u0627\u0642 \u062d\u0631\u0641\u064a\u0627\u064b.
+        private static readonly Regex CustomSpriteAssetTagRegex = new Regex(
+            @"<sprite\s*=\s*""[^""]+""|<sprite\s+name\s*=",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled
+        );
+
+        private static bool HasCustomSpriteAsset(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            return CustomSpriteAssetTagRegex.IsMatch(text);
+        }
+
         private ConfigEntry<string> _translationsPath;
         private ConfigEntry<bool> _forceArabicLanguage;
         private Dictionary<string, string> _translations = new Dictionary<string, string>();
@@ -107,10 +122,11 @@ namespace ArabicGameTranslatorMVP.Flotsam
         // شبكة أمان: تُغطّي حالات يكتب فيها XUnity على TMP بطريقة لا تمر بـ Harmony hooks
         // (مثل تعديل m_text مباشرة عبر reflection، أو overloads لا نُمسكها).
         // الـ hooks تُعطي استجابة فورية؛ هذه الحلقة فقط تُغطّي ما يفوتها.
-        // الفترة 2 ثانية كافية كاحتياط بدون استهلاك ملحوظ للأداء.
+        // 0.5 ث: التقاط سريع للصفحات الجديدة (مثل Map Controls التي تُنشَأ عند فتح القائمة).
+        // الكلفة منخفضة لأن EnsureRtlState idempotent ولا يغيّر isRightToLeftText إلا عند الحاجة.
         private IEnumerator EnsureRtlForArabicTextLoop()
         {
-            var wait = new WaitForSeconds(2.0f);
+            var wait = new WaitForSeconds(0.5f);
             while (true)
             {
                 try
@@ -651,10 +667,24 @@ namespace ArabicGameTranslatorMVP.Flotsam
 
                         ApplyArabicLayout(text);
 
-                        if (text.font != _arabicTmpFallback)
+                        // إذا النص يحوي sprite tag مخصّصاً للعبة، حافظ على الخط الأصلي.
+                        // — استبداله بخطنا العربي يفقد sprite assets الخاصة باللعبة،
+                        //   فيظهر التاق نصاً حرفياً ويُقلَب بفعل BiDi.
+                        // — الخط الأصلي عنده الـ asset، وخطنا العربي أُضيف كـ fallback،
+                        //   فالعربي يُعرَض عبر fallback table.
+                        bool keepOriginalFont = HasCustomSpriteAsset(text.text);
+                        if (!keepOriginalFont && text.font != _arabicTmpFallback)
                         {
                             text.font = _arabicTmpFallback;
                             tmpUpdated++;
+                        }
+                        else if (keepOriginalFont)
+                        {
+                            // استرجع الخط الأصلي لو سبق استبدالناه قبل ظهور النص الجديد
+                            if (RestoreOriginalState(text))
+                            {
+                                tmpRestored++;
+                            }
                         }
                     }
                     else
@@ -1401,9 +1431,9 @@ namespace ArabicGameTranslatorMVP.Flotsam
 
             // مع isRightToLeftText=true:
             //   - عمودياً: نُحوّل Bottom* → Top* (يبدأ الملء من أعلى لأسفل)
-            //   - أفقياً: نُحوّل Left → Right للنصوص العربية حتى تظهر في الجانب
-            //     الصحيح من حاويتها (يحلّ مشكلة التداخل مع slider visuals)
-            //   - الـ Center يبقى Center (لتجنّب تحريك العناوين الموسّطة)
+            //   - أفقياً: نحتفظ بـ Left كما هو لتجنّب التداخل مع controls على اليمين.
+            //     TMP مع isRightToLeftText=true يقرأ النص RTL داخل حدوده اليسارية.
+            //   - الـ TopLeft يبقى يتحوّل لـ TopRight (للعناوين)
             switch (text.alignment)
             {
                 case TextAlignmentOptions.BottomLeft:
@@ -1411,15 +1441,10 @@ namespace ArabicGameTranslatorMVP.Flotsam
                 case TextAlignmentOptions.BottomRight:
                     text.alignment = TextAlignmentOptions.TopRight;
                     break;
-                case TextAlignmentOptions.Left:
-                case TextAlignmentOptions.BaselineLeft:
-                case TextAlignmentOptions.MidlineLeft:
-                case TextAlignmentOptions.CaplineLeft:
-                    text.alignment = TextAlignmentOptions.Right;
-                    break;
                 case TextAlignmentOptions.TopLeft:
                     text.alignment = TextAlignmentOptions.TopRight;
                     break;
+                // Left/BaselineLeft/MidlineLeft/CaplineLeft تبقى كما هي (لا تداخل)
             }
         }
 
@@ -1466,6 +1491,25 @@ namespace ArabicGameTranslatorMVP.Flotsam
             return false;
         }
 
+        /// <summary>
+        /// \u064A\u0643\u062A\u0634\u0641 \u0645\u0627 \u0625\u0630\u0627 \u0643\u0627\u0646 \u0627\u0644\u0646\u0635 \u064A\u062D\u062A\u0648\u064A presentation forms (\u0645\u064F\u0634\u0643\u064E\u0651\u0644 \u0645\u0633\u0628\u0642\u0627\u064B).
+        /// \u0644\u0648 \u0646\u0639\u0645 \u2192 TMP \u064A\u062C\u0628 \u0644\u0627 \u064A\u0637\u0628\u0651\u0642 BiDi reversal (isRightToLeftText=false).
+        /// \u0644\u0648 \u0644\u0627 (basic Arabic) \u2192 TMP \u064A\u062D\u062A\u0627\u062C isRightToLeftText=true \u0644\u064A\u064F\u0637\u0628\u0651\u0642 shaping.
+        /// </summary>
+        private static bool ContainsPresentationForms(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (var ch in text)
+            {
+                if ((ch >= '\uFB50' && ch <= '\uFDFF') ||   // Presentation Forms-A
+                    (ch >= '\uFE70' && ch <= '\uFEFC'))     // Presentation Forms-B
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         [ThreadStatic]
         private static bool _inLayoutPostfix;
 
@@ -1478,22 +1522,26 @@ namespace ArabicGameTranslatorMVP.Flotsam
             _inLayoutPostfix = true;
             try
             {
+                bool changed = false;
                 if (ContainsArabic(__instance.text))
                 {
                     if (!__instance.isRightToLeftText)
                     {
                         __instance.isRightToLeftText = true;
                         __instance.havePropertiesChanged = true;
+                        changed = true;
                     }
                     ApplyArabicLayout(__instance);
                 }
                 else if (__instance.isRightToLeftText)
                 {
-                    // النص تغيّر من عربي إلى غير عربي → نُلغي وضع RTL
-                    // وإلا يظهر الإنجليزي والأرقام معكوسة، وقد يلتقطها XUnity معكوسة
-                    // فيُرسل للـ AI نصاً مقلوباً → ترجمة بأرقام مقلوبة (100 → 001)
                     __instance.isRightToLeftText = false;
                     __instance.havePropertiesChanged = true;
+                    changed = true;
+                }
+                if (changed)
+                {
+                    try { __instance.ForceMeshUpdate(true, true); } catch { }
                 }
             }
             finally
@@ -1645,6 +1693,7 @@ namespace ArabicGameTranslatorMVP.Flotsam
                         tmpText.text = sanitized;
                     }
 
+                    EnsureRtlState(tmpText);   // ← يضبط isRightToLeftText فوراً (يمنع الأحرف المعكوسة)
                     ApplyArabicLayout(tmpText);
                     tmpText.havePropertiesChanged = true;
                     tmpText.ForceMeshUpdate(true, true);
@@ -1686,6 +1735,7 @@ namespace ArabicGameTranslatorMVP.Flotsam
                     tmpText.text = sanitized;
                 }
 
+                EnsureRtlState(tmpText);   // ← يضبط isRightToLeftText (يمنع الأحرف المعكوسة في Map Controls وغيرها)
                 ApplyArabicLayout(tmpText);
                 tmpText.havePropertiesChanged = true;
                 tmpText.ForceMeshUpdate(true, true);
@@ -1725,6 +1775,7 @@ namespace ArabicGameTranslatorMVP.Flotsam
                         amountText.text = sanitizedAmount;
                     }
 
+                    EnsureRtlState(amountText);   // ← يضبط isRightToLeftText
                     ApplyArabicLayout(amountText);
                     amountText.havePropertiesChanged = true;
                     amountText.ForceMeshUpdate(true, true);
@@ -1739,6 +1790,7 @@ namespace ArabicGameTranslatorMVP.Flotsam
                         nameText.text = sanitizedName;
                     }
 
+                    EnsureRtlState(nameText);   // ← يضبط isRightToLeftText
                     ApplyArabicLayout(nameText);
                     nameText.havePropertiesChanged = true;
                     nameText.ForceMeshUpdate(true, true);

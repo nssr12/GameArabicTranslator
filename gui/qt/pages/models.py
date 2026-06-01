@@ -8,7 +8,7 @@ from collections import defaultdict
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QLineEdit, QComboBox, QTextEdit, QScrollArea, QSplitter,
+    QLineEdit, QComboBox, QTextEdit,
     QSizePolicy, QProgressBar, QApplication
 )
 from PySide6.QtCore  import Qt, Signal, QThread, QTimer
@@ -35,32 +35,31 @@ def _meta(key: str) -> dict:
     return MODEL_META.get(key, {"ar": key, "icon": "⚙️", "color": "muted"})
 
 
-# ── Ollama quant helpers ───────────────────────────────────────────────────────
+# ── Ollama model helpers ───────────────────────────────────────────────────────
 
-_QUANT_RE = re.compile(
-    r'-((?:iq[2-4]_[a-z0-9_]+|q[2-9]_[a-z0-9_]+|fp16|f16|f32|bf16))$',
-    re.IGNORECASE,
-)
+def _split_ollama_name(full_name: str) -> tuple[str, str]:
+    """'aya:8b' → ('aya', '8b'),  'llama3:latest' → ('llama3', 'latest')."""
+    if ":" in full_name:
+        idx = full_name.index(":")
+        return full_name[:idx], full_name[idx + 1:]
+    return full_name, "latest"
 
-def _split_ollama_quant(full_name: str):
-    """Returns (base_name, quant_tag_upper) e.g. ('translategemma:12b', 'Q4_K_M')."""
-    m = _QUANT_RE.search(full_name)
-    if m:
-        return full_name[: m.start()], m.group(1).upper()
-    return full_name, ""
+# Keep old name for backward compat
+def _split_ollama_quant(full_name: str) -> tuple[str, str]:
+    base, tag = _split_ollama_name(full_name)
+    return full_name, ""   # always return full_name as base so combo stores it correctly
 
 
 def _group_ollama_models(raw_models: list) -> dict:
-    """Group model list by base name → OrderedDict of {base: [(label, full_name)]}."""
+    """Group by base model name → list of (label, full_name)."""
     groups: dict = defaultdict(list)
     for item in raw_models:
         name = item.get("name", "") if isinstance(item, dict) else str(item)
         if not name:
             continue
-        base, quant = _split_ollama_quant(name)
-        if not quant and isinstance(item, dict):
-            quant = item.get("quantization", "").upper()
-        label = quant if quant else "افتراضي (كامل)"
+        base, tag = _split_ollama_name(name)
+        size_gb   = item.get("size_gb", 0) if isinstance(item, dict) else 0
+        label     = f"{tag}  ({size_gb:.1f} GB)" if size_gb else tag
         groups[base].append((label, name))
     return dict(groups)
 
@@ -110,7 +109,7 @@ class ModelButton(QPushButton):
         meta = _meta(key)
         super().__init__(f"  {meta['icon']}  {meta['ar']}", parent)
         self.model_key = key
-        self.setObjectName("nav_btn")
+        self.setObjectName("model_nav_btn")
         self.setCheckable(False)
         self.setProperty("active", False)
         self.setCursor(QCursor(Qt.PointingHandCursor))
@@ -131,15 +130,15 @@ class ModelButton(QPushButton):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self._chip.move(self.width() - self._chip.width() - 10,
-                        (self.height() - self._chip.height()) // 2)
+        # Physical-left side so it doesn't overlap RTL Arabic text (which grows rightward→left)
+        self._chip.move(8, (self.height() - self._chip.height()) // 2)
 
     def update_status(self, loaded: bool, active: bool):
         c = theme.c
         if active:
-            text, bg, fg = "نشط ★", f"rgba(233,69,96,0.2)", c['accent2']
+            text, bg, fg = "نشط ★", f"rgba(233,69,96,51)", c['accent2']
         elif loaded:
-            text, bg, fg = "محمّل ✓", f"rgba(63,185,80,0.15)", c['green2']
+            text, bg, fg = "محمّل ✓", f"rgba(63,185,80,38)", c['green2']
         else:
             text, bg, fg = "غير محمّل", c['card2'], c['muted']
         self._chip.setText(text)
@@ -241,43 +240,43 @@ class DetailPanel(QFrame):
         div.setStyleSheet(f"background: {c['border']}; border: none;")
         self._lay.addWidget(div)
 
-        is_loaded = info.get("loaded", False)
-        is_active = info.get("active", False)
+        is_loaded = info.get("is_loaded", info.get("loaded", False))
+        is_active = info.get("is_active", info.get("active", False))
 
-        # Extra config per model type
+        # Extra config per model type (Ollama handles its own buttons inside)
         config_type = info.get("type", "")
         self._build_config_fields(key, config_type, info)
 
-        # Action buttons
-        btn_row = QHBoxLayout()
+        # Generic action buttons — Ollama builds its own inside _build_ollama_fields
+        if key != "ollama":
+            btn_row = QHBoxLayout()
 
-        self._load_btn = QPushButton("⏹  إيقاف" if is_loaded else "▶  تحميل")
-        self._load_btn.setObjectName("btn_danger" if is_loaded else "btn_success")
-        self._load_btn.clicked.connect(lambda: self._toggle_load(key, is_loaded))
-        btn_row.addWidget(self._load_btn)
+            self._load_btn = QPushButton("⏹  إيقاف" if is_loaded else "▶  تحميل")
+            self._load_btn.setObjectName("btn_danger" if is_loaded else "btn_success")
+            self._load_btn.clicked.connect(lambda: self._toggle_load(key, is_loaded))
+            btn_row.addWidget(self._load_btn)
 
-        if not is_active:
-            act_btn = QPushButton("★  تعيين نشطاً")
-            act_btn.setObjectName("btn_info")
-            act_btn.clicked.connect(lambda: self._set_active(key))
-            btn_row.addWidget(act_btn)
-        else:
-            badge = QLabel("★  النموذج النشط الآن")
-            badge.setStyleSheet(
-                f"color: {c['accent2']}; font-weight: bold;"
-                f" background: transparent; border: none;"
-            )
-            btn_row.addWidget(badge)
+            if not is_active:
+                act_btn = QPushButton("★  تعيين نشطاً")
+                act_btn.setObjectName("btn_info")
+                act_btn.clicked.connect(lambda: self._set_active(key))
+                btn_row.addWidget(act_btn)
+            else:
+                badge = QLabel("★  النموذج النشط الآن")
+                badge.setStyleSheet(
+                    f"color: {c['accent2']}; font-weight: bold;"
+                    f" background: transparent; border: none;"
+                )
+                btn_row.addWidget(badge)
 
-        btn_row.addStretch()
-        self._lay.addLayout(btn_row)
+            btn_row.addStretch()
+            self._lay.addLayout(btn_row)
 
-        # Progress (hidden until loading)
-        self._prog = QProgressBar()
-        self._prog.setRange(0, 0)
-        self._prog.setFixedHeight(4)
-        self._prog.setVisible(False)
-        self._lay.addWidget(self._prog)
+            self._prog = QProgressBar()
+            self._prog.setRange(0, 0)
+            self._prog.setFixedHeight(4)
+            self._prog.setVisible(False)
+            self._lay.addWidget(self._prog)
 
         self._lay.addStretch()
 
@@ -325,7 +324,32 @@ class DetailPanel(QFrame):
         lbl_style = (f"color: {c['muted']}; min-width: 130px;"
                      f" background: transparent; border: none;")
 
-        # URL row
+        is_loaded = info.get("is_loaded", info.get("loaded", False))
+        is_active = info.get("is_active", info.get("active", False))
+        current   = info.get("current_model", "")
+        self._ollama_loaded = is_loaded
+        self._ollama_active = is_active
+        self._ollama_groups: dict = {}
+
+        # ── Status indicator ─────────────────────────────────
+        status_row = QHBoxLayout()
+        self._ollama_dot = QLabel("●")
+        self._ollama_dot.setStyleSheet(
+            f"color: {c['green2'] if is_loaded else c['muted']};"
+            f" font-size: 16px; background: transparent; border: none;"
+        )
+        self._ollama_dot.setFixedWidth(22)
+        self._ollama_model_lbl = QLabel(current if is_loaded and current else "غير متصل")
+        self._ollama_model_lbl.setStyleSheet(
+            f"color: {c['primary'] if is_loaded else c['muted']};"
+            f" font-size: 13px; {'font-weight: bold;' if is_loaded else ''}"
+            f" background: transparent; border: none;"
+        )
+        status_row.addWidget(self._ollama_dot)
+        status_row.addWidget(self._ollama_model_lbl, 1)
+        self._lay.addLayout(status_row)
+
+        # ── URL row ──────────────────────────────────────────
         url_row = QHBoxLayout()
         url_lbl = QLabel("🌐  عنوان Ollama:")
         url_lbl.setStyleSheet(lbl_style)
@@ -335,16 +359,16 @@ class DetailPanel(QFrame):
         url_row.addWidget(self._ollama_url, 1)
         self._lay.addLayout(url_row)
 
-        # Model (base) row
+        # ── Model (base) row ─────────────────────────────────
         mdl_row = QHBoxLayout()
         mdl_lbl = QLabel("🤖  النموذج:")
         mdl_lbl.setStyleSheet(lbl_style)
         self._ollama_combo = QComboBox()
         self._ollama_combo.setMinimumWidth(200)
-        current = info.get("current_model", "")
-        base, _ = _split_ollama_quant(current)
+        base, tag = _split_ollama_name(current) if current else ("", "")
         self._ollama_combo.addItem(base or current, base or current)
         self._ollama_combo.currentIndexChanged.connect(self._on_ollama_base_changed)
+        theme.style_combo(self._ollama_combo)
 
         refresh_btn = QPushButton("🔄")
         refresh_btn.setObjectName("icon_btn")
@@ -357,29 +381,49 @@ class DetailPanel(QFrame):
         mdl_row.addWidget(refresh_btn)
         self._lay.addLayout(mdl_row)
 
-        # Quantization row
+        # ── Version/tag row ──────────────────────────────────
         quant_row = QHBoxLayout()
-        quant_lbl = QLabel("⚡  النسخة المخففة:")
+        quant_lbl = QLabel("⚡  الإصدار:")
         quant_lbl.setStyleSheet(lbl_style)
         self._ollama_quant_combo = QComboBox()
         self._ollama_quant_combo.setMinimumWidth(200)
-        self._ollama_quant_combo.addItem("افتراضي (كامل)", "")
-        # populate quant if current model has one
-        if current and current != base:
-            _, quant = _split_ollama_quant(current)
-            self._ollama_quant_combo.addItem(quant, quant)
-            self._ollama_quant_combo.setCurrentIndex(1)
-
-        self._ollama_groups: dict = {}   # base → [(label, full_name)]
-
-        apply_btn = QPushButton("▶  تحميل النموذج")
-        apply_btn.setObjectName("btn_secondary")
-        apply_btn.clicked.connect(self._apply_ollama_model)
-
+        if current:
+            self._ollama_quant_combo.addItem(tag or current, current)
+        else:
+            self._ollama_quant_combo.addItem("—", "")
+        theme.style_combo(self._ollama_quant_combo)
         quant_row.addWidget(quant_lbl)
         quant_row.addWidget(self._ollama_quant_combo, 1)
-        quant_row.addWidget(apply_btn)
         self._lay.addLayout(quant_row)
+
+        # ── Action buttons (2 dynamic) ───────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        self._load_btn = QPushButton("⏹  إلغاء تحميل" if is_loaded else "▶  تحميل")
+        self._load_btn.setObjectName("btn_danger" if is_loaded else "btn_success")
+        self._load_btn.setFixedHeight(36)
+        self._load_btn.clicked.connect(self._on_ollama_load_toggle)
+        btn_row.addWidget(self._load_btn)
+
+        self._act_btn = QPushButton("★  نشط" if is_active else "★  تنشيط")
+        self._act_btn.setObjectName("btn_success" if is_active else "btn_danger")
+        self._act_btn.setFixedHeight(36)
+        self._act_btn.clicked.connect(self._on_ollama_activate)
+        btn_row.addWidget(self._act_btn)
+
+        btn_row.addStretch()
+        self._lay.addLayout(btn_row)
+
+        # Progress bar (hidden until loading)
+        self._prog = QProgressBar()
+        self._prog.setRange(0, 0)
+        self._prog.setFixedHeight(4)
+        self._prog.setVisible(False)
+        self._lay.addWidget(self._prog)
+
+        # Auto-fetch after short delay
+        QTimer.singleShot(200, self._fetch_ollama_models)
 
     def _on_ollama_base_changed(self, _idx: int):
         """يُحدّث قائمة الـ quant عند تغيير النموذج الأساسي."""
@@ -409,12 +453,12 @@ class DetailPanel(QFrame):
     def _on_ollama_models(self, models: list):
         self._worker_fetch = None
         if not models:
-            self.action_done.emit("✗  لم يُعثر على Ollama أو لا توجد نماذج")
+            self.action_done.emit("⚠  Ollama غير متاح أو لا توجد نماذج مثبتة")
             return
 
         self._ollama_groups = _group_ollama_models(models)
-        current = self._engine.get_current_ollama_model()
-        cur_base, cur_quant = _split_ollama_quant(current)
+        current = self._engine.get_current_ollama_model() if self._engine else ""
+        cur_base, cur_tag = _split_ollama_name(current) if current else ("", "")
 
         # Populate base combo
         self._ollama_combo.blockSignals(True)
@@ -427,10 +471,11 @@ class DetailPanel(QFrame):
         self._ollama_combo.setCurrentIndex(max(idx, 0))
         self._ollama_combo.blockSignals(False)
 
-        # Populate quant combo for current base
+        # Populate version combo for current base
         self._on_ollama_base_changed(0)
-        if cur_quant:
-            qi = self._ollama_quant_combo.findText(cur_quant)
+        # Select the current version
+        if current:
+            qi = self._ollama_quant_combo.findData(current)
             if qi >= 0:
                 self._ollama_quant_combo.setCurrentIndex(qi)
 
@@ -438,33 +483,129 @@ class DetailPanel(QFrame):
             f"✓  {len(models)} نموذج في {len(self._ollama_groups)} مجموعة"
         )
 
-    def _apply_ollama_model(self):
+    def _on_ollama_load_toggle(self):
+        """تحميل أو إلغاء تحميل نموذج Ollama."""
         if not self._engine:
             return
         if self._worker and self._worker.isRunning():
             return
-        quant_data = self._ollama_quant_combo.currentData()
-        if quant_data:
-            full_name = quant_data
+
+        c = theme.c
+        if self._ollama_loaded:
+            # Unload
+            self._load_btn.setEnabled(False)
+            self._load_btn.setText("⏳  جاري الإيقاف…")
+            self._act_btn.setEnabled(False)
+            self._prog.setVisible(True)
+            w = ModelWorker(self._engine, "ollama", "unload")
+            w.done.connect(self._on_ollama_load_done)
+            w.done.connect(w.deleteLater)
+            self._worker = w
+            w.start()
         else:
-            base = self._ollama_combo.currentData() or self._ollama_combo.currentText()
-            quant_label = self._ollama_quant_combo.currentText()
-            if quant_label and quant_label != "افتراضي (كامل)":
-                full_name = f"{base}-{quant_label.lower()}"
+            # Load selected model
+            full_name = self._ollama_quant_combo.currentData() or ""
+            if not full_name:
+                full_name = self._ollama_combo.currentData() or self._ollama_combo.currentText()
+            if not full_name:
+                self.action_done.emit("⚠  اختر نموذجاً أولاً")
+                return
+            self._engine.set_ollama_model(full_name)
+            self._load_btn.setEnabled(False)
+            self._load_btn.setText("⏳  جاري التحميل…")
+            self._act_btn.setEnabled(False)
+            self._prog.setVisible(True)
+            w = ModelWorker(self._engine, "ollama", "load")
+            w.done.connect(self._on_ollama_load_done)
+            w.done.connect(w.deleteLater)
+            self._worker = w
+            w.start()
+            self.action_done.emit(f"⏳  جاري تحميل واختبار ← {full_name} (قد يستغرق دقيقة للنماذج الكبيرة)")
+
+    def _on_ollama_load_done(self, ok: bool, msg: str):
+        self._worker = None
+        self._prog.setVisible(False)
+        self._load_btn.setEnabled(True)
+        self._act_btn.setEnabled(True)
+        c = theme.c
+
+        if ok:
+            if self._ollama_loaded:
+                # Was loaded → now unloaded
+                self._ollama_loaded = False
+                self._ollama_active = False
+                self._load_btn.setText("▶  تحميل")
+                self._load_btn.setObjectName("btn_success")
+                self._act_btn.setText("★  تنشيط")
+                self._act_btn.setObjectName("btn_danger")
+                self._ollama_dot.setStyleSheet(
+                    f"color: {c['muted']}; font-size: 16px;"
+                    f" background: transparent; border: none;"
+                )
+                self._ollama_model_lbl.setText("غير متصل")
+                self._ollama_model_lbl.setStyleSheet(
+                    f"color: {c['muted']}; font-size: 13px;"
+                    f" background: transparent; border: none;"
+                )
             else:
-                full_name = base
-        if not full_name:
+                # Was unloaded → now loaded
+                self._ollama_loaded = True
+                model_name = self._engine.get_current_ollama_model() if self._engine else ""
+                self._load_btn.setText("⏹  إلغاء تحميل")
+                self._load_btn.setObjectName("btn_danger")
+                self._ollama_dot.setStyleSheet(
+                    f"color: {c['green2']}; font-size: 16px;"
+                    f" background: transparent; border: none;"
+                )
+                self._ollama_model_lbl.setText(model_name or "متصل")
+                self._ollama_model_lbl.setStyleSheet(
+                    f"color: {c['primary']}; font-size: 13px; font-weight: bold;"
+                    f" background: transparent; border: none;"
+                )
+            for btn in (self._load_btn, self._act_btn):
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+        else:
+            # Operation failed — restore button to previous state
+            if self._ollama_loaded:
+                self._load_btn.setText("⏹  إلغاء تحميل")
+                self._load_btn.setObjectName("btn_danger")
+            else:
+                self._load_btn.setText("▶  تحميل")
+                self._load_btn.setObjectName("btn_success")
+            self._load_btn.style().unpolish(self._load_btn)
+            self._load_btn.style().polish(self._load_btn)
+
+            tr  = self._engine.get_translator("ollama") if self._engine else None
+            err = getattr(tr, "_last_error", "") or msg
+            self._ollama_dot.setStyleSheet(
+                f"color: {c['accent']}; font-size: 16px;"
+                f" background: transparent; border: none;"
+            )
+            self._ollama_model_lbl.setText(err[:100] if err else "فشل التحميل")
+            self._ollama_model_lbl.setStyleSheet(
+                f"color: {c['accent']}; font-size: 11px;"
+                f" background: transparent; border: none;"
+            )
+
+        self.action_done.emit(("✓  " if ok else "✗  ") + msg)
+
+    def _on_ollama_activate(self):
+        """تعيين Ollama كنموذج نشط أو إلغاء تنشيطه."""
+        if not self._engine:
             return
-        self._engine.set_ollama_model(full_name)
+        c = theme.c
+        if not self._ollama_loaded:
+            self.action_done.emit("⚠  حمّل النموذج أولاً قبل التنشيط")
+            return
         self._engine.set_active_model("ollama")
-        self._load_btn.setEnabled(False)
-        self._prog.setVisible(True)
-        w = ModelWorker(self._engine, "ollama", "load")
-        w.done.connect(self._on_load_done)
-        w.done.connect(w.deleteLater)
-        self._worker = w
-        w.start()
-        self.action_done.emit(f"⏳  جاري تحميل Ollama ← {full_name}")
+        self._ollama_active = True
+        self._act_btn.setText("★  نشط")
+        self._act_btn.setObjectName("btn_success")
+        self._act_btn.style().unpolish(self._act_btn)
+        self._act_btn.style().polish(self._act_btn)
+        model_name = self._engine.get_current_ollama_model() if self._engine else ""
+        self.action_done.emit(f"★  Ollama نشط ← {model_name}")
 
     def _toggle_load(self, key: str, currently_loaded: bool):
         if not self._engine:
@@ -482,13 +623,15 @@ class DetailPanel(QFrame):
 
     def _on_load_done(self, ok: bool, msg: str):
         self._worker = None
-        self._prog.setVisible(False)
-        self._load_btn.setEnabled(True)
-        if ok:
-            self._load_btn.setText("⏹  إيقاف")
-            self._load_btn.setObjectName("btn_danger")
-            self._load_btn.style().unpolish(self._load_btn)
-            self._load_btn.style().polish(self._load_btn)
+        if hasattr(self, "_prog"):
+            self._prog.setVisible(False)
+        if hasattr(self, "_load_btn"):
+            self._load_btn.setEnabled(True)
+            if ok:
+                self._load_btn.setText("⏹  إيقاف")
+                self._load_btn.setObjectName("btn_danger")
+                self._load_btn.style().unpolish(self._load_btn)
+                self._load_btn.style().polish(self._load_btn)
         self.action_done.emit(("✓  " if ok else "✗  ") + msg)
 
     def _set_active(self, key: str):
@@ -609,6 +752,28 @@ class SystemPromptEditor(QFrame):
         self._edit.setPlainText(_default_ollama_system_prompt())
         self.status_message.emit("تم إعادة تعيين البرومت — اضغط «حفظ» لتطبيقه")
 
+    def refresh_theme(self):
+        c = theme.c
+        self.setStyleSheet(f"""
+            QFrame#card {{
+                background: {c['card']};
+                border: 1px solid {c['border']};
+                border-radius: 10px;
+            }}
+        """)
+        self._edit.setStyleSheet(f"""
+            QTextEdit {{
+                background: {c['card2']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                color: {c['primary']};
+                font-family: 'Consolas', monospace;
+                font-size: 12px;
+                padding: 10px;
+            }}
+            QTextEdit:focus {{ border-color: {c['blue']}; }}
+        """)
+
     def set_engine(self, engine):
         self._engine = engine
 
@@ -645,16 +810,16 @@ class ModelsPage(QWidget):
 
         lay.addWidget(self._build_topbar())
 
-        # Splitter: left list | right detail
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet(f"background: {c['bg']};")
+        body = QWidget()
+        body.setObjectName("models_body")
+        body_lay = QHBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(0)
+        self._model_list_frame = self._build_model_list()
+        body_lay.addWidget(self._model_list_frame)
+        body_lay.addWidget(self._build_right_panel(), 1)
 
-        splitter.addWidget(self._build_model_list())
-        splitter.addWidget(self._build_right_panel())
-        splitter.setSizes([240, 700])
-        splitter.setHandleWidth(1)
-
-        lay.addWidget(splitter, 1)
+        lay.addWidget(body, 1)
 
     def _build_topbar(self) -> QFrame:
         bar, lay = make_topbar("🤖", "نماذج الترجمة")
@@ -665,11 +830,74 @@ class ModelsPage(QWidget):
         )
         lay.addWidget(self._active_lbl)
 
+        # فلتر حماية التاقات (عام لكل التطبيق)
+        from engine.filtered_translator import get_global_tag_mode, set_global_tag_mode
+        c = theme.c
+        tag_lbl = QLabel("🛡 الفلتر:")
+        tag_lbl.setStyleSheet(
+            f"color: {c['muted']}; font-size: 12px; background: transparent; border: none;"
+        )
+        lay.addSpacing(12)
+        lay.addWidget(tag_lbl)
+
+        self._tag_mode_combo = QComboBox()
+        self._tag_mode_combo.addItem("🛡 Bulletproof — ⟦N⟧ + cascade  (موصى)", "bulletproof")
+        self._tag_mode_combo.addItem("🎯 Tiered — [tN]/[sN]",                  "tiered")
+        self._tag_mode_combo.addItem("🔒 Strip — PUA characters",              "strip")
+        self._tag_mode_combo.addItem("🏷 Inline — تاقات تبقى مع النص",         "inline")
+        self._tag_mode_combo.setToolTip(
+            "فلتر حماية التاقات (يُطبَّق على كل ترجمات البروكسي وزر إعادة الترجمة).\n"
+            "Bulletproof: الأقوى — يحمي بـ ⟦N⟧ ويتراجع تلقائياً عند الفشل.\n"
+            "Tiered: علامات [tN]/[sN] للمودلات المتوسطة.\n"
+            "Strip: محارف PUA للمودلات الصغيرة.\n"
+            "Inline: لا حماية — للمودلات الذكية فقط."
+        )
+        self._tag_mode_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {c['card2']}; color: {c.get('secondary', '#e8e8e8')};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                padding: 4px 10px; font-size: 12px; min-width: 240px;
+            }}
+            QComboBox:hover {{ border-color: {c['accent']}; }}
+        """)
+        current = get_global_tag_mode()
+        idx = self._tag_mode_combo.findData(current)
+        if idx >= 0:
+            self._tag_mode_combo.setCurrentIndex(idx)
+
+        def _on_tag_mode_changed(_i: int):
+            mode = self._tag_mode_combo.currentData()
+            if not mode:
+                return
+            try:
+                set_global_tag_mode(mode)
+            except Exception as e:
+                self.status_message.emit(f"✗  تعذّر حفظ الفلتر: {e}")
+                return
+            self.status_message.emit(f"✓  الفلتر العام: {mode}  (يُطبَّق فوراً)")
+            # طبّق على البروكسي إذا كان يعمل
+            try:
+                from engine import proxy_server as _ps  # noqa
+                # البروكسي سيقرأ من config.json عند start() القادم؛
+                # لكن لو يعمل الآن، حدّثه مباشرة عبر set_tag_mode إذا متاح
+                proxy = getattr(self, "_proxy_ref", None)
+                if proxy and hasattr(proxy, "set_tag_mode"):
+                    proxy.set_tag_mode(mode)
+            except Exception:
+                pass
+
+        self._tag_mode_combo.currentIndexChanged.connect(_on_tag_mode_changed)
+        lay.addWidget(self._tag_mode_combo)
+
         reload_btn = QPushButton("🔄  تحديث")
         reload_btn.setObjectName("btn_secondary")
         reload_btn.clicked.connect(self.refresh)
         lay.addWidget(reload_btn)
         return bar
+
+    def set_proxy_ref(self, proxy):
+        """يستلم مرجع البروكسي لتطبيق tag_mode فوراً عند التغيير."""
+        self._proxy_ref = proxy
 
     def _build_model_list(self) -> QFrame:
         c = theme.c
@@ -683,6 +911,8 @@ class ModelsPage(QWidget):
                 max-width: 260px;
             }}
         """)
+        frame.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
         lay = QVBoxLayout(frame)
         lay.setContentsMargins(0, 8, 0, 8)
         lay.setSpacing(0)
@@ -694,23 +924,15 @@ class ModelsPage(QWidget):
         self._model_list_lay = QVBoxLayout()
         self._model_list_lay.setSpacing(0)
         self._model_list_lay.setContentsMargins(0, 0, 0, 0)
+        lay.addLayout(self._model_list_lay)
+        lay.addStretch()
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent; border: none;")
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
-        inner.setLayout(self._model_list_lay)
-        scroll.setWidget(inner)
-
-        lay.addWidget(scroll, 1)
         return frame
 
     def _build_right_panel(self) -> QWidget:
         c = theme.c
         w = QWidget()
-        w.setStyleSheet(f"background: {c['bg']};")
+        w.setObjectName("model_right_panel")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(16)
@@ -725,6 +947,19 @@ class ModelsPage(QWidget):
         lay.addWidget(self._prompt_editor)
 
         return w
+
+    def refresh_theme(self):
+        c = theme.c
+        self._model_list_frame.setStyleSheet(f"""
+            QFrame#sidebar {{
+                background: {c['surface']};
+                border-right: 1px solid {c['border']};
+                min-width: 220px;
+                max-width: 260px;
+            }}
+        """)
+        self._prompt_editor.refresh_theme()
+        self.refresh()
 
     # ── Data ──────────────────────────────────────────────────────────────────
 
@@ -764,6 +999,11 @@ class ModelsPage(QWidget):
 
         self._detail.set_engine(self._engine)
         self._prompt_editor.set_engine(self._engine)
+
+        # Auto-select and open the active model detail panel
+        if active and active in self._buttons:
+            self._buttons[active].set_active(True)
+            QTimer.singleShot(50, lambda: self._select_model(active))
 
     def _select_model(self, key: str):
         models  = self._engine.get_available_models()

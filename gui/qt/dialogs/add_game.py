@@ -170,12 +170,14 @@ class AddGameDialog(QDialog):
         self._engine = QComboBox()
         for val, label in ENGINE_OPTIONS:
             self._engine.addItem(label, val)
+        theme.style_combo(self._engine)
         form.addRow(_lbl("المحرك:"), self._engine)
 
         # Hook mode
         self._hook = QComboBox()
         for val, label in HOOK_OPTIONS:
             self._hook.addItem(label, val)
+        theme.style_combo(self._hook)
         form.addRow(_lbl("وضع الاعتراض:"), self._hook)
 
         # Source / Target language
@@ -186,6 +188,8 @@ class AddGameDialog(QDialog):
         for val, label in LANG_OPTIONS:
             self._src_lang.addItem(label, val)
             self._tgt_lang.addItem(label, val)
+        theme.style_combo(self._src_lang)
+        theme.style_combo(self._tgt_lang)
         self._src_lang.setCurrentIndex(0)
         self._tgt_lang.setCurrentIndex(1)
 

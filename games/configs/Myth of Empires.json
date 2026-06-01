@@ -3,7 +3,7 @@
   "process_name": "MOE.exe",
   "game_path": "D:\\SteamLibrary\\steamapps\\common\\Myth of Empires",
   "engine": "unreal",
-  "hook_mode": "frida",
+  "hook_mode": "file",
   "source_lang": "en",
   "target_lang": "ar",
   "replace_font": false,
@@ -13,5 +13,8 @@
   "hooks": [],
   "enabled": true,
   "locres_path": "D:/SteamLibrary/steamapps/common/Myth of Empires/MOE/Content/Paks/pakchunk0_optional-WindowsNoEditor_P/MOE/Content/Localization/MoeGame/en/MoeGame.locres",
-  "hidden_features": []
+  "hidden_features": [],
+  "shown_features": [
+    "iostore_section"
+  ]
 }
