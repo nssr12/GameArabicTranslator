@@ -113,6 +113,15 @@ def main():
         shape_fn = lambda s: layout_rtl(s, max_line_len=args.wrap)
         print(f"🔁 تشكيل RTL مفعّل (wrap={args.wrap})")
 
+    # ⚠ حارس: لا تترجم مصدراً فيه عربي (= الملف مُترجَم مسبقاً → نتجنّب عربي→عربي)
+    import re as _re
+    _AR = _re.compile(r'[؀-ۿ]')
+    ar_src = [en for en in uniq if _AR.search(en)]
+    if ar_src:
+        print(f"⚠ تخطّي {len(ar_src)} مصدر فيه عربي (الملف مُترجَم؟). "
+              f"استخدم النسخة الإنجليزية (.orig).")
+        uniq = [en for en in uniq if not _AR.search(en)]
+
     # ── الترجمة ──
     mapping: dict = {}
     hits = miss = newt = fail = 0

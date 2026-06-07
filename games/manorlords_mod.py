@@ -19,10 +19,13 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from typing import List, Optional, Tuple, Callable
+
+_AR = re.compile(r'[؀-ۿ]')   # نطاق العربية — لكشف المصادر التالفة
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UAGUI = os.path.join(ROOT, "tools", "UAssetGUI", "UAssetGUI.exe")
@@ -134,19 +137,21 @@ class ManorLordsMod:
             log.append("❌ لا توجد جداول DT_Translation_*")
             return False, ""
 
+        # work = مجلّد عمل (أزواج المصدر الإنجليزي + JSON) — لا يُحزَم.
+        # stage = يحوي فقط الـ uassets المترجمة — هو ما يحزمه repak.
+        work = tempfile.mkdtemp(prefix="mlwork_")
         stage = tempfile.mkdtemp(prefix="mlmod_")
         applied_total = 0
         try:
             for i, ua in enumerate(tables, 1):
-                name = os.path.basename(ua)
+                name = os.path.basename(ua)            # DT_X.uasset
                 if progress_cb:
                     progress_cb(i, len(tables), name)
-                src = self._english_src(ua)
-                jp = os.path.splitext(ua)[0] + ".json"
-                if not os.path.exists(jp) or os.path.getmtime(src) > os.path.getmtime(jp):
-                    if not _run([UAGUI, "tojson", src, jp, UE_VER, USMAP]):
-                        log.append(f"  ✗ tojson فشل: {name}")
-                        continue
+                # ⚠ المصدر دائماً النسخة الإنجليزية. UAssetGUI يحتاج زوج .uasset+.uexp
+                # بأسماء صحيحة، لذا ننسخ .orig (لو وُجد) لأسماء صحيحة في work قبل tojson.
+                jp = os.path.join(work, name + ".json")
+                if not self._tojson_english(ua, work, name, jp, log):
+                    continue
                 try:
                     data = json.load(open(jp, encoding="utf-8"))
                 except Exception as e:
@@ -154,29 +159,28 @@ class ManorLordsMod:
                     continue
                 objs: list = []
                 _collect(data, SRC_COL, objs)
-                # طبّق الكاش
+                # طبّق الكاش (المصدر إنجليزي؛ نتجاهل أي قيمة عربية احتياطاً)
                 applied = 0
                 for o in objs:
                     en = o["Value"]
-                    if not en.strip():
+                    if not en.strip() or _AR.search(en):
                         continue
                     ar = cache.get_best(GAME, en)
                     if ar:
                         o["Value"] = ar
                         applied += 1
                 applied_total += applied
-                # اكتب uasset مترجم في staging بالمسار النسبي الصحيح
+                # اكتب uasset مترجم في stage بالمسار النسبي الصحيح
                 rel = os.path.relpath(ua, FORCACHE).replace("\\", "/")
                 dst = os.path.join(stage, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                bj = os.path.splitext(dst)[0] + ".build.json"
+                bj = os.path.join(work, name + ".build.json")
                 json.dump(data, open(bj, "w", encoding="utf-8"), ensure_ascii=False)
                 if not _run([UAGUI, "fromjson", bj, dst, USMAP]):
                     log.append(f"  ✗ fromjson فشل: {name}")
                     continue
-                os.remove(bj)
 
-            # احزم staging
+            # احزم stage
             os.makedirs(READY, exist_ok=True)
             out_pak = os.path.join(READY, PAK_NAME)
             if os.path.exists(out_pak):
@@ -190,6 +194,25 @@ class ManorLordsMod:
             return True, out_pak
         finally:
             shutil.rmtree(stage, ignore_errors=True)
+            shutil.rmtree(work, ignore_errors=True)
+
+    @staticmethod
+    def _tojson_english(ua: str, work: str, name: str, jp: str, log: list) -> bool:
+        """يولّد JSON من النسخة الإنجليزية. لو وُجد .orig ننسخ زوج (uasset+uexp)
+        بأسماء صحيحة في work (UAssetGUI لا يقرأ امتداد .orig)، وإلا نستخدم ua مباشرة."""
+        stem = os.path.splitext(ua)[0]              # …/DT_X
+        if os.path.exists(ua + ".orig"):
+            src = os.path.join(work, name)          # work/DT_X.uasset
+            shutil.copy2(ua + ".orig", src)
+            uexp_orig = stem + ".uexp.orig"
+            if os.path.exists(uexp_orig):
+                shutil.copy2(uexp_orig, os.path.splitext(src)[0] + ".uexp")
+        else:
+            src = ua                                # ua نفسه إنجليزي (لم يُترجَم)
+        if not _run([UAGUI, "tojson", src, jp, UE_VER, USMAP]) or not os.path.exists(jp):
+            log.append(f"  ✗ tojson فشل: {name}")
+            return False
+        return True
 
     # ── تثبيت / تحديث / إلغاء ────────────────────────────────────────────
     def install(self, cfg: dict, game_path: str, cache,

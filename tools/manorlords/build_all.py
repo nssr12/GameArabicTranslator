@@ -59,6 +59,32 @@ def fromjson(jsonp, uasset):
     return r.returncode == 0
 
 
+import re as _re
+_AR = _re.compile(r'[؀-ۿ]')
+
+def has_arabic(s: str) -> bool:
+    return bool(_AR.search(s or ""))
+
+
+import shutil as _shutil, tempfile as _tempfile
+
+def tojson_english(uasset: str, jsonp: str) -> bool:
+    """⚠ يولّد JSON من النسخة الإنجليزية دائماً. لو وُجد .orig ننسخ زوج (uasset+uexp)
+    بأسماء صحيحة في temp (UAssetGUI لا يقرأ امتداد .orig)، وإلا نستخدم uasset مباشرة."""
+    stem = os.path.splitext(uasset)[0]
+    if os.path.exists(uasset + ".orig"):
+        d = _tempfile.mkdtemp(prefix="mlsrc_")
+        try:
+            src = os.path.join(d, os.path.basename(uasset))
+            _shutil.copy2(uasset + ".orig", src)
+            if os.path.exists(stem + ".uexp.orig"):
+                _shutil.copy2(stem + ".uexp.orig", os.path.splitext(src)[0] + ".uexp")
+            return tojson(src, jsonp)
+        finally:
+            _shutil.rmtree(d, ignore_errors=True)
+    return tojson(uasset, jsonp)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tables-dir", default=HOODED)
@@ -103,20 +129,22 @@ def main():
         jsonp = os.path.splitext(uasset)[0] + ".json"
 
         if not args.pack_only:
-            # 1) tojson (لو لزم)
-            if not os.path.exists(jsonp) or os.path.getmtime(uasset) > os.path.getmtime(jsonp):
-                if not tojson(uasset, jsonp):
-                    print(f"  ✗ tojson فشل: {name}"); continue
+            # 1) tojson من النسخة الإنجليزية الأصلية دائماً — لا الـ uasset المترجَم
+            if not tojson_english(uasset, jsonp):
+                print(f"  ✗ tojson فشل: {name}"); continue
             with open(jsonp, encoding="utf-8") as f:
                 data = json.load(f)
             objs = []
             collect_values(data, SRC_COL, objs)
             uniq = list({o["Value"] for o in objs if o["Value"].strip()})
 
-            # 2) ترجمة
+            # 2) ترجمة — ⚠ حارس: تخطّى أي مصدر فيه عربي (= ملف مُترجَم بالخطأ، لا تُرجمه ثانية)
             mapping = {}
-            h = n = fl = 0
+            h = n = fl = skp = 0
             for en in uniq:
+                if has_arabic(en):
+                    skp += 1
+                    continue
                 ar = cache.get_best(GAME, en)
                 if ar:
                     h += 1
@@ -129,6 +157,8 @@ def main():
                 if ar:
                     mapping[en] = ar
             g_hits += h; g_new += n; g_fail += fl
+            if skp:
+                print(f"  ⚠ {name}: تخطّى {skp} مصدر عربي (ملف مُترجَم؟)")
 
             # اكتب العربي + fromjson
             for o in objs:

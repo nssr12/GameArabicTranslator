@@ -489,6 +489,18 @@ JSON --(UAssetGUI fromjson)--> uasset مترجم
    `--include-combined`/`include_combined=True` لضمّ `CDT_*`.
 5. **تطابق الإصدار حرج**: أي لعبة UE أخرى بنفس النهج — افحص إصدار pak اللعبة الأصلي (footer magic
    `0x5A6F12E1` ثم uint32) وطابقه بـ repak `--version`. v11=UE5.4/5.5، اختلاف الإصدار = كراش.
+6. **⚠️ المصدر دائماً من `.orig` الإنجليزي — لا الـ uasset/json المترجَم** (مزلق خطير سبّب تلف
+   128 صف): بعد `fromjson`، الـ uasset يصبح **عربياً**. لو أعدت `tojson` منه (أو من `.json` قديم
+   صار عربياً) تقرأ العربي كـ `en_US` وتترجمه ثانيةً → `put(عربي, عربي_مُعاد)` يُنشئ صفوف كاش
+   `original_text` عربي (تالفة). الحماية الثلاثية المطبّقة:
+   - `build_all.py` + `ManorLordsMod.build`: `tojson` **دائماً من `.orig`** (وفي build يكتب JSON
+     لملف مؤقت في staging، لا يعيد استخدام `for_cache/*.json`).
+   - حارس في `build_all.py`/`translate_dt.py`: **تخطّى أي مصدر `en` فيه حرف عربي**.
+   - حارس في `cache.py::RetranslateWorker`: لا يُترجم نصّاً مصدره عربي (يمنع المستخدم من إفساد الكاش
+     بزر «إعادة الترجمة» على صف تالف).
+   - تنظيف: احذف الصفوف التي `original_text GLOB '*[؀-ۿ]*'` (عربي في المصدر).
+7. **تلوّث CJK من qwen القديم**: ترجمات سرّبت صينية (reasoning). نظّفها بفحص نطاقات CJK
+   (`[一-鿿…]`) في `translated_text`.
 
 ## ⭐ تعريب Foundation — محرّك Hurricane خاص (بلا Unity/UE)
 

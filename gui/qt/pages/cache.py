@@ -55,13 +55,22 @@ class RetranslateWorker(QThread):
         except Exception:
             pass
 
-        done = failed = 0
+        import re as _re
+        _AR = _re.compile(r'[؀-ۿ]')
+
+        done = failed = skipped = 0
         total = len(self._entries)
         for i, entry in enumerate(self._entries):
             if self._stop:
                 break
             orig = entry["original"]
             game = entry.get("game", "")
+            # ⚠ حارس: لا تُترجم نصّاً مصدره عربي (= صف تالف). الترجمة عربي→عربي
+            # تُنشئ صفّاً جديداً original_text عربي وتُفسد الكاش. تخطّاه.
+            if _AR.search(orig or ""):
+                skipped += 1
+                self.progress.emit(i + 1, total)
+                continue
             try:
                 result, mode = ft.translate_with_info(orig)
                 if result and result != orig:
