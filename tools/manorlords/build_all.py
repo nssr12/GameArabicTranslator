@@ -26,6 +26,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from engine import ue_richtext as ue
+
 UAGUI = os.path.join(_ROOT, "tools", "UAssetGUI", "UAssetGUI.exe")
 USMAP = "ManorLords"
 UE_VER = "VER_UE5_5"
@@ -104,21 +106,20 @@ def main():
     print(f"📋 {len(tables)} جدول")
 
     # ── المحرّك + الكاش (مرّة واحدة) ──
-    cache = ft = None
+    cache = None
+    engine = None
     active_model = "cache"
     if not args.pack_only:
         from engine.cache import TranslationCache
         cache = TranslationCache()
         if not args.no_engine:
             from engine.translator import TranslationEngine
-            from engine.filtered_translator import FilteredTranslator, get_global_tag_mode
             engine = TranslationEngine(os.path.join(_ROOT, "config.json"))
             engine.set_active_model("ollama")
             engine.load_active_model()
             tr = engine.get_translator("ollama")
             active_model = getattr(tr, "model", "ollama") or "ollama"
-            ft = FilteredTranslator(engine, tag_mode=get_global_tag_mode())
-            print(f"🤖 {active_model} | tag_mode={ft.tag_mode}")
+            print(f"🤖 {active_model} | حماية: UE RichText (كل التاقات)")
 
     translated_assets = []
     g_hits = g_new = g_fail = 0
@@ -148,10 +149,10 @@ def main():
                 ar = cache.get_best(GAME, en)
                 if ar:
                     h += 1
-                elif ft is not None:
-                    ar, mode = ft.translate_with_info(en)
+                elif engine is not None:
+                    ar = ue.translate(en, engine)   # حماية UE RichText الكاملة
                     if ar:
-                        cache.put(GAME, en, ar, model=active_model, mode_used=mode); n += 1
+                        cache.put(GAME, en, ar, model=active_model, mode_used="ue_richtext"); n += 1
                     else:
                         fl += 1
                 if ar:

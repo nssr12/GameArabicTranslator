@@ -37,10 +37,9 @@ class RetranslateWorker(QThread):
         self._stop = True
 
     def run(self):
-        # نستخدم FilteredTranslator حتى تُحمى التاقات بنفس cascade البروكسي
-        # (bulletproof → tiered → strip). الـ tag_mode يُقرَأ من config.json.
-        from engine.filtered_translator import FilteredTranslator
-        ft = FilteredTranslator(self._engine)
+        # نستخدم ue_richtext: يحمي كل تاقات UE (<...>, </>, {...}) كتوكنات معتمة
+        # بـ regex — أقوى من tag_filter العام الذي يفوّت الإغلاق العام </> و<i> inline.
+        from engine import ue_richtext as ue
 
         # حدّد اسم المودل النشط الفعلي (مثل qwen2.5:14b) لا المفتاح (ollama)
         # كي نحفظ صفاً جديداً تحت هذا المودل بدون لمس صفوف المودلات الأخرى.
@@ -72,7 +71,7 @@ class RetranslateWorker(QThread):
                 self.progress.emit(i + 1, total)
                 continue
             try:
-                result, mode = ft.translate_with_info(orig)
+                result = ue.translate(orig, self._engine)
                 if result and result != orig:
                     if self._cache:
                         # cache.put يستخدم ON CONFLICT(original_text, model_used)
@@ -80,7 +79,7 @@ class RetranslateWorker(QThread):
                         # ترجمات المودلات الأخرى لنفس النص تبقى سليمة.
                         self._cache.put(
                             game, orig, result,
-                            model=active_model, mode_used=mode,
+                            model=active_model, mode_used="ue_richtext",
                         )
                     done += 1
                 else:

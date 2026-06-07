@@ -91,11 +91,11 @@ def main():
     cache = TranslationCache()
 
     # ── المحرّك (اختياري) ──
-    ft = None
+    from engine import ue_richtext as ue
+    engine = None
     active_model_name = "cache"
     if not args.no_engine:
         from engine.translator import TranslationEngine
-        from engine.filtered_translator import FilteredTranslator, get_global_tag_mode
         engine = TranslationEngine(os.path.join(_ROOT, "config.json"))
         if not engine.set_active_model("ollama"):
             print("❌ تعذّر تفعيل ollama")
@@ -103,8 +103,7 @@ def main():
         engine.load_active_model()
         tr = engine.get_translator("ollama")
         active_model_name = getattr(tr, "model", "ollama") or "ollama"
-        ft = FilteredTranslator(engine, tag_mode=get_global_tag_mode())
-        print(f"🤖 المحرّك: {active_model_name} | tag_mode={ft.tag_mode}")
+        print(f"🤖 المحرّك: {active_model_name} | حماية: UE RichText (كل التاقات)")
 
     # ── RTL (اختياري) ──
     shape_fn = None
@@ -130,10 +129,10 @@ def main():
         ar = cache.get_best(args.game, en)
         if ar:
             hits += 1
-        elif ft is not None:
-            ar, mode = ft.translate_with_info(en)
+        elif engine is not None:
+            ar = ue.translate(en, engine)   # حماية UE RichText الكاملة
             if ar:
-                cache.put(args.game, en, ar, model=active_model_name, mode_used=mode)
+                cache.put(args.game, en, ar, model=active_model_name, mode_used="ue_richtext")
                 newt += 1
             else:
                 fail += 1
