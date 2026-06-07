@@ -2,11 +2,11 @@
 
 > ملف سياق المشروع لـ Claude / AI assistants.
 > للمستخدمين النهائيين، انظر [README.md](README.md).
-> آخر تحديث: 2026-06-01 (v2.2 — تصحيح PySide6 + توثيق ملفات I2/UE4SS/admin غير الموثّقة)
+> آخر تحديث: 2026-06-01 (v2.3 — استقرار Ollama + جودة الترجمة + تقليل تكرار الكاش)
 
 ## TL;DR
 
-Game Arabic Translator v2.2 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
+Game Arabic Translator v2.3 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
 
 > ⚠ **ملاحظة framework**: الكود يستورد فعلياً من `PySide6` (لا PyQt6). استخدم `Signal`/`Slot`/`@Property` (لا `pyqtSignal`/`pyqtSlot`/`pyqtProperty`) في أي كود Qt جديد.
 
@@ -51,6 +51,7 @@ d:\GameArabicTranslator\
 │   ├── tag_health.py              ← ⭐ جديد — is_broken_translation() كاشف الترجمات المعطوبة
 │   ├── filtered_translator.py     ← ⭐ جديد — FilteredTranslator + global tag_mode helpers
 │   ├── i2_translator.py           ← ⭐ I2BatchTranslator — ترجمة دفعية لملفات I2Languages JSON (UABEA)
+│   ├── number_template.py         ← ⭐ v2.3 — تقويلب الأرقام ({0}{1}) لتقليل تكرار الكاش
 │   ├── arabic_shaper.py           ← تشكيل عربي + عكس بصري RTL لـ TMP (يحفظ tags/placeholders)
 │   ├── arabic_processor.py        ← reshape_arabic() — تشكيل مع حماية tokens (tags/{0}/%s/|icon|)
 │   ├── skip_patterns.py           ← قائمة المنع (data/skip_patterns.json)
@@ -422,6 +423,100 @@ UABEA يستخرج I2Languages-*.assets → *.json
 | **DLL injection** | `games/unreal_hook_mod.py` | حقن `cppfs/dxgi/ZXSOSZX*.dll` + ملفات `Translate/*.subtitle.txt` | الافتراضي لـ UE5 (Manor Lords, Palworld) |
 | **UE4SS mod** | `games/ue4ss_mod.py` | UE4SS + Lua mod يقرأ `dict/translations.txt` | مسار بديل لألعاب تدعم UE4SS |
 
+## ⭐ تعريب Foundation — محرّك Hurricane خاص (بلا Unity/UE)
+
+> لعبة Foundation (Polymorph) على محرّك **Hurricane** خاص. لا BepInEx ولا UE hooks تنفع.
+> الحلّ المُثبَت: **proxy DLL يعترض FreeType** + ترجمة JSON دفعية + تخطيط RTL برمجي.
+> أدوات اللعبة في `tools/foundation/` و `mods/Foundation/`. التفاصيل الكاملة في
+> [tools/foundation/PROGRESS.md](tools/foundation/PROGRESS.md).
+
+### المعمارية (3 طبقات)
+
+| الطبقة | الآلية | الملف |
+|------|------|------|
+| **الترجمة** | يقرأ `localization/en/*.json` (27 ملف، nested، BOM، tabs) → يترجم عبر FilteredTranslator + كاش (`Foundation.db`) → يكتب `localization/ar/*.json` بتخطيط RTL | `tools/foundation/translate_foundation.py` |
+| **رسم الخط** | proxy `CrashRpt1403.dll` (يُحمَّل تلقائياً عند الإطلاق العادي — CrashRpt مستوردة static) → MinHook على `FT_New_Memory_Face @ 0x141e06eb0` → يستبدل خطوط الواجهة بخط عربي حسب النمط | `tools/foundation/dll/arabicfont.c` |
+| **RTL** | `engine/rtl_layout.py` (تطبيع `\n` + لفّ ذاتي + تشكيل/عكس BiDi لكل سطر) | مشترك |
+
+### لماذا proxy DLL (لا حقن ولا مود)
+
+- **المود مسدود**: لا نوع أصل خط في API، والـ atlas يُبنى عند الإقلاع قبل تحميل المودات.
+- **`game.package` مشفّر** (مفتاح لكل أصل) → لا تعديل مباشر للخطوط.
+- **الحقن المباشر/الغلاف يكسران Steam handshake** → اللعبة تخرج/تتعطّل.
+- **الحلّ**: المحرّك يفكّ تشفير الخط ثم يمرّره لـ `FT_New_Memory_Face`. نعترض هذا (المحرّك
+  فكّ التشفير قبله) ونستبدل البافر. الـ proxy لـ DLL مستوردة static (`CrashRpt1403.dll`)
+  يُحمَّل أثناء الإطلاق العادي عبر Steam → **بلا حقن، بلا غلاف، بلا كسر تشفير**.
+
+### استبدال الخط حسب النمط (في الـ hook)
+
+يُعرَف نوع الخط من **حجم الملف** (من جدول الحزمة):
+- المدى 400KB–700KB = خطوط الواجهة اللاتينية (Sans/Serif/Mono). Thai(~47KB)/CJK(~16MB) خارجه.
+- أحجام Bold/BoldItalic (455164/471004/570708/608488) → `arabic_bold.ttf`. الباقي → `arabic_regular.ttf`.
+- خط vector واحد يكفي كل الأحجام النقطية (FreeType يقيس). العربية بلا مائل → Bold للعريض والمائل.
+
+### ⭐ `engine/rtl_layout.py` — الحلّ الجذري لـ RTL (قابل لإعادة الاستخدام في كل الألعاب)
+
+المشكلة المتكرّرة في كل محرّك بلا BiDi (Unity TMP، Hurricane، …):
+1. **فاصل السطر**: `\n` حرفي vs سطر فعلي — `layout_rtl` يطبّعه (`\\n` → `\n`).
+2. **انقلاب ترتيب الأسطر**: المحرّك يلفّ النص المعكوس مسبقاً من اليسار (auto-wrap) فينقلب
+   ترتيب الأسطر رأسياً. الحل: **نلفّ الكلمات بأنفسنا** (قبل التشكيل) لأسطر ≤ عرض أضيق صندوق
+   → المحرّك لا يحتاج auto-wrap → ترتيب صحيح دائماً.
+3. **التشكيل + العكس لكل سطر مستقلاً** (الترتيب الرأسي محفوظ).
+
+```python
+from engine.rtl_layout import layout_rtl
+out = layout_rtl(text, max_line_len=45)   # 0 = فواصل صريحة فقط؛ ≤ أضيق صندوق
+```
+**القاعدة**: `max_line_len ≤ أضيق صندوق نص` → لا auto-wrap في أي مكان (Foundation: 45).
+
+### النشر (للإطلاق العادي عبر Steam)
+
+عبر `games/foundation_mod.py` (تثبيت/إلغاء — مثل bepinex_mod). يضع في مجلّد اللعبة:
+- `CrashRpt1403.dll` (proxy محلّنا) + `CrashRpt1403_orig.dll` (الأصلية مُعاد تسميتها).
+- `arabic_regular.ttf` + `arabic_bold.ttf` (خطوط الاستبدال).
+- يطبّق RTL على `localization/ar/*.json` + يسجّل `ar:` في locales.txt (اسم مُشكّل) +
+  يضبط اللغة=ar في usersetting.config + يحذف charset.txt (يُعاد توليده).
+- ⚠ **تحديث Steam يستعيد `CrashRpt1403.dll`** → أعد التثبيت من الزر.
+
+### بناء الـ proxy (يحتاج Zig — `tools/zig/`)
+
+```bash
+ZIG=tools/zig/zig-x86_64-windows-0.16.0/zig.exe
+$ZIG cc -shared -target x86_64-windows-gnu -O2 -I tools/foundation/tools_minhook/include \
+  tools/foundation/dll/arabicfont.c tools/foundation/dll/CrashRpt1403.def \
+  tools/foundation/tools_minhook/src/{buffer,hook,trampoline}.c tools/foundation/tools_minhook/src/hde/hde64.c \
+  -o tools/foundation/dll/CrashRpt1403.dll -lkernel32 -luser32
+```
+الـ `.def` يوجّه كل صادرات CrashRpt الأصلية لـ `CrashRpt1403_orig` (لئلا تنكسر اللعبة).
+
+### الهندسة العكسية (مرجع)
+
+- مشروع Ghidra محفوظ: `tools/foundation/ghidra_proj/` (أعد التشغيل بـ `-process foundation.exe -noanalysis`).
+- دالة بناء الخط: `GenCFreeTypeFont::build` @ `0x1403d4220`. `FT_New_Memory_Face` = `FUN_141e06eb0`.
+- أدوات: `pkg.py` (محلّل الحزمة)، `find_ft.py`/`find_xref.py`/`disasm.py` (RE)، `ghidra_scripts/FindFreeType.java`.
+
+### تكامل التطبيق (صفحة اللعبة + الكاش)
+
+- **`games/foundation_mod.py`** (`FoundationMod`) — تثبيت/تحديث/إلغاء (واجهة مثل BepInExMod):
+  `install/uninstall/update_translations/get_install_status/apply_translations`. التثبيت ينشر
+  الـ proxy + الخطوط + يطبّق RTL على ar/ + يضبط اللغة + يحذف charset. الإلغاء عكسي بالكامل.
+- **بطاقة Foundation** في `gui/qt/pages/games.py::_render_foundation_card` (engine=="hurricane"):
+  أزرار تثبيت/تحديث الترجمة/إلغاء + **اختيار الخط** + **منزلق لفّ الأسطر** + عرض الخط الحالي.
+  الإشارات `foundation_*_requested` → معالِجات `_on_foundation_*`.
+- **اختيار الخط** (`set_font`/`font_coverage`): منتقي ملف يفحص تغطية العربي + **presentation forms**
+  (لازمة لأننا نغذّي نصاً مُشكّلاً). خطوط GSUB فقط (Cairo/Tajawal/Noto Sans Arabic) بلا PF → `؟`.
+  خطوط فيها PF: Tahoma/Segoe/Arial/Amiri/**Noto Kufi Arabic**. الخط بأي حجم (الـ hook يطابق خط اللعبة بالحجم).
+- **لفّ مخصّص لكل نص** (`engine/wrap_overrides.py` → `data/cache/<game>.wrap.json`): في EditDialog
+  (صفحة الكاش) منزلق "لفّ RTL مخصّص" يطغى على العام لنص محدّد (للصناديق الضيّقة). يُطبَّق عند "تحديث الترجمة".
+
+### تعديل ترجمة جملة + ملاحظات RTL
+
+1. صفحة **الكاش** → اختر اللعبة (Foundation) → ابحث عن الجملة → **زر "✏ تعديل"** → صحّح → حفظ (في `Foundation.db`).
+2. **أعد التطبيق**: زر "🔄 تحديث الترجمة" في صفحة اللعبة → يُعيد كتابة `ar/*.json` بالتخطيط → أعد تشغيل اللعبة.
+- ⚠ **المسافات المتعمَّدة محفوظة**: `EditDialog._save` لا يحذف المسافات (مهمّة لتباعد أجزاء RTL).
+- ⚠ **القوالب المتداخلة** (اللعبة تملأ `{1}` بجملة منسّقة أخرى) = أصعب حالة RTL؛ ترتيب الأجزاء
+  الداخلية تتحكّم به اللعبة → لا يُعكس آلياً. القوالب المفردة (`{1} ل {2}`) تُعالَج صحيحاً (BiDi يُبقي الأرقام LTR).
+
 ## الـ C# Mods
 
 ### ArabicFontFixer (عام)
@@ -703,6 +798,78 @@ I2 batch translator يخزّن ترجمات بصيغة template (`{0} Days`, `Po
 4. **اقرأ سطر translations.txt بـ Python** وقارن byte-by-byte مع ما يصل الـ DLL.
 5. **تذكّر**: format escape sequences (`\=`, `\n`) في translations.txt يجب يحترمها parser الـ DLL بنفس قواعد parser الـ Python.
 
+## ⭐ تطويرات v2.3 (2026-06-01) — استقرار Ollama + جودة الترجمة + تقليل تكرار الكاش
+
+### السياق
+
+جلسة عمل على Farthest Frontier كشفت 4 مشاكل في الـ pipeline الحيّ، حُلّت كلها في طبقة Python (بلا بناء DLL) عدا إصلاح عكس الأسطر (DLL).
+
+### 1. ⚠️ انقطاع Ollama الصامت — socket بائت + موت أبدي
+
+**العَرَض**: بعد فترة لعب، Ollama "يفصل" — الخادم يبدو يعمل (أخضر) لكن لا يترجم. حتى إيقاف/تشغيل الخادم لا يُصلح، يجب إعادة تشغيل اللعبة.
+
+**السبب الجذري** (سلسلة):
+- `OllamaTranslator` يستخدم `requests.Session` دائمة بـ HTTP keep-alive. عند الخمول، الـ socket المُخزَّن يصبح بائتاً (النظام/Ollama يُغلق الاتصالات الخاملة).
+- الطلب التالي على socket ميت → `ConnectionError` → `_raw_translate` يضع `_is_loaded=False`.
+- الـ wrapper `TranslationEngine.translate` يحاول `load()`؛ لو فشل مرّة (Ollama مشغول) → `_load_failed_session=True` → **لا يُعيد المحاولة أبداً** لبقية الجلسة (كان يُصفَّر فقط في `proxy.start()`).
+
+**الإصلاحات**:
+- [api_translator.py](engine/models/api_translator.py)::`_raw_translate` → عند `ConnectionError` **يُعيد إنشاء الجلسة ويحاول مرّة ثانية** قبل الاستسلام (يعالج الـ socket البائت فوراً). فُصِل تنفيذ الطلب في `_post_and_parse`.
+- [translator.py](engine/translator.py)::`translate` → `_load_failed_session` يتعافى بعد **cooldown 30 ث** (عبر `_load_failed_at`) بدل الموت الأبدي.
+
+### 2. ⚠️ تسميم الكاش أثناء عطل المحرّك (transient vs permanent)
+
+**المشكلة**: عند فشل Ollama (اتصال/مهلة)، كان البروكسي يُعامله كفشل **دائم**: `mark_failed` في DB + يردّ بالنص الإنجليزي. الـ DLL يخزّن الإنجليزي كـ`_staticTr[text]=text` ("لا ترجمة دائمة"). فحتى بعد تعافي Ollama، الـ DB والـ DLL "مسمَّمان" → يتطلّب إعادة تشغيل اللعبة. **هذا السبب الفعلي لـ"لازم أعيد تشغيل اللعبة".**
+
+**الإصلاح** في [proxy_server.py](engine/proxy_server.py):
+- `_is_transient_failure()` يميّز العطل المؤقت (الاتصال منقطع `_is_loaded=False`، أو رسالة خطأ فيها "اتصال/مهلة/connection/timeout").
+- عند عطل مؤقت: **لا** `mark_failed`، ويُرجع الإشارة `_TRANSIENT` → `do_GET` يردّ بجسم **فارغ** → الـ DLL/XUnity لا يُسمَّمان ويُعيدان المحاولة عند التعافي.
+
+### 3. ⚠️ النصوص الطويلة (async) تُترجَم وتُحفظ بالكاش لكن لا تُعرض
+
+**المشكلة**: النص ≥ 200 حرف يذهب async، فالبروكسي كان يردّ **بالإنجليزي** فوراً. الـ DLL يخزّنه كـ self-marker ("لا ترجمة"). العامل الخلفي يترجمه ويحفظه في SQLite (لذا يظهر في الكاش!)، **لكن الـ DLL لا يسأل عنه ثانية** → يبقى إنجليزياً للجلسة.
+
+**الإصلاح**: المسار غير المتزامن يُرجع الإشارة `_PENDING` → `do_GET` يردّ **فارغاً** بدل الإنجليزي. الـ DLL لا يُسمّم، يُعيد الطلب في العرض التالي حتى تجهز الترجمة في الكاش → تُعرض عربية. ("الإنجليزي أولاً" يبقى عبر الـ prefix hook في الـ DLL).
+
+> **الإشارتان** `_TRANSIENT` و`_PENDING` (محارف sentinel في proxy_server.py) كلاهما → ردّ فارغ في `do_GET`. الفرق في الإحصاء فقط: transient=فشل، pending=بانتظار. السلوك الصحيح: **لا تردّ بالإنجليزي إلا عند فشل دائم حقيقي** (is_failed/identity) — حينها الـ DLL يُسمّم بحقّ (بلا spam).
+
+### 4. تقويلب الأرقام — تقليل تكرار الكاش
+
+اللعبة تستبدل القوالب بالأرقام قبل العرض: `"Current Tier: 2"`, `"Fertility: 100% from 0 to 100"`, `"417 Peas have been lost..."`. كل قيمة = مدخل كاش جديد + ترجمة AI جديدة (تكرار ضخم + spam في diag).
+
+**الحل** [engine/number_template.py](engine/number_template.py) + غلاف في `proxy_server.py::_translate`:
+- يستبدل الأرقام بـ`{0}{1}` (علامة **محميّة أصلاً** في برومت النظام وفي `translate_preserving_tokens`) → المفتاح يصبح قالباً واحداً.
+- `_translate` (الغلاف) ينادي `_translate_impl` بالقالب، ثم يُعيد الأرقام في النتيجة.
+- لا يتدخّل لو النص فيه `{..}` أصلاً (تجنّب تضارب).
+- يُعطَّل عبر `config.json["number_templating"]` (افتراضي مُفعَّل).
+- **ملاحظة نطاق**: يعمل بالكامل على المسار **الحيّ**. لمطابقة المسار الثابت (translations.txt) يحتاج نفس التقويلب في الـ DLL (خطوة مستقبلية).
+- **المحتوى الديناميكي غير الرقمي (أسماء القرويين Kasar/Iarra/…)** لا يُقولَب (صعب عمومياً) — يبقى مدخلاً لكل اسم، لكن يُعرض صحيحاً (ترجمة لكل اسم مرّة ثم cache).
+
+### 5. فرض تماثل علامة النهاية — منع نقاط المودل الزائدة
+
+**المشكلة**: translategemma:12b يضيف نقطة في نهاية الترجمة حتى لو الأصل بلا نقطة (رغم برومت المنع). النقطة بعد `</color>` تتداخل مع عكس RTL في الـ DLL → نقطة حمراء منفصلة + اللون يُطبَّق على الكلمة الخطأ.
+
+**الحل (حتمي، لا يعتمد على طاعة المودل)** [base.py](engine/models/base.py)::`enforce_trailing_punctuation(src, translated)`:
+- لو الأصل لا ينتهي بعلامة نهاية جملة، يحذف العلامة التي أضافها المودل (سواء في النهاية أو قبل/بعد تاقات الإغلاق).
+- يُطبَّق في `proxy_server.py::_translate_impl` (الحيّ) و`filtered_translator.py::translate_with_info` (إعادة الترجمة + I2).
+- **تنظيف الموجود**: [tools/fix_added_periods.py](tools/fix_added_periods.py) — يُصحّح الكاش القائم في مكانه (لا يحذف). على الكاش الحالي: **~11,945 ترجمة** فيها نقطة زائدة (22-58% حسب اللعبة!).
+  ```bash
+  python tools/fix_added_periods.py                 # فحص (dry-run)
+  python tools/fix_added_periods.py --apply --yes   # تصحيح كل الألعاب
+  ```
+
+### 6. عكس ترتيب الأسطر RTL (DLL) — لافّ كلمات بعرض محدّد
+
+**المشكلة**: الـ DLL يعرض RTL بعكس كل سطر يدوياً + `isRightToLeftText=false`. السطر الطويل بلا `\n` → TMP يطبّق auto-wrap على النص المعكوس → ينقلب ترتيب الأسطر رأسياً (الأول تحت).
+
+**الإصلاح** [ArabicFontFixer.cs](mods/ArabicFontFixer/ArabicFontFixer.cs)::`InsertLineBreaksAtSentenceEnds` (أُعيدت كتابتها): لافّ كلمات كامل (`MaxVisualLineLen=30`) يعالج كل سطر مستقلاً ويلفّ أي مقطع طويل عند حدود الكلمات → لا مقطع يكفي لتشغيل auto-wrap → لا عكس. **القيمة 30 مضبوطة لصناديق tooltips الضيّقة في Farthest Frontier (~33 حرف)** — تُصغَّر للصناديق الأضيق، تُكبَّر للأوسع. الحلّ الجذري البديل: RTL أصلي عبر `isRightToLeftText=true` (يدع TMP يلفّ تلقائياً).
+
+### درس مستفاد
+
+- **عند "تُحفظ بالكاش لكن لا تُعرض"**: المشكلة غالباً ليست في الترجمة، بل في **تسميم عميل الـ DLL** (`_staticTr` self-marker) أثناء async/عطل. البروكسي يجب يردّ **فارغاً** (لا إنجليزي) إلا عند فشل دائم حقيقي.
+- **المحتوى الديناميكي (أرقام/أسماء)** = أكبر مصدر تضخّم كاش وأعراض "إنجليزي ثم عربي". قولِب ما يمكن (الأرقام)، واقبل الباقي مع ضمان العرض الصحيح.
+- **تعديل كود Python يتطلّب إعادة تشغيل التطبيق** — زر الخادم لا يكفي (Python يحمّل الوحدات مرّة واحدة).
+
 ## الإصلاحات الجوهرية من هذه الجلسة (2026-05-22)
 
 تاريخ الـ commits السابقة:
@@ -795,6 +962,8 @@ cache.set_model_priority(game, model, priority)        # رفع/خفض الأو�
 8. **تطبيع نص الكاش = تطبيع نص .en.txt**: البروكسي يستبدل `\r\n` و `\\n` بمسافة قبل التخزين (`engine/proxy_server.py:136`). أي كود يبحث في الكاش بمفتاح من ملف نصي **لازم** يطبّق نفس التطبيع — انظر `games/unreal_hook_mod.py::export_translate_folder` (`_normalize_key`). نسيان هذا = البحث يفشل لكل نص متعدّد الأسطر.
 9. **تاقات selfclosing — احفظ صيغة الإغلاق الأصلية**: `engine/tag_filter.py::_handle_selfclose` يضيف `/` إلى `attrs` لو الأصل كان `<tag/>`. لا تُزله من المنطق — Palworld و UE5 يفرّقون بين `<tag/>` و `<tag>` ويكسران بدونها.
 10. **cache.put() لإعادة الترجمة، لا update_translation**: عند إعادة الترجمة بمودل ثاني، استخدم `put()` (ينشئ صف جديد لمودل جديد، أو يحدّث صف نفس المودل) — لا `update_translation` الذي يضرب أي صف بنفس النص.
+11. **لا تردّ بالإنجليزي إلا عند فشل دائم** (v2.3): عند عطل مؤقت (اتصال/مهلة) أو نص قيد المعالجة async، ردّ **فارغاً** (`_TRANSIENT`/`_PENDING`) لا الإنجليزي. الإنجليزي == النص يجعل الـ DLL يخزّنه كـ self-marker ("لا ترجمة دائمة للجلسة") → الترجمة تصل الكاش لكن لا تُعرض حتى إعادة تشغيل اللعبة. الإنجليزي مسموح فقط عند `is_failed`/identity (فشل حقيقي).
+12. **تعديل كود Python يتطلّب إعادة تشغيل التطبيق** (v2.3): زر إيقاف/تشغيل الخادم يُعيد `proxy.start()` فقط (إعدادات + حالة)، لا يُعيد استيراد `.py`. انظر قسم "Workflow اختبار سريع".
 
 ### C# / BepInEx
 
@@ -848,13 +1017,27 @@ cache.set_model_priority(game, model, priority)        # رفع/خفض الأو�
 | **تفضيل المودلات الـ live في التصدير** | `cache.get_best(text, deprioritize_suffix=":i2")` |
 | **استبعاد templates في التصدير** | فلتر `_template_pat` في `games/bepinex_mod.py::export_static_translations_txt` |
 | **diag log للـ DLL** | `<game>/BepInEx/arabicfontfixer_diag.log` (Heartbeat كل 5 دقائق + LONG-MISS lookups) |
+| **إعادة محاولة Ollama على socket بائت** | `engine/models/api_translator.py::_raw_translate` (retry على جلسة جديدة) |
+| **تعافي المحرّك بعد فشل تحميل** | `engine/translator.py::translate` (cooldown 30 ث عبر `_load_failed_at`) |
+| **تمييز عطل مؤقت/قيد معالجة** | `engine/proxy_server.py` sentinels `_TRANSIENT` / `_PENDING` (ردّ فارغ، لا تسميم) |
+| **تقويلب الأرقام (تقليل تكرار الكاش)** | `engine/number_template.py` + غلاف `proxy_server.py::_translate` (تعطيل: `config.json["number_templating"]`) |
+| **منع نقاط المودل الزائدة** | `engine/models/base.py::enforce_trailing_punctuation` (حتمي) |
+| **تنظيف النقاط الزائدة من الكاش** | `tools/fix_added_periods.py --apply` |
+| **منع عكس ترتيب الأسطر RTL** | `ArabicFontFixer.cs::InsertLineBreaksAtSentenceEnds` (`MaxVisualLineLen=30`) |
 
 ## Workflow اختبار سريع
 
-1. **بعد تعديل البروكسي**: لا حاجة لإعادة تشغيل التطبيق — استخدم زر "إيقاف الخادم" ثم "تشغيل الخادم" في صفحة اللعبة.
-2. **بعد تعديل system_prompt**: أعد تشغيل التطبيق (يُحمَّل في `TranslationEngine._init_translators`).
-3. **بعد تعديل C# mod**: `dotnet build` → انسخ DLL إلى `<game>/BepInEx/plugins/` → أعد تشغيل اللعبة.
-4. **بعد تعديل translations.txt يدوياً**: auto-reload — البروكسي يقرأ التغييرات في الطلب التالي.
+> ⚠ **تمييز حاسم: تعديل الكود ≠ تغيير الإعدادات.**
+> زر "إيقاف/تشغيل الخادم" يُعيد استدعاء `proxy.start()` فقط (يقرأ الإعدادات + يصفّر الحالة).
+> **لا يُعيد استيراد ملفات `.py` المعدّلة** — Python يحمّل الوحدات في الذاكرة مرّة واحدة.
+> لذلك أي تعديل على **كود** المحرّك (proxy_server.py، api_translator.py، …) يتطلّب
+> **إغلاق التطبيق وإعادة فتحه** بالكامل، وليس مجرّد زر الخادم.
+
+1. **بعد تغيير إعدادات التشغيل فقط** (تبديل اللعبة، tag_mode، cache_model_filter، إعادة تشغيل خادم HTTP بعد تعطّل): يكفي زر "إيقاف الخادم" ثم "تشغيل الخادم".
+2. **بعد تعديل كود Python** (أي ملف في `engine/` أو `gui/`): **أعد تشغيل التطبيق كاملاً** — زر الخادم لا يكفي.
+3. **بعد تعديل system_prompt**: أعد تشغيل التطبيق (يُحمَّل في `TranslationEngine._init_translators`).
+4. **بعد تعديل C# mod**: أغلق اللعبة (الـ DLL مقفول أثناء التشغيل) → `dotnet build` → انسخ DLL إلى `<game>/BepInEx/plugins/` → أعد تشغيل اللعبة.
+5. **بعد تعديل translations.txt يدوياً**: auto-reload — البروكسي يقرأ التغييرات في الطلب التالي.
 
 ## التعامل مع تعارض المودات
 

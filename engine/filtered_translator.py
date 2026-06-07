@@ -21,6 +21,7 @@ from typing import Optional
 
 from .tag_filter import TieredTagFilter, BulletproofTagFilter
 from .tag_validator import validate_bulletproof_markers, summarize_issues
+from .models.base import enforce_trailing_punctuation
 
 
 CONFIG_PATH = "config.json"
@@ -97,7 +98,14 @@ class FilteredTranslator:
         return result
 
     def translate_with_info(self, text: str) -> tuple[Optional[str], str]:
-        """يُرجع (translated, succeeded_mode) أو (None, modes_tried_csv)."""
+        """يُرجع (translated, succeeded_mode) أو (None, modes_tried_csv).
+        يفرض تماثل علامة النهاية على الناتج (يحذف نقطة أضافها المودل)."""
+        result, mode = self._translate_with_info_raw(text)
+        if result:
+            result = enforce_trailing_punctuation(text, result)
+        return result, mode
+
+    def _translate_with_info_raw(self, text: str) -> tuple[Optional[str], str]:
         if not text:
             return text, "empty"
         if self._tag_mode == "bulletproof":

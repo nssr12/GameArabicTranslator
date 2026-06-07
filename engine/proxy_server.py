@@ -14,6 +14,19 @@ from .tag_filter import TieredTagFilter, BulletproofTagFilter
 from .tag_validator import validate_bulletproof_markers, summarize_issues
 from . import skip_patterns
 from . import static_translations
+from . import number_template
+from .models.base import enforce_trailing_punctuation
+
+
+# إشارة "عطل مؤقت بالمحرّك" — تُميّز الاتصال المنقطع/المهلة عن الفشل الدائم.
+# عند رؤيتها، do_GET يردّ بجسم فارغ كي يُعيد العميل (XUnity/DLL) المحاولة لاحقاً
+# بدل تخزين النص الإنجليزي كـ "لا ترجمة" (تسميم الكاش).
+_TRANSIENT = "\x00__TRANSIENT__\x00"
+
+# إشارة "قيد المعالجة بالخلفية" — النص الطويل جُدوِل للترجمة async.
+# do_GET يردّ بجسم فارغ (لا إنجليزي) كي لا يُخزّنه الـ DLL كـ "لا ترجمة" دائمة.
+# العميل يُعيد الطلب في العرض التالي حتى تجهز الترجمة في الكاش → تُعرض عربية.
+_PENDING = "\x00__PENDING__\x00"
 
 
 def _needs_translation(text: str) -> bool:
@@ -141,6 +154,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 text_key = text
             result = srv._translate(text_key) if srv else (None, False, False)
             arabic, from_cache, was_unchanged = result
+            # عطل مؤقت بالمحرّك (transient) أو نص قيد المعالجة بالخلفية (pending)
+            # → ردّ فارغ (لا نُسمّم عميل XUnity/DLL بنص إنجليزي يُخزَّن كـ "لا ترجمة").
+            # العميل يُعيد المحاولة في العرض التالي حتى تجهز الترجمة.
+            if arabic == _TRANSIENT or arabic == _PENDING:
+                if srv:
+                    # transient = فشل (للتنبيه)، pending = بانتظار (بلا تغيير)
+                    srv._stat_request_finished(False, failed=(arabic == _TRANSIENT),
+                                               unchanged=(arabic == _PENDING))
+                try:
+                    self._respond(200, b"", "text/plain; charset=utf-8")
+                except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                    pass
+                return
             if not arabic:
                 arabic = text
             arabic = _apply_rtl(arabic,
@@ -244,6 +270,10 @@ class ProxyServer:
         # الحد الأقصى لحجم الـ queue — يمنع تراكم لانهائي عند الحاجة
         self._bg_max_queue_size = 500
 
+        # تقويلب الأرقام: استبدال الأرقام بـ {0}{1}.. لتقليل تكرار الكاش
+        # ("Current Tier: 2/3/5" → قالب واحد). يُقرأ من config، افتراضي مُفعَّل.
+        self._number_templating = True
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     @property
@@ -336,6 +366,8 @@ class ProxyServer:
             self.set_strip_tags(bool(_cfg.get("strip_tags_before_translate", False)))
         # فلتر مصدر الكاش — للتجربة بمودل واحد أو ترجمة من الصفر
         self.set_cache_model_filter(str(_cfg.get("cache_model_filter", "")))
+        # تقويلب الأرقام (افتراضي مُفعَّل) — يمكن تعطيله من config.json["number_templating"]
+        self._number_templating = bool(_cfg.get("number_templating", True))
         self._timeout     = float(_cfg.get("translate_timeout", 0) or 0)
         # طبّق المهلة على المحرّك إن أمكن
         if self._timeout > 0 and self._engine is not None:
@@ -837,7 +869,40 @@ class ProxyServer:
             return False
         return len(text) >= self._async_threshold_chars
 
+    def _is_transient_failure(self) -> bool:
+        """هل آخر فشل في المحرّك مؤقت (اتصال منقطع/مهلة) لا دائم؟
+        نُميّز كي لا نُسجّل الفشل في DB ولا نُسمّم عميل الـ DLL."""
+        if not self._engine:
+            return False
+        try:
+            key = self._engine.get_active_model() or ""
+            tr = self._engine.get_translator(key) if key else None
+            if tr is None:
+                return False
+            # اتصال سقط → _is_loaded=False
+            if getattr(tr, "_is_loaded", True) is False:
+                return True
+            err = getattr(tr, "_last_error", "") or ""
+            keywords = ("اتصال", "مهلة", "connection", "Connection", "timeout", "Timeout")
+            return any(k in err for k in keywords)
+        except Exception:
+            return False
+
     def _translate(self, text: str, force_sync: bool = False) -> tuple[str | None, bool, bool]:
+        """غلاف تقويلب الأرقام حول _translate_impl.
+        يستبدل الأرقام بـ {0}{1}.. فيصبح المفتاح قالباً واحداً (يقلّل تكرار الكاش)،
+        ثم يُعيد الأرقام الأصلية في النتيجة. لو لا أرقام (أو الميزة معطّلة) → تمرير مباشر.
+        """
+        if self._number_templating and number_template.should_templatize(text):
+            tmpl, nums = number_template.extract(text)
+            if nums:
+                result, from_cache, was_unchanged = self._translate_impl(tmpl, force_sync)
+                if result and result not in (_TRANSIENT, _PENDING):
+                    result = number_template.restore(result, nums)
+                return result, from_cache, was_unchanged
+        return self._translate_impl(text, force_sync)
+
+    def _translate_impl(self, text: str, force_sync: bool = False) -> tuple[str | None, bool, bool]:
         """Translation lookup order:
           1) translations.txt (المرجع اليدوي عالي الجودة — أولوية مطلقة)
           2) قائمة المنع (skip_patterns)
@@ -927,8 +992,9 @@ class ProxyServer:
                         )
                 except Exception:
                     pass
-            # أعد النص الإنجليزي + علم "بدون تغيير" — العميل لا ينتظر AI
-            return text, False, True
+            # ردّ فارغ (إشارة "قيد المعالجة") بدل الإنجليزي — العميل لا ينتظر AI،
+            # ولا يُخزّن الإنجليزي كـ "لا ترجمة" دائمة. يُعيد الطلب حتى تجهز الترجمة.
+            return _PENDING, False, True
 
         result = None
         succeeded_mode = self._tag_mode  # سنُحدّثها لو bulletproof fallback نشط
@@ -986,6 +1052,11 @@ class ProxyServer:
                     except Exception:
                         pass
 
+        # فرض تماثل علامة النهاية: أزل نقطة أضافها المودل لو الأصل بلا نقطة.
+        # (حتمي — يُصلح أيضاً تداخل النقطة مع تاقات اللون في عرض RTL.)
+        if result and result != text:
+            result = enforce_trailing_punctuation(text, result)
+
         if result and self._cache and self._game_name:
             if result == text:
                 # الـ AI أرجع نفس النص → نُسجّله كـ "بلا تغيير"
@@ -1007,7 +1078,20 @@ class ProxyServer:
                 pass
             self.record_success()
         elif result is None and self._cache and self._game_name and self._engine:
-            # الـ AI فشل (None) → نُسجّل سبب الفشل ونمنع إعادة المحاولة كل مرة
+            # عطل مؤقت (اتصال منقطع/مهلة) ≠ فشل دائم. لا نُسجّله في DB ولا نُرجع
+            # النص الإنجليزي (الذي يُسمّم الـ DLL كـ "لا ترجمة"). نُرجع إشارة مؤقتة
+            # → do_GET يردّ فارغاً → العميل يُعيد المحاولة عند تعافي المحرّك.
+            if self._is_transient_failure():
+                try:
+                    self.record_failure(
+                        text, self._get_engine_last_error() or "transient_engine_error", ""
+                    )
+                    if self.log_callback:
+                        self.log_callback(f"⏳  عطل مؤقت بالمحرّك — سيُعاد لاحقاً: {text[:40]}")
+                except Exception:
+                    pass
+                return _TRANSIENT, False, False
+            # الـ AI فشل دائماً (None) → نُسجّل سبب الفشل ونمنع إعادة المحاولة كل مرة
             # وإلا نظل نستدعي AI لنفس النص الفاشل بلا انقطاع
             try:
                 # نفصل السبب الأساسي عن قائمة الأوضاع المُجرَّبة لتجنّب التكرار في العرض

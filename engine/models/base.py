@@ -40,6 +40,41 @@ _HTML_TAG_RE = re.compile(r'</?[a-zA-Z][^<>]{0,120}>')
 _HAS_TEXT_RE = re.compile(r'[A-Za-z؀-ۿ\d]')
 
 
+# ── فرض تماثل علامة نهاية الجملة ──────────────────────────────────────────────
+# المودلات الصغيرة (12b) تميل لإضافة نقطة في نهاية الترجمة حتى لو الأصل بلا نقطة،
+# رغم تعليمات البرومت. هذا حتمي (لا يعتمد على طاعة المودل): لو الأصل لا ينتهي
+# بعلامة نهاية جملة، نحذف العلامة التي أضافها المودل.
+_END_PUNCT = ".!?؟。！．؛"
+# تاقات (فتح/إغلاق) + مسافات في نهاية النص — نتجاهلها عند فحص آخر حرف "حقيقي"
+_TRAILING_TAGS_WS = re.compile(r'(?:\s|</?[a-zA-Z][^<>]{0,120}>)+$')
+
+
+def _ends_with_sentence_punct(s: str) -> bool:
+    core = _TRAILING_TAGS_WS.sub('', (s or '').rstrip())
+    return bool(core) and core[-1] in _END_PUNCT
+
+
+def enforce_trailing_punctuation(src: str, translated: str) -> str:
+    """يفرض تماثل علامة النهاية: لو الأصل لا ينتهي بعلامة نهاية جملة، يحذف
+    علامة أضافها المودل في الترجمة — سواء كانت في النهاية أو قبل تاقات إغلاق.
+       "Cavalry</color>"  +  "الفرسان</color>."  →  "الفرسان</color>"
+    لا يلمس الترجمة إذا كان الأصل ينتهي بعلامة (التماثل محفوظ)."""
+    if not translated or not src:
+        return translated
+    if _ends_with_sentence_punct(src):
+        return translated   # الأصل ينتهي بعلامة → لا تغيير
+    # افصل التاقات/المسافات النهائية لنصل لجسم النص ثم افحص آخر حرف
+    m = _TRAILING_TAGS_WS.search(translated)
+    if m and m.start() > 0:
+        body, tail = translated[:m.start()], translated[m.start():]
+    else:
+        body, tail = translated, ''
+    body_r = body.rstrip()
+    if body_r and body_r[-1] in _END_PUNCT:
+        return body_r[:-1].rstrip() + tail
+    return translated
+
+
 def _strip_hallucinated_tokens(translated: str) -> str:
     """Remove tokens (e.g. {0}, <tag>) the AI hallucinated in a plain-text segment."""
     cleaned = TOKEN_RE.sub('', translated)

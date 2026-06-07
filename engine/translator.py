@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from typing import Optional, Dict, List
 from engine.models.base import BaseTranslator
 
@@ -152,14 +153,19 @@ class TranslationEngine:
         translator = self._translators[key]
 
         if not translator.is_loaded:
-            # Don't retry if load already failed this session — avoids hammering
-            # HuggingFace download or Ollama on every single text in a batch.
+            # لا تُعِد المحاولة فوراً لو فشل التحميل — يتجنّب إغراق HuggingFace
+            # download أو Ollama على كل نص في دفعة. لكن بعد مهلة cooldown نُعيد
+            # المحاولة (بدل الموت الأبدي الذي يتطلّب إعادة تشغيل الخادم يدوياً).
             if getattr(translator, '_load_failed_session', False):
-                return None
+                last = getattr(translator, '_load_failed_at', 0.0)
+                if time.time() - last < 30.0:
+                    return None
             success = translator.load()
             if not success:
                 translator._load_failed_session = True
+                translator._load_failed_at = time.time()
                 return None
+            translator._load_failed_session = False
 
         return translator.translate(text, source_lang=source_lang, target_lang=target_lang)
     

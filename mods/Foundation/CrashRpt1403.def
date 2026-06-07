@@ -1,0 +1,23 @@
+LIBRARY CrashRpt1403
+EXPORTS
+    crAddFile2A=CrashRpt1403_orig.crAddFile2A @16
+    crAddFile2W=CrashRpt1403_orig.crAddFile2W @15
+    crAddPropertyA=CrashRpt1403_orig.crAddPropertyA @19
+    crAddPropertyW=CrashRpt1403_orig.crAddPropertyW @18
+    crAddRegKeyA=CrashRpt1403_orig.crAddRegKeyA @26
+    crAddRegKeyW=CrashRpt1403_orig.crAddRegKeyW @25
+    crAddScreenshot=CrashRpt1403_orig.crAddScreenshot @17
+    crAddScreenshot2=CrashRpt1403_orig.crAddScreenshot2 @27
+    crAddVideo=CrashRpt1403_orig.crAddVideo @28
+    crEmulateCrash=CrashRpt1403_orig.crEmulateCrash @22
+    crExceptionFilter=CrashRpt1403_orig.crExceptionFilter @21
+    crGenerateErrorReport=CrashRpt1403_orig.crGenerateErrorReport @20
+    crGetLastErrorMsgA=CrashRpt1403_orig.crGetLastErrorMsgA @24
+    crGetLastErrorMsgW=CrashRpt1403_orig.crGetLastErrorMsgW @23
+    crInstallA=CrashRpt1403_orig.crInstallA @8
+    crInstallToCurrentThread2=CrashRpt1403_orig.crInstallToCurrentThread2 @11
+    crInstallW=CrashRpt1403_orig.crInstallW @7
+    crSetCrashCallbackA=CrashRpt1403_orig.crSetCrashCallbackA @30
+    crSetCrashCallbackW=CrashRpt1403_orig.crSetCrashCallbackW @29
+    crUninstall=CrashRpt1403_orig.crUninstall @9
+    crUninstallFromCurrentThread=CrashRpt1403_orig.crUninstallFromCurrentThread @12

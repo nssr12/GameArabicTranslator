@@ -110,3 +110,17 @@ mods/_bepinex_base_*/
 *.mov
 *.mkv
 
+
+# Foundation RE tooling — أدوات ثقيلة قابلة للتنزيل (لا تُرفع)
+tools/ghidra/
+tools/zig/
+tools/foundation/ghidra_proj/
+tools/foundation/work/
+tools/foundation/addfont_decomp.txt
+tools/foundation/dll/*.dll
+tools/foundation/modtest/
+# MinHook نسخة vendored — نبقي المصدر بلا git متداخل
+tools/foundation/tools_minhook/.git/
+tools/foundation/dll/*.pdb
+tools/foundation/dll/*.lib
+tools/foundation/dll/*.exp

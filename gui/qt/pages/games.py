@@ -327,6 +327,12 @@ class GameDetailPanel(QFrame):
     unreal_hook_update_translate_requested = Signal(str, str, str)  # game_id, game_name, model_filter
     unreal_hook_priority_requested        = Signal(str)        # game_id (opens priority dialog)
 
+    # Foundation (Hurricane engine — proxy CrashRpt1403.dll + FreeType hook + RTL layout)
+    foundation_install_requested   = Signal(str, str, int)  # game_id, game_path, wrap
+    foundation_uninstall_requested = Signal(str, str)       # game_id, game_path
+    foundation_update_requested    = Signal(str, str, int)  # game_id, game_path, wrap
+    foundation_font_requested      = Signal(str, str)       # game_id, game_path
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._game_id       = None
@@ -594,12 +600,114 @@ class GameDetailPanel(QFrame):
         if "unreal_hook_section" in shown or cfg.get("hook_mode") == "unreal_hook":
             self._render_unreal_hook_card(lay, cfg)
 
+        # ── Foundation (Hurricane engine) card ──────────────────────────────────
+        if cfg.get("engine") == "hurricane" or cfg.get("hook_mode") == "foundation_proxy":
+            self._render_foundation_card(lay, cfg)
+
         # ── BepInEx + XUnity card (لألعاب Unity) ────────────────────────────────
         # نُظهره لألعاب Unity أو أي لعبة فيها قسم bepinex_mod في الـ config
         if eng_key == "unity" or "bepinex_mod" in cfg:
             self._render_bepinex_card(lay, cfg)
 
         lay.addStretch()
+
+    # ====================== FOUNDATION (HURRICANE) CARD ======================
+    def _render_foundation_card(self, lay, cfg: dict):
+        """بطاقة Foundation: تثبيت/تحديث/إلغاء تعريب (proxy DLL + RTL) + ضبط لفّ الأسطر."""
+        from PySide6.QtWidgets import QSpinBox
+        from games.foundation_mod import FoundationMod
+        c = theme.c
+        game_path = cfg.get("game_path", "")
+        mod = FoundationMod()
+        status = mod.get_install_status(cfg, game_path)
+        wrap_default = int(cfg.get("foundation", {}).get("wrap", 45))
+
+        title = QLabel("🏛️  تعريب Foundation (proxy DLL + RTL)")
+        title.setStyleSheet(
+            f"color:{c['muted']};font-size:11px;font-weight:bold;background:transparent;border:none;")
+        lay.addWidget(title)
+
+        card = self._card()
+        v = QVBoxLayout(card)
+        v.setContentsMargins(16, 14, 16, 14)
+        v.setSpacing(10)
+
+        if status is None:
+            st, col = "⚠ حدّد مسار اللعبة أولاً", c["orange"]
+        elif status:
+            st, col = "✅ مُثبَّت — شغّل اللعبة عبر Steam عادي", c["green"]
+        else:
+            st, col = "○ غير مُثبَّت", c["muted"]
+        st_lbl = QLabel(st)
+        st_lbl.setStyleSheet(f"color:{col};font-size:12px;background:transparent;border:none;")
+        v.addWidget(st_lbl)
+
+        # الخط الحالي المُطبَّق (Regular + Bold لو مختلف)
+        if status:
+            reg = mod.current_font_name(game_path, "regular") or "—"
+            bold = mod.current_font_name(game_path, "bold") or "—"
+            txt = f"🔤  الخط الحالي: {reg}" + (f"   |   Bold: {bold}" if bold != reg else "")
+            fi = QLabel(txt)
+            fi.setWordWrap(True)
+            fi.setStyleSheet(f"color:{c['secondary']};font-size:11px;background:transparent;border:none;")
+            v.addWidget(fi)
+
+        # عدد الأحرف لكل سطر (منزلق — أوضح من الأسهم في RTL)
+        from PySide6.QtWidgets import QSlider
+        whdr = QHBoxLayout()
+        wlbl = QLabel("حرف لكل سطر (≤ أضيق صندوق):")
+        wlbl.setStyleSheet(f"color:{c['muted']};font-size:11px;background:transparent;border:none;")
+        wval = QLabel(str(wrap_default))
+        wval.setFixedWidth(34)
+        wval.setAlignment(Qt.AlignCenter)
+        wval.setStyleSheet(
+            f"color:{c['primary']};font-size:13px;font-weight:bold;"
+            f"background:rgba(0,0,0,45);border:1px solid {c['muted']};border-radius:6px;")
+        whdr.addWidget(wlbl)
+        whdr.addStretch()
+        whdr.addWidget(wval)
+        v.addLayout(whdr)
+        slider = QSlider(Qt.Horizontal)
+        slider.setLayoutDirection(Qt.LeftToRight)
+        slider.setRange(0, 120)
+        slider.setValue(wrap_default)
+        slider.setToolTip("0=فواصل صريحة فقط. قلّله لو انقلبت أسطر صناديق ضيّقة؛ زِده للعريضة.\n"
+                          "ثم اضغط «تحديث الترجمة» لتطبيق القيمة.")
+        slider.valueChanged.connect(lambda val: wval.setText(str(val)))
+        v.addWidget(slider)
+        hint = QLabel("ⓘ غيّر القيمة ثم اضغط «تحديث الترجمة» لتطبيقها.")
+        hint.setStyleSheet(f"color:{c['muted']};font-size:10px;background:transparent;border:none;")
+        v.addWidget(hint)
+
+        def mkbtn(label, color_key, slot):
+            b = QPushButton(label)
+            b.setFixedHeight(36)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            b.setStyleSheet(
+                f"QPushButton{{background:rgba(0,0,0,38);color:{clr};border:1px solid {clr};"
+                f"border-radius:8px;font-weight:bold;padding:0 14px;text-align:left;}}"
+                f"QPushButton:hover{{background:{clr};color:#fff;}}")
+            b.clicked.connect(slot)
+            return b
+
+        gp = game_path
+        if status is True:
+            v.addWidget(mkbtn("🔤  اختيار الخط العربي (تجربة)", "orange",
+                lambda: self.foundation_font_requested.emit(self._game_id, gp)))
+            v.addWidget(mkbtn("🔄  تحديث الترجمة (بعد تعديلها في الكاش)", "teal",
+                lambda: self.foundation_update_requested.emit(self._game_id, gp, slider.value())))
+            v.addWidget(mkbtn("🗑️  إلغاء التعريب (استعادة الأصل)", "accent",
+                lambda: self.foundation_uninstall_requested.emit(self._game_id, gp)))
+        elif status is False:
+            ib = mkbtn("✅  تثبيت التعريب", "green",
+                lambda: self.foundation_install_requested.emit(self._game_id, gp, slider.value()))
+            ib.setEnabled(FoundationMod.proxy_src_exists())
+            if not FoundationMod.proxy_src_exists():
+                ib.setToolTip("الـ proxy غير موجود في mods/Foundation/")
+            v.addWidget(ib)
+
+        lay.addWidget(card)
 
     # ====================== UNREAL HOOK CARD ======================
     def _render_unreal_hook_card(self, lay, cfg: dict):
@@ -2327,6 +2435,10 @@ class GamesPage(QWidget):
         self._detail.bepinex_install_requested.connect(self._on_bepinex_install)
         self._detail.bepinex_uninstall_requested.connect(self._on_bepinex_uninstall)
         self._detail.bepinex_update_requested.connect(self._on_bepinex_update)
+        self._detail.foundation_install_requested.connect(self._on_foundation_install)
+        self._detail.foundation_uninstall_requested.connect(self._on_foundation_uninstall)
+        self._detail.foundation_update_requested.connect(self._on_foundation_update)
+        self._detail.foundation_font_requested.connect(self._on_foundation_font)
         self._detail.model_priority_requested.connect(self._on_model_priority)
         self._detail.ue4ss_install_requested.connect(self._on_ue4ss_install)
         self._detail.ue4ss_update_requested.connect(self._on_ue4ss_update)
@@ -2723,6 +2835,99 @@ class GamesPage(QWidget):
         else:
             QMessageBox.warning(self, "خطأ في التحديث", msg)
         self.refresh()
+
+    # ── Foundation (Hurricane) handlers ─────────────────────────────────────
+
+    def _persist_foundation_wrap(self, game_id: str, cfg: dict, wrap: int):
+        if self._game_manager and wrap != cfg.get("foundation", {}).get("wrap"):
+            f = dict(cfg.get("foundation", {}))
+            f["wrap"] = wrap
+            try:
+                self._game_manager.update_game(game_id, {"foundation": f})
+            except Exception:
+                pass
+
+    def _on_foundation_install(self, game_id: str, game_path: str, wrap: int):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        self._persist_foundation_wrap(game_id, cfg, wrap)
+        from games.foundation_mod import FoundationMod
+        ok, log = FoundationMod().install(cfg, game_path, self._cache, wrap=wrap)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(f"✅  تعريب Foundation مُثبَّت: {game_id}")
+            QMessageBox.information(self, "✅  تثبيت ناجح", msg)
+        else:
+            QMessageBox.critical(self, "❌  فشل التثبيت", msg)
+        self.refresh()
+
+    def _on_foundation_uninstall(self, game_id: str, game_path: str):
+        reply = QMessageBox.question(
+            self, "تأكيد الإلغاء",
+            "إلغاء تعريب Foundation واستعادة CrashRpt1403.dll الأصلية + اللغة الإنجليزية؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.foundation_mod import FoundationMod
+        ok, log = FoundationMod().uninstall(cfg, game_path)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(f"🗑  أُلغي تعريب Foundation: {game_id}")
+            QMessageBox.information(self, "تم الإلغاء", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في الإلغاء", msg)
+        self.refresh()
+
+    def _on_foundation_update(self, game_id: str, game_path: str, wrap: int):
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        self._persist_foundation_wrap(game_id, cfg, wrap)
+        from games.foundation_mod import FoundationMod
+        ok, log = FoundationMod().update_translations(cfg, game_path, self._cache, wrap=wrap)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(log[-1] if log else "✅  تم تحديث الترجمة")
+            QMessageBox.information(self, "✅  تم التحديث", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في التحديث", msg)
+        self.refresh()
+
+    def _on_foundation_font(self, game_id: str, game_path: str):
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from games.foundation_mod import FoundationMod
+        path, _ = QFileDialog.getOpenFileName(
+            self, "اختر خطاً عربياً للتجربة", "", "ملفات الخطوط (*.ttf *.otf *.ttc)")
+        if not path:
+            return
+        cov = FoundationMod.font_coverage(path)
+        if cov.get("error"):
+            QMessageBox.critical(self, "خط غير صالح", f"تعذّر قراءة الخط:\n{cov['error']}")
+            return
+        warn = ""
+        if cov["pf_a"] == 0 and cov["pf_b"] == 0:
+            warn = ("\n\n⚠ هذا الخط لا يحوي presentation forms — الأرجح ستظهر الحروف "
+                    "مقطّعة أو ؟ (لأننا نغذّي نصاً مُشكّلاً). جرّبه على مسؤوليتك.")
+        box = QMessageBox(self)
+        box.setWindowTitle("تطبيق الخط على")
+        box.setText(
+            f"تغطية الخط:  عربي={cov['arabic']}  PF-A={cov['pf_a']}  PF-B={cov['pf_b']}"
+            f"{warn}\n\nطبّقه على أي فتحة؟")
+        b_both = box.addButton("الكل (Regular+Bold)", QMessageBox.AcceptRole)
+        b_reg  = box.addButton("Regular فقط", QMessageBox.AcceptRole)
+        b_bold = box.addButton("Bold فقط", QMessageBox.AcceptRole)
+        box.addButton("إلغاء", QMessageBox.RejectRole)
+        box.exec()
+        slot = {b_both: "both", b_reg: "regular", b_bold: "bold"}.get(box.clickedButton())
+        if not slot:
+            return
+        ok, log = FoundationMod().set_font(game_path, path, slot)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit("✅  طُبّق الخط — أعد تشغيل اللعبة")
+            QMessageBox.information(self, "✅  تم تطبيق الخط",
+                                    f"{msg}\n\nأعد تشغيل اللعبة عبر Steam لرؤية الخط.")
+        else:
+            QMessageBox.warning(self, "خطأ", msg)
 
     # ── UE4SS Arabic Translator handlers ───────────────────────────────────
 

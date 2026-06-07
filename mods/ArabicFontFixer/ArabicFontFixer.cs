@@ -621,42 +621,53 @@ namespace ArabicGameTranslator
             return ReverseShapedTextForRtlDisplay(shaped);
         }
 
-        // يُدخل \n عند نهاية الجمل (. ! ؟ ؛) وعند الفواصل (، ,) أيضاً متبوعة بمسافة.
-        // السبب: نحن نعكس النص يدوياً per-line → لو السطر طويل وبلا \n explicit،
-        // TMP يطبّق auto-wrap على النص المعكوس فينتج ترتيب سطور مقلوب من فوق لتحت.
-        // بإدخال \n عند الفواصل، نُجبر تقسيم النص لمقاطع قصيرة لا تحتاج auto-wrap.
+        // عرض أقصى للسطر (أحرف) قبل الكسر اليدوي. أصغر من أضيق صندوق نص متوقّع
+        // → يمنع TMP من تطبيق auto-wrap (الذي يعكس ترتيب الأسطر رأسياً مع النص المعكوس).
+        // قابل للضبط حسب حجم خط اللعبة وعرض الصناديق.
+        // 30: صناديق tooltips الضيّقة في Farthest Frontier تتّسع لـ ~33 حرفاً —
+        // نُبقي العرض تحتها بهامش أمان كي لا يطبّق TMP auto-wrap (الذي يُيتّم الكلمات).
+        private const int MaxVisualLineLen = 30;
+
+        // يكسر النص لأسطر قصيرة لا تحتاج auto-wrap من TMP:
+        //   1) يحترم أي \n موجود (يعالج كل سطر مستقلاً)
+        //   2) يلفّ أي سطر يتجاوز MaxVisualLineLen عند حدود الكلمات فقط
+        // ⚠ لا نكسر عند الفواصل/النقاط بعد الآن: طول السطر (MaxVisualLineLen) يتكفّل
+        //    باللفّ. الكسر عند علامات الترقيم كان يُنتج أسطراً قصيرة متقطّعة بلا داعٍ.
+        // السبب الأصلي للّفّ: نعكس كل سطر يدوياً per-line → لو TMP طبّق auto-wrap على
+        // نص معكوس، ينقلب ترتيب الأسطر من فوق لتحت. ضمان كل سطر أقصر من العرض = لا عكس.
         private static string InsertLineBreaksAtSentenceEnds(string text)
         {
             if (string.IsNullOrEmpty(text)) return text;
-            if (text.Length < 50) return text;          // قصير — لا حاجة
-            if (text.IndexOf('\n') >= 0) return text;   // فيه \n سلفاً — احترمه
-            var sb = new StringBuilder(text.Length + 8);
-            int i = 0;
-            while (i < text.Length)
+            // سطر واحد قصير لا يحتاج معالجة
+            if (text.IndexOf('\n') < 0 && text.Length <= MaxVisualLineLen) return text;
+
+            var outLines = new List<string>();
+            foreach (var rawLine in text.Split('\n'))
+                WrapWords(rawLine, MaxVisualLineLen, outLines);
+            return string.Join("\n", outLines);
+        }
+
+        // يلفّ مقطعاً عند حدود الكلمات بحيث لا يتجاوز أي سطر maxLen، ويضيف الأسطر للنتيجة.
+        private static void WrapWords(string segment, int maxLen, List<string> outLines)
+        {
+            if (segment == null) return;
+            if (segment.Length <= maxLen) { outLines.Add(segment); return; }
+            var words = segment.Split(' ');
+            var cur = new StringBuilder();
+            foreach (var w in words)
             {
-                char c = text[i];
-                sb.Append(c);
-                bool isBreaker = false;
-                switch (c)
+                if (cur.Length == 0)
+                    cur.Append(w);
+                else if (cur.Length + 1 + w.Length > maxLen)
                 {
-                    case '.': case '!': case '?': case '؟': case '؛': case '،': case ',':
-                        if (i + 1 < text.Length && text[i + 1] == ' ')
-                        {
-                            // تجنّب ellipsis "..."
-                            bool isMidEllipsis = (c == '.' && i + 2 < text.Length && text[i + 2] == '.');
-                            if (!isMidEllipsis) isBreaker = true;
-                        }
-                        break;
+                    outLines.Add(cur.ToString());
+                    cur.Clear();
+                    cur.Append(w);
                 }
-                if (isBreaker)
-                {
-                    sb.Append('\n');
-                    i += 2;   // تخطّى المسافة
-                    continue;
-                }
-                i++;
+                else
+                    cur.Append(' ').Append(w);
             }
-            return sb.ToString();
+            if (cur.Length > 0) outLines.Add(cur.ToString());
         }
 
         /// <summary>

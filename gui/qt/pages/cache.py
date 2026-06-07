@@ -467,6 +467,32 @@ class EditDialog(QWidget):
         hint = QLabel("Ctrl+Enter للحفظ   •   Esc للإلغاء")
         hint.setObjectName("hint_text")
         fl.addWidget(hint)
+
+        # ── لفّ RTL مخصّص لهذا النص (يطغى على العام عند تطبيق Foundation) ──────
+        from PySide6.QtWidgets import QSlider
+        from engine import wrap_overrides
+        _cur_ov = wrap_overrides.get(game_name, entry.get("original", ""), 0)
+        fl.addSpacing(20)
+        _wl = QLabel("لفّ RTL مخصّص:")
+        _wl.setStyleSheet(f"color:{c['muted']};font-size:11px;background:transparent;border:none;")
+        _wl.setToolTip("عدد أحرف اللفّ لهذا النص فقط (للصناديق الضيّقة). 0=استخدم العام.")
+        self._wrap_slider = QSlider(Qt.Horizontal)
+        self._wrap_slider.setLayoutDirection(Qt.LeftToRight)
+        self._wrap_slider.setRange(0, 120)
+        self._wrap_slider.setValue(_cur_ov)
+        self._wrap_slider.setFixedWidth(130)
+        self._wrap_lbl = QLabel("عام" if not _cur_ov else str(_cur_ov))
+        self._wrap_lbl.setFixedWidth(40)
+        self._wrap_lbl.setAlignment(Qt.AlignCenter)
+        self._wrap_lbl.setStyleSheet(
+            f"color:{c['primary']};font-weight:bold;font-size:12px;"
+            f"background:rgba(0,0,0,45);border:1px solid {c['muted']};border-radius:5px;")
+        self._wrap_slider.valueChanged.connect(
+            lambda v: self._wrap_lbl.setText("عام" if not v else str(v)))
+        fl.addWidget(_wl)
+        fl.addWidget(self._wrap_slider)
+        fl.addWidget(self._wrap_lbl)
+
         fl.addStretch()
         cancel = QPushButton("إلغاء")
         cancel.setObjectName("btn_secondary")
@@ -520,12 +546,11 @@ class EditDialog(QWidget):
             self._save()
 
     def _save(self):
-        raw = self._trans.toPlainText().strip()
-        if not raw or not self._cache:
+        # ⚠ لا نحذف المسافات المتعمَّدة (مهمّة لتباعد أجزاء الجمل المركّبة في RTL).
+        # نطبّع \n → سطر فعلي فقط، ونرفض الفارغ تماماً (مسافات فقط).
+        raw = self._normalize(self._trans.toPlainText())
+        if not raw.strip() or not self._cache:
             return
-        # Normalize two-char \n → real newline before saving so json.dump
-        # writes \n (newline) not \\n (backslash+n) in the JSON file.
-        raw = self._normalize(raw)
         original = self._entry["original"]
         if self._is_failed:
             # تحويل الإدخال الفاشل إلى نجاح:
@@ -543,6 +568,12 @@ class EditDialog(QWidget):
                 pass
         else:
             self._cache.update_translation(self._game, original, raw)
+        # احفظ لفّ RTL المخصّص لهذا النص (0=استخدم العام)
+        try:
+            from engine import wrap_overrides
+            wrap_overrides.set_override(self._game, original, self._wrap_slider.value())
+        except Exception:
+            pass
         self.saved.emit()
         self._dlg.accept()
 

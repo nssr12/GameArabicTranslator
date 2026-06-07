@@ -1,0 +1,16 @@
+{
+  "name": "Foundation",
+  "process_name": "foundation.exe",
+  "game_path": "D:/SteamLibrary/steamapps/common/Foundation",
+  "engine": "hurricane",
+  "hook_mode": "foundation_proxy",
+  "source_lang": "en",
+  "target_lang": "ar",
+  "enabled": true,
+  "notes": "محرّك Hurricane خاص. تعريب عبر proxy CrashRpt1403.dll (hook FreeType) + ترجمة JSON دفعية + تخطيط RTL. انظر games/foundation_mod.py و tools/foundation/PROGRESS.md",
+  "foundation": {
+    "wrap": 30,
+    "proxy_dll": "CrashRpt1403.dll",
+    "lang_code": "ar"
+  }
+}

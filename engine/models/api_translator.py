@@ -236,64 +236,88 @@ class OllamaTranslator(BaseTranslator):
 
     # ── Translation ───────────────────────────────────────────────────────────
 
-    def _raw_translate(self, text: str) -> Optional[str]:
-        """Translate via /api/chat."""
-        self._last_error = ""
-        try:
-            payload = {
-                "model":   self.model,
-                "stream":  False,
-                "messages": [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user",   "content": text},
-                ],
-                "options": self._opts,
-                # keep_alive يمنع Ollama من تفريغ المودل بين الطلبات.
-                # افتراضي 30m. ضع -1 للأبد (الأسرع، يستهلك VRAM)
-                # أو 0 لتفريغ فوري (للذاكرة المحدودة)
-                "keep_alive": self._keep_alive,
-            }
-            resp = self._session.post(
-                f"{self.url}/api/chat", json=payload, timeout=self._timeout
-            )
-            if resp.status_code == 200:
-                raw = resp.json().get("message", {}).get("content", "").strip().strip('"\'').strip()
-                if raw and raw != text:
-                    valid, reason = self._validate_with_reason(text, raw)
-                    if valid:
-                        return raw
-                    # سبب مفصّل + الإدخال والإخراج في الـ log
-                    self._last_error = f"رد غير صالح: {reason}"
-                    print(f"[Ollama] REJECTED ({reason})")
-                    print(f"  input  : {text[:120]!r}")
-                    print(f"  output : {raw[:120]!r}")
-                elif not raw:
-                    self._last_error = "استجابة فارغة من النموذج"
-                    print(f"[Ollama] EMPTY response for: {text[:80]!r}")
-                else:
-                    self._last_error = "النموذج أعاد النص دون ترجمة"
-                    print(f"[Ollama] IDENTITY response: {raw[:80]!r}")
+    def _post_and_parse(self, payload: dict, text: str) -> Optional[str]:
+        """ينفّذ POST على /api/chat ويحلّل الرد.
+        يرفع requests.exceptions.ConnectionError للأعلى ليُعالَج كإعادة محاولة."""
+        resp = self._session.post(
+            f"{self.url}/api/chat", json=payload, timeout=self._timeout
+        )
+        if resp.status_code == 200:
+            raw = resp.json().get("message", {}).get("content", "").strip().strip('"\'').strip()
+            if raw and raw != text:
+                valid, reason = self._validate_with_reason(text, raw)
+                if valid:
+                    return raw
+                # سبب مفصّل + الإدخال والإخراج في الـ log
+                self._last_error = f"رد غير صالح: {reason}"
+                print(f"[Ollama] REJECTED ({reason})")
+                print(f"  input  : {text[:120]!r}")
+                print(f"  output : {raw[:120]!r}")
+            elif not raw:
+                self._last_error = "استجابة فارغة من النموذج"
+                print(f"[Ollama] EMPTY response for: {text[:80]!r}")
             else:
-                try:
-                    err_body = resp.json().get("error", resp.text)
-                except Exception:
-                    err_body = resp.text
-                self._last_error = f"خطأ {resp.status_code}: {str(err_body)[:150]}"
-                print(f"[Ollama] HTTP {resp.status_code}: {err_body}")
+                self._last_error = "النموذج أعاد النص دون ترجمة"
+                print(f"[Ollama] IDENTITY response: {raw[:80]!r}")
+        else:
+            try:
+                err_body = resp.json().get("error", resp.text)
+            except Exception:
+                err_body = resp.text
+            self._last_error = f"خطأ {resp.status_code}: {str(err_body)[:150]}"
+            print(f"[Ollama] HTTP {resp.status_code}: {err_body}")
+        return None
 
-        except requests.exceptions.Timeout:
-            self._last_error = f"انتهت مهلة الانتظار ({int(self._timeout)}ث)"
-            print(f"[Ollama] timeout ({self._timeout}s) for: {text[:40]!r}")
+    def _raw_translate(self, text: str) -> Optional[str]:
+        """Translate via /api/chat. يعيد المحاولة مرّة على جلسة جديدة عند socket بائت."""
+        self._last_error = ""
+        payload = {
+            "model":   self.model,
+            "stream":  False,
+            "messages": [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user",   "content": text},
+            ],
+            "options": self._opts,
+            # keep_alive يمنع Ollama من تفريغ المودل بين الطلبات.
+            # افتراضي 30m. ضع -1 للأبد (الأسرع، يستهلك VRAM)
+            # أو 0 لتفريغ فوري (للذاكرة المحدودة)
+            "keep_alive": self._keep_alive,
+        }
+        # محاولتان: الأولى قد تصطدم بـ socket بائت من HTTP keep-alive خامل
+        # (Ollama/النظام يُغلق الاتصالات الخاملة → الطلب التالي على socket ميت يفشل).
+        # نُعيد إنشاء الجلسة ونحاول مرّة ثانية قبل اعتبار المحرّك معطّلاً —
+        # هذا يمنع "الموت الصامت" حيث يبدو الخادم يعمل لكن لا يترجم شيئاً.
+        for attempt in range(2):
+            try:
+                return self._post_and_parse(payload, text)
 
-        except requests.exceptions.ConnectionError as e:
-            self._last_error = "انقطع الاتصال بـ Ollama"
-            self._is_loaded = False
-            print(f"[Ollama] connection error: {e}")
+            except requests.exceptions.ConnectionError as e:
+                if attempt == 0:
+                    # اتصال بائت محتمل — جلسة جديدة + إعادة محاولة فورية
+                    print("[Ollama] connection lost — retrying on a fresh session")
+                    try:
+                        if self._session:
+                            self._session.close()
+                    except Exception:
+                        pass
+                    self._session = requests.Session()
+                    continue
+                # المحاولة الثانية فشلت أيضاً → عطل حقيقي
+                self._last_error = "انقطع الاتصال بـ Ollama"
+                self._is_loaded = False
+                print(f"[Ollama] connection error after retry: {e}")
+                return None
 
-        except Exception as e:
-            self._last_error = str(e)
-            print(f"[Ollama] _raw_translate: {type(e).__name__}: {e}")
+            except requests.exceptions.Timeout:
+                self._last_error = f"انتهت مهلة الانتظار ({int(self._timeout)}ث)"
+                print(f"[Ollama] timeout ({self._timeout}s) for: {text[:40]!r}")
+                return None
 
+            except Exception as e:
+                self._last_error = str(e)
+                print(f"[Ollama] _raw_translate: {type(e).__name__}: {e}")
+                return None
         return None
 
     # ── Response validators ───────────────────────────────────────────────────

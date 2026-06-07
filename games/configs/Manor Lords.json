@@ -12,12 +12,10 @@
   "notes": "Unreal Engine 5.4+. Uses dxgi.dll hijack via suspended-launch + LoadLibrary injection (bypasses Windows KnownDLL restriction).",
   "hooks": [],
   "enabled": true,
-  "hidden_features": [
+  "hidden_features": [],
+  "shown_features": [
     "locres_section",
     "iostore_section"
-  ],
-  "shown_features": [
-    "unreal_hook_section"
   ],
   "font_path": "",
   "unreal_hook": {
