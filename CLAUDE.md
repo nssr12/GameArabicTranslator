@@ -420,8 +420,75 @@ UABEA يستخرج I2Languages-*.assets → *.json
 
 | المسار | الملف | الآلية | الاستخدام |
 |------|------|------|------|
-| **DLL injection** | `games/unreal_hook_mod.py` | حقن `cppfs/dxgi/ZXSOSZX*.dll` + ملفات `Translate/*.subtitle.txt` | الافتراضي لـ UE5 (Manor Lords, Palworld) |
+| **DLL injection** | `games/unreal_hook_mod.py` | حقن `cppfs/dxgi/ZXSOSZX*.dll` + ملفات `Translate/*.subtitle.txt` | الافتراضي لـ UE5 (Palworld) |
 | **UE4SS mod** | `games/ue4ss_mod.py` | UE4SS + Lua mod يقرأ `dict/translations.txt` | مسار بديل لألعاب تدعم UE4SS |
+| **DataTable .pak mod** | `games/manorlords_mod.py` | تعديل `DT_Translation_*` (عمود en_US) → repak V11 | **Manor Lords** (أنظف وأقوى من البروكسي) |
+
+## ⭐ تعريب Manor Lords — مود DataTable (.pak) ساكن
+
+> Manor Lords (UE5.5) يخزّن **كل** نصوصه في DataTables. النهج الساكن (تعديل الأصول مسبقاً)
+> **أنظف بكثير** من البروكسي الحيّ: لا التقاط نص وقت اللعب، لا تجمّد، تغطية كاملة فورية.
+> الأدوات في `tools/manorlords/` و `games/manorlords_mod.py`. مفتاح AES + usmap محفوظان لدى المستخدم.
+
+### المعطيات المُكتشَفة (حاسمة)
+
+| المعطى | القيمة |
+|------|------|
+| تخزين النصوص | DataTables `DT_Translation_*` في `Content/Translation/HoodedHorse/` (39 جدول) + `CombinedDataTables/CDT_*` |
+| بنية الصف | **عمود لكل لغة** (`en_US`, `de_DE`, …) من نوع `StrPropertyData` — **لا يوجد عمود عربي** |
+| الحلّ | نكتب العربي **مكان عمود `en_US`** (تبقى اللعبة إنجليزية، تظهر عربي) |
+| تغليف اللعبة | **`.pak` خالص** (لا IoStore/`.utoc` — لذا UnrealPak لا retoc) |
+| **إصدار pak** | **11** ← ⚠ UnrealPak من UE5.7 ينتج **12 → كراش** `Invalid pak file version (12)`. الحلّ: **repak `--version V11`** |
+| mount point | `../../../` والمسار الكامل `ManorLords/Content/Translation/HoodedHorse/DT_*.uasset` |
+| الخط/RTL | **UE5 يشكّل ويعكس BiDi أصلاً + خط اللعبة فيه عربي** → **بلا تعديل خط ولا rtl_layout** (عكس Foundation/Unity) |
+| usmap | `…/UAssetGUI/Mappings/ManorLords.usmap` (UAssetGUI يبحث فيه تلقائياً) |
+| موضع المود | مباشرة في `Content/Paks/` (لا `~mods`) باسم `zzz_…_P.pak` (يرتّب أخيراً = أولوية + لاحقة `_P`) |
+
+### الأدوات (`tools/`)
+
+| الأداة | الدور |
+|------|------|
+| `tools/repak/repak.exe` | ⭐ حزم pak **V11** (الأهم — حلّ الكراش). UAssetGUI/UnrealPak **لا** يصلحان للحزم هنا |
+| `tools/UAssetGUI/UAssetGUI.exe` | `uasset ⇄ JSON` مع usmap (`tojson`/`fromjson`، `VER_UE5_5`). round-trip **متطابق بايت** |
+| `tools/manorlords/translate_dt.py` | ترجمة جدول واحد (كاش + Ollama + حماية تاقات) |
+| `tools/manorlords/build_all.py` | ترجمة **كل** الجداول دفعةً ثم حزم مود واحد (يحمّل المحرّك مرّة) |
+| `tools/manorlords/pack_mod.py` | حزم ملفات uasset في `.pak` (repak V11) + تثبيت |
+
+### التدفّق
+
+```
+uasset --(UAssetGUI tojson + usmap)--> JSON
+   → ترجمة عمود en_US (FilteredTranslator + cache per-game + tag filter)
+   → كتابة العربي مكان en_US في JSON
+JSON --(UAssetGUI fromjson)--> uasset مترجم
+   → repak pack --version V11 --mount-point ../../../  →  zzz_..._P.pak
+   → نسخ إلى <game>/ManorLords/Content/Paks/
+```
+
+### تكامل التطبيق (`games/manorlords_mod.py` + بطاقة في `games.py`)
+
+- **`ManorLordsMod`** — واجهة مثل FoundationMod: `get_install_status` / `build` / `install` /
+  `update_translations` / `uninstall` / `status_counts`. **`build()` من الكاش فقط** (بلا Ollama —
+  سريع): لكل جدول `tojson` من `.orig` الإنجليزي → يطبّق `cache.get_best` على `en_US` → `fromjson`
+  → يجمع في staging → `repak V11`. idempotent (يبدأ دائماً من الأصل الإنجليزي).
+- **البطاقة** في `gui/qt/pages/games.py::_render_manorlords_card` (تظهر عند `cfg["mod_mode"]=="datatable_pak"`):
+  أزرار **تثبيت/تحديث/إلغاء**. الإشارات `manorlords_*_requested` → معالِجات `_on_manorlords_*`.
+- **`ManorLordsBuildWorker(QThread)`** — البناء (~78 استدعاء UAssetGUI ≈ 2-4 د) في خيط مع
+  `QProgressDialog` (لا يجمّد الواجهة). الإلغاء سريع (حذف الـ pak فقط، بلا خيط).
+- **config**: `games/configs/Manor Lords.json::mod_mode = "datatable_pak"` يفعّل البطاقة.
+
+### ملاحظات/مزالق
+
+1. **الترجمة الدفعية (الكاش) منفصلة عن البناء**: `build_all.py` يملأ الكاش (Ollama)؛ أزرار التطبيق
+   تطبّق الكاش فقط (سريع). لتعريب جديد كامل: شغّل `build_all.py` مرّة ثم استخدم الأزرار.
+2. **`.orig` = الأصل الإنجليزي**: `build_all.py` يحفظه أوّل مرّة. `ManorLordsMod.build` يبني منه دائماً
+   (لذا التحديث بعد تعديل الكاش يُعيد التطبيق نظيفاً، لا تراكم).
+3. **تلوّث الكاش CJK**: ترجمات qwen قديمة سرّبت صينية (reasoning). نُظّفت بفحص نطاقات CJK.
+   عند ظهور حروف صينية في الترجمة → افحص الكاش واحذف الصفوف الملوّثة.
+4. **جداول CDT المدموجة**: اللعبة تقرأ `DT_*` المفصّلة (مُثبَت). لو بقيت شاشات إنجليزية → أضف
+   `--include-combined`/`include_combined=True` لضمّ `CDT_*`.
+5. **تطابق الإصدار حرج**: أي لعبة UE أخرى بنفس النهج — افحص إصدار pak اللعبة الأصلي (footer magic
+   `0x5A6F12E1` ثم uint32) وطابقه بـ repak `--version`. v11=UE5.4/5.5، اختلاف الإصدار = كراش.
 
 ## ⭐ تعريب Foundation — محرّك Hurricane خاص (بلا Unity/UE)
 

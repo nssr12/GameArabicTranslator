@@ -124,3 +124,9 @@ tools/foundation/tools_minhook/.git/
 tools/foundation/dll/*.pdb
 tools/foundation/dll/*.lib
 tools/foundation/dll/*.exp
+
+# Manor Lords — أصول اللعبة المستخرجة (محمية، ضخمة) + المود المبني
+mods/Manor Lords/for_cache/
+mods/Manor Lords/ready/
+# repak.exe (يُحمَّل محلياً من github.com/trumank/repak)
+tools/repak/

@@ -186,6 +186,37 @@ class LocresWorker(QThread):
             self.finished.emit(False, 0, 0)
 
 
+# ── Manor Lords mod build worker ──────────────────────────────────────────────
+
+class ManorLordsBuildWorker(QThread):
+    """يبني مود Manor Lords (كاش → uassets → pak) ويثبّته/يحدّثه في خيط منفصل."""
+    progress = Signal(int, int, str)        # done, total, table_name
+    finished = Signal(bool, str)            # success, log_text
+
+    def __init__(self, cfg: dict, game_path: str, cache, action: str = "install"):
+        super().__init__()
+        self._cfg = cfg
+        self._game_path = game_path
+        self._cache = cache
+        self._action = action   # install | update
+
+    def run(self):
+        try:
+            from games.manorlords_mod import ManorLordsMod
+            mod = ManorLordsMod()
+            log: list = []
+            cb = lambda i, n, name: self.progress.emit(i, n, name)
+            if self._action == "uninstall":
+                ok, log = mod.uninstall(self._cfg, self._game_path)
+            else:
+                ok, log = mod.install(self._cfg, self._game_path, self._cache,
+                                      log=log, progress_cb=cb)
+            self.finished.emit(ok, "\n".join(log))
+        except Exception as e:
+            import traceback
+            self.finished.emit(False, f"خطأ: {e}\n{traceback.format_exc()}")
+
+
 # ── Compact list card ─────────────────────────────────────────────────────────
 
 class GameListItem(QFrame):
@@ -332,6 +363,11 @@ class GameDetailPanel(QFrame):
     foundation_uninstall_requested = Signal(str, str)       # game_id, game_path
     foundation_update_requested    = Signal(str, str, int)  # game_id, game_path, wrap
     foundation_font_requested      = Signal(str, str)       # game_id, game_path
+
+    # Manor Lords (DataTable .pak mod — repak V11)
+    manorlords_install_requested   = Signal(str, str)       # game_id, game_path
+    manorlords_uninstall_requested = Signal(str, str)       # game_id, game_path
+    manorlords_update_requested    = Signal(str, str)       # game_id, game_path
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -604,6 +640,10 @@ class GameDetailPanel(QFrame):
         if cfg.get("engine") == "hurricane" or cfg.get("hook_mode") == "foundation_proxy":
             self._render_foundation_card(lay, cfg)
 
+        # ── Manor Lords (DataTable .pak mod) card ───────────────────────────────
+        if cfg.get("mod_mode") == "datatable_pak":
+            self._render_manorlords_card(lay, cfg)
+
         # ── BepInEx + XUnity card (لألعاب Unity) ────────────────────────────────
         # نُظهره لألعاب Unity أو أي لعبة فيها قسم bepinex_mod في الـ config
         if eng_key == "unity" or "bepinex_mod" in cfg:
@@ -706,6 +746,74 @@ class GameDetailPanel(QFrame):
             if not FoundationMod.proxy_src_exists():
                 ib.setToolTip("الـ proxy غير موجود في mods/Foundation/")
             v.addWidget(ib)
+
+        lay.addWidget(card)
+
+    # ====================== MANOR LORDS (DATATABLE .PAK) CARD ======================
+    def _render_manorlords_card(self, lay, cfg: dict):
+        """بطاقة Manor Lords: تثبيت/تحديث/إلغاء مود DataTable (.pak) من الكاش."""
+        from games.manorlords_mod import ManorLordsMod
+        c = theme.c
+        game_path = cfg.get("game_path", "")
+        mod = ManorLordsMod()
+        status = mod.get_install_status(cfg, game_path)
+        tools_ok, tools_msg = ManorLordsMod.tools_exist()
+
+        title = QLabel("🏰  تعريب Manor Lords (مود DataTable .pak — repak V11)")
+        title.setStyleSheet(
+            f"color:{c['muted']};font-size:11px;font-weight:bold;background:transparent;border:none;")
+        lay.addWidget(title)
+
+        card = self._card()
+        v = QVBoxLayout(card)
+        v.setContentsMargins(16, 14, 16, 14)
+        v.setSpacing(10)
+
+        if status is None:
+            st, col = "⚠ حدّد مسار اللعبة أولاً", c["orange"]
+        elif status:
+            st, col = "✅ مُثبَّت — شغّل اللعبة عبر Steam عادي", c["green"]
+        else:
+            st, col = "○ غير مُثبَّت", c["muted"]
+        st_lbl = QLabel(st)
+        st_lbl.setStyleSheet(f"color:{col};font-size:12px;background:transparent;border:none;")
+        v.addWidget(st_lbl)
+
+        if not tools_ok:
+            w = QLabel("⚠ " + tools_msg)
+            w.setWordWrap(True)
+            w.setStyleSheet(f"color:{c['orange']};font-size:11px;background:transparent;border:none;")
+            v.addWidget(w)
+
+        info = QLabel("يطبّق ترجمات الكاش على جداول DT_Translation_* ويحزمها مود .pak.\n"
+                      "الترجمة الدفعية للجداول: tools/manorlords/build_all.py")
+        info.setWordWrap(True)
+        info.setStyleSheet(f"color:{c['muted']};font-size:10px;background:transparent;border:none;")
+        v.addWidget(info)
+
+        def mkbtn(label, color_key, slot, enabled=True):
+            b = QPushButton(label)
+            b.setFixedHeight(36)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            b.setStyleSheet(
+                f"QPushButton{{background:rgba(0,0,0,38);color:{clr};border:1px solid {clr};"
+                f"border-radius:8px;font-weight:bold;padding:0 14px;text-align:left;}}"
+                f"QPushButton:hover{{background:{clr};color:#fff;}}"
+                f"QPushButton:disabled{{color:{c['muted']};border-color:{c['muted']};}}")
+            b.setEnabled(enabled)
+            b.clicked.connect(slot)
+            return b
+
+        gp = game_path
+        if status is True:
+            v.addWidget(mkbtn("🔄  تحديث الترجمة (بعد تعديلها في الكاش)", "teal",
+                lambda: self.manorlords_update_requested.emit(self._game_id, gp), tools_ok))
+            v.addWidget(mkbtn("🗑️  إلغاء التعريب (حذف المود)", "accent",
+                lambda: self.manorlords_uninstall_requested.emit(self._game_id, gp)))
+        elif status is False:
+            v.addWidget(mkbtn("✅  تثبيت التعريب (بناء + حزم + تثبيت)", "green",
+                lambda: self.manorlords_install_requested.emit(self._game_id, gp), tools_ok))
 
         lay.addWidget(card)
 
@@ -2439,6 +2547,9 @@ class GamesPage(QWidget):
         self._detail.foundation_uninstall_requested.connect(self._on_foundation_uninstall)
         self._detail.foundation_update_requested.connect(self._on_foundation_update)
         self._detail.foundation_font_requested.connect(self._on_foundation_font)
+        self._detail.manorlords_install_requested.connect(self._on_manorlords_install)
+        self._detail.manorlords_uninstall_requested.connect(self._on_manorlords_uninstall)
+        self._detail.manorlords_update_requested.connect(self._on_manorlords_update)
         self._detail.model_priority_requested.connect(self._on_model_priority)
         self._detail.ue4ss_install_requested.connect(self._on_ue4ss_install)
         self._detail.ue4ss_update_requested.connect(self._on_ue4ss_update)
@@ -2928,6 +3039,74 @@ class GamesPage(QWidget):
                                     f"{msg}\n\nأعد تشغيل اللعبة عبر Steam لرؤية الخط.")
         else:
             QMessageBox.warning(self, "خطأ", msg)
+
+    # ── Manor Lords (DataTable .pak) handlers ──────────────────────────────
+
+    def _run_manorlords_build(self, game_id: str, game_path: str, action: str):
+        """يشغّل بناء/تثبيت/تحديث المود في خيط مع شريط تقدّم."""
+        from PySide6.QtWidgets import QProgressDialog
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        title = {"install": "تثبيت التعريب", "update": "تحديث الترجمة"}.get(action, "بناء المود")
+        dlg = QProgressDialog(f"{title} — تجهيز…", "إلغاء", 0, 100, self)
+        dlg.setWindowTitle(f"Manor Lords — {title}")
+        dlg.setMinimumWidth(440)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setValue(0)
+
+        worker = ManorLordsBuildWorker(cfg, game_path, self._cache, action)
+
+        def on_prog(i, n, name):
+            dlg.setMaximum(n)
+            dlg.setValue(i)
+            dlg.setLabelText(f"{title}: {i}/{n}\n{name}")
+
+        def on_done(ok, log):
+            dlg.close()
+            if ok:
+                self.status_message.emit(f"✅  {title} Manor Lords: {game_id}")
+                QMessageBox.information(self, f"✅  {title}", log)
+            else:
+                QMessageBox.critical(self, "❌  فشل", log)
+            self.refresh()
+            worker.deleteLater()
+
+        worker.progress.connect(on_prog)
+        worker.finished.connect(on_done)
+        dlg.canceled.connect(worker.terminate)
+        self._ml_worker = worker   # امنع جمع القمامة
+        worker.start()
+        dlg.show()
+
+    def _on_manorlords_install(self, game_id: str, game_path: str):
+        from games.manorlords_mod import ManorLordsMod
+        ok, msg = ManorLordsMod.tools_exist()
+        if not ok:
+            QMessageBox.critical(self, "أدوات مفقودة", msg)
+            return
+        self._run_manorlords_build(game_id, game_path, "install")
+
+    def _on_manorlords_update(self, game_id: str, game_path: str):
+        self._run_manorlords_build(game_id, game_path, "update")
+
+    def _on_manorlords_uninstall(self, game_id: str, game_path: str):
+        reply = QMessageBox.question(
+            self, "تأكيد الإلغاء",
+            "حذف مود التعريب (zzz_ManorLords_Arabic_P.pak) وعودة اللعبة للإنجليزية؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        from games.manorlords_mod import ManorLordsMod
+        ok, log = ManorLordsMod().uninstall(cfg, game_path)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(f"🗑  أُلغي تعريب Manor Lords: {game_id}")
+            QMessageBox.information(self, "تم الإلغاء", msg)
+        else:
+            QMessageBox.warning(self, "خطأ في الإلغاء", msg)
+        self.refresh()
 
     # ── UE4SS Arabic Translator handlers ───────────────────────────────────
 
