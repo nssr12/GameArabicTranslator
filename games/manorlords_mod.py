@@ -27,6 +27,9 @@ from typing import List, Optional, Tuple, Callable
 
 _AR = re.compile(r'[؀-ۿ]')   # نطاق العربية — لكشف المصادر التالفة
 
+from engine.ue_rtl_reverse import reverse_for_display
+from engine import rtl_overrides
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UAGUI = os.path.join(ROOT, "tools", "UAssetGUI", "UAssetGUI.exe")
 REPAK = os.path.join(ROOT, "tools", "repak", "repak.exe")
@@ -137,6 +140,9 @@ class ManorLordsMod:
             log.append("❌ لا توجد جداول DT_Translation_*")
             return False, ""
 
+        rtl_marked = rtl_overrides.load(GAME)   # نصوص مُعلَّمة للعكس (صفحة المساعدة)
+        if rtl_marked:
+            log.append(f"🔁 {len(rtl_marked)} نص مُعلَّم لعكس RTL")
         # work = مجلّد عمل (أزواج المصدر الإنجليزي + JSON) — لا يُحزَم.
         # stage = يحوي فقط الـ uassets المترجمة — هو ما يحزمه repak.
         work = tempfile.mkdtemp(prefix="mlwork_")
@@ -167,6 +173,9 @@ class ManorLordsMod:
                         continue
                     ar = cache.get_best(GAME, en)
                     if ar:
+                        # نص مُعلَّم للعكس (ودجة بلا BiDi مثل صفحة المساعدة)؟
+                        if en in rtl_marked:
+                            ar = reverse_for_display(ar)
                         o["Value"] = ar
                         applied += 1
                 applied_total += applied

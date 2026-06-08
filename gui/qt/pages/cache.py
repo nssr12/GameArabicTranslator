@@ -916,6 +916,19 @@ class CachePage(QWidget):
         )
         self._btn_tag_detect.clicked.connect(self._detect_tags_from_selection)
         lay.addWidget(self._btn_tag_detect)
+
+        self._btn_rtl_rev = QPushButton("🔁  عكس RTL")
+        self._btn_rtl_rev.setObjectName("btn_secondary")
+        self._btn_rtl_rev.setVisible(False)
+        self._btn_rtl_rev.setEnabled(False)
+        self._btn_rtl_rev.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_rtl_rev.setToolTip(
+            "علّم النصوص المحدَّدة لعكس ترتيب الكلمات (RTL)\n"
+            "→ لودجات اللعبة التي لا تطبّق BiDi (مثل صفحة المساعدة/الموسوعة)\n"
+            "→ يُطبَّق تلقائياً عند بناء/تحديث المود — التلميحات السليمة لا تتأثّر"
+        )
+        self._btn_rtl_rev.clicked.connect(self._toggle_rtl_reverse)
+        lay.addWidget(self._btn_rtl_rev)
         lay.addSpacing(8)
 
         # أزرار الإجراء الرئيسية — نص كامل بالعربي
@@ -1467,6 +1480,14 @@ class CachePage(QWidget):
             )
         else:
             self._btn_tag_detect.setText("🏷  اكتشف التاقات")
+
+        # زر "عكس RTL" — في عرض المترجَم فقط ولعبة محدّدة (الإعداد per-game)
+        rtl_ok = count > 0 and self._view != "failed" and self._game != "All Games"
+        self._btn_rtl_rev.setVisible(rtl_ok)
+        self._btn_rtl_rev.setEnabled(rtl_ok)
+        if rtl_ok:
+            self._btn_rtl_rev.setText(f"🔁  عكس RTL ({count})" if count > 1 else "🔁  عكس RTL")
+
         self._btn_delete.setEnabled(count > 0)
         if count > 0:
             self._chip_sel.setText(f"{count} محدد")
@@ -1742,6 +1763,29 @@ class CachePage(QWidget):
         )
 
     # ── Tag discovery (اكتشاف التاقات) ────────────────────────────────────
+
+    def _toggle_rtl_reverse(self):
+        """يبدّل علامة 'عكس RTL' للنصوص المحدَّدة (تُطبَّق عند بناء/تحديث المود)."""
+        entries = self._get_selected_entries()
+        texts = [e.get("original", "") for e in entries if e.get("original")]
+        if not texts:
+            return
+        from engine import rtl_overrides
+        marked = rtl_overrides.toggle(self._game, texts)
+        total = rtl_overrides.count(self._game)
+        state = "عُلِّمت للعكس ✓" if marked else "أُزيل تعليمها"
+        self.status_message.emit(
+            f"🔁  {len(texts)} نص {state} — المجموع المُعلَّم: {total}. "
+            f"اضغط «تحديث الترجمة» في صفحة اللعبة لتطبيقه."
+        )
+        QMessageBox.information(
+            self, "عكس RTL",
+            f"{len(texts)} نص {state}.\n\n"
+            f"إجمالي النصوص المُعلَّمة لعكس RTL في «{self._game}»: {total}\n\n"
+            "هذه النصوص ستُعكَس كلماتها (لودجات بلا BiDi مثل صفحة المساعدة) "
+            "تلقائياً عند الضغط على «🔄 تحديث الترجمة» في صفحة اللعبة. "
+            "التلميحات داخل اللعبة لا تتأثّر."
+        )
 
     def _detect_tags_from_selection(self):
         """يفحص النصوص المحدَّدة ويفتح حوار اكتشاف التاقات."""
