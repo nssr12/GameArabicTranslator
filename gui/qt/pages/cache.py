@@ -1258,6 +1258,9 @@ class CachePage(QWidget):
 
         # كاشف الصحة + خريطة عدد المودلات (نحسبها دفعة واحدة لتجنّب الاستعلامات الـ N)
         from engine.tag_health import is_broken_translation
+        from engine import rtl_overrides
+        # النصوص/الجداول المُعلَّمة لعكس RTL (لكل لعبة) — للمؤشّر 🔁
+        _rtl_marked = {g: rtl_overrides.load(g) for g in {r["game"] for r in rows}}
         model_counts: dict[tuple[str, str], int] = {}
         try:
             unique_pairs = {(r["game"], r["original"]) for r in rows}
@@ -1299,10 +1302,15 @@ class CachePage(QWidget):
             orig = QTableWidgetItem(row["original"].replace("\\n", " ↵ ").replace("\n", " ↵ "))
             orig.setForeground(QColor(c['primary']))
 
-            # عربي — محاذاة يمين
-            ar = QTableWidgetItem(row["translated"].replace("\\n", " ↵ ").replace("\n", " ↵ "))
+            # عربي — محاذاة يمين. 🔁 = مُعلَّم لعكس RTL (يُطبَّق وقت بناء المود فقط)
+            is_rtl_marked = row["original"] in _rtl_marked.get(row.get("game", ""), ())
+            ar_txt = row["translated"].replace("\\n", " ↵ ").replace("\n", " ↵ ")
+            ar = QTableWidgetItem(("🔁 " + ar_txt) if is_rtl_marked else ar_txt)
             ar.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             ar.setForeground(QColor(c['teal']))
+            if is_rtl_marked:
+                ar.setToolTip("🔁 مُعلَّم لعكس RTL — يُعكَس ترتيب كلماته عند بناء/تحديث المود "
+                              "(الكاش نفسه يبقى طبيعياً غير معكوس).")
             ar.setData(Qt.UserRole, row)   # نخزّن الصف الكامل
 
             # المودل — اسم كامل + tooltip
@@ -1774,6 +1782,7 @@ class CachePage(QWidget):
         marked = rtl_overrides.toggle(self._game, texts)
         total = rtl_overrides.count(self._game)
         state = "عُلِّمت للعكس ✓" if marked else "أُزيل تعليمها"
+        self._load_table()   # حدّث المؤشّر 🔁 فوراً
         self.status_message.emit(
             f"🔁  {len(texts)} نص {state} — المجموع المُعلَّم: {total}. "
             f"اضغط «تحديث الترجمة» في صفحة اللعبة لتطبيقه."

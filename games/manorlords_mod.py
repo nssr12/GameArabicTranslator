@@ -140,9 +140,10 @@ class ManorLordsMod:
             log.append("❌ لا توجد جداول DT_Translation_*")
             return False, ""
 
-        rtl_marked = rtl_overrides.load(GAME)   # نصوص مُعلَّمة للعكس (صفحة المساعدة)
-        if rtl_marked:
-            log.append(f"🔁 {len(rtl_marked)} نص مُعلَّم لعكس RTL")
+        rtl_marked = rtl_overrides.load(GAME)        # نصوص مُعلَّمة للعكس
+        rtl_tables = rtl_overrides.load_tables(GAME)  # جداول كاملة للعكس (الموسوعة)
+        if rtl_marked or rtl_tables:
+            log.append(f"🔁 عكس RTL: {len(rtl_marked)} نص + {len(rtl_tables)} جدول كامل")
         # work = مجلّد عمل (أزواج المصدر الإنجليزي + JSON) — لا يُحزَم.
         # stage = يحوي فقط الـ uassets المترجمة — هو ما يحزمه repak.
         work = tempfile.mkdtemp(prefix="mlwork_")
@@ -151,6 +152,8 @@ class ManorLordsMod:
         try:
             for i, ua in enumerate(tables, 1):
                 name = os.path.basename(ua)            # DT_X.uasset
+                table_stem = os.path.splitext(name)[0]  # DT_X
+                reverse_whole_table = table_stem in rtl_tables
                 if progress_cb:
                     progress_cb(i, len(tables), name)
                 # ⚠ المصدر دائماً النسخة الإنجليزية. UAssetGUI يحتاج زوج .uasset+.uexp
@@ -173,8 +176,8 @@ class ManorLordsMod:
                         continue
                     ar = cache.get_best(GAME, en)
                     if ar:
-                        # نص مُعلَّم للعكس (ودجة بلا BiDi مثل صفحة المساعدة)؟
-                        if en in rtl_marked:
+                        # عكس RTL: لجدول كامل مُعلَّم (الموسوعة) أو لنص مُعلَّم بعينه
+                        if reverse_whole_table or en in rtl_marked:
                             ar = reverse_for_display(ar)
                         o["Value"] = ar
                         applied += 1
