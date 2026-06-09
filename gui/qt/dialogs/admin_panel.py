@@ -440,12 +440,26 @@ class PINDialog(QDialog):
         hint.setStyleSheet(f"font-size: 11px; color: {c['muted']};")
         root.addWidget(hint)
 
+        self._attempts = 0
+        pin_row = QHBoxLayout()
         self._pin_field = QLineEdit()
         self._pin_field.setEchoMode(QLineEdit.Password)
         self._pin_field.setAlignment(Qt.AlignCenter)
         self._pin_field.setPlaceholderText("••••")
         self._pin_field.returnPressed.connect(self._verify)
-        root.addWidget(self._pin_field)
+        pin_row.addWidget(self._pin_field, 1)
+        eye = QToolButton()
+        eye.setText("👁")
+        eye.setCheckable(True)
+        eye.setCursor(QCursor(Qt.PointingHandCursor))
+        eye.setStyleSheet(
+            f"QToolButton {{ background: {c['surface']}; color: {c['muted']};"
+            f" border: 1px solid {c['border']}; border-radius: 8px; padding: 6px 8px; }}"
+            f"QToolButton:checked {{ color: {c['accent']}; }}")
+        eye.toggled.connect(lambda on: self._pin_field.setEchoMode(
+            QLineEdit.Normal if on else QLineEdit.Password))
+        pin_row.addWidget(eye)
+        root.addLayout(pin_row)
 
         self._err_lbl = QLabel("")
         self._err_lbl.setAlignment(Qt.AlignCenter)
@@ -483,9 +497,22 @@ class PINDialog(QDialog):
             self.verified.emit()
             self.accept()
         else:
-            self._err_lbl.setText("✗  رمز PIN غير صحيح")
-            self._pin_field.clear()
-            self._pin_field.setFocus()
+            self._attempts += 1
+            remaining = 5 - self._attempts
+            if remaining <= 0:
+                # قفل 30 ثانية بعد 5 محاولات فاشلة
+                self._err_lbl.setText("🔒  أُقفِل الإدخال 30 ثانية")
+                self._pin_field.clear()
+                self._pin_field.setEnabled(False)
+                self._attempts = 0
+                QTimer.singleShot(30000, lambda: (
+                    self._pin_field.setEnabled(True),
+                    self._pin_field.setFocus(),
+                    self._err_lbl.setText("")))
+            else:
+                self._err_lbl.setText(f"✗  رمز PIN غير صحيح ({remaining} محاولات متبقية)")
+                self._pin_field.clear()
+                self._pin_field.setFocus()
 
 
 # ── Admin panel ───────────────────────────────────────────────────────────────
@@ -595,13 +622,34 @@ class AdminPanel(QDialog):
         list_hdr.setStyleSheet(
             f"QFrame {{ background: {c['surface']}; border-bottom: 1px solid {c['border']}; }}"
         )
-        list_hdr_lay = QHBoxLayout(list_hdr)
-        list_hdr_lay.setContentsMargins(12, 8, 12, 8)
+        list_hdr_lay = QVBoxLayout(list_hdr)
+        list_hdr_lay.setContentsMargins(8, 6, 8, 6)
+        list_hdr_lay.setSpacing(6)
+        top_hdr = QHBoxLayout()
         list_hdr_lbl = QLabel("الألعاب")
         list_hdr_lbl.setStyleSheet(
             f"font-size: 12px; font-weight: bold; color: {c['muted']};"
         )
-        list_hdr_lay.addWidget(list_hdr_lbl)
+        top_hdr.addWidget(list_hdr_lbl)
+        top_hdr.addStretch()
+        add_btn = QPushButton("➕")
+        add_btn.setFixedSize(26, 24)
+        add_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        add_btn.setToolTip("إضافة لعبة جديدة")
+        add_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['green']};"
+            f" border: 1px solid {c['border']}; border-radius: 5px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {c['green']}; color: #fff; }}")
+        add_btn.clicked.connect(self._add_game_dialog)
+        top_hdr.addWidget(add_btn)
+        list_hdr_lay.addLayout(top_hdr)
+        self._game_search = QLineEdit()
+        self._game_search.setPlaceholderText("🔍 بحث…")
+        self._game_search.setStyleSheet(
+            f"QLineEdit {{ background: {c['bg']}; color: {c['primary']};"
+            f" border: 1px solid {c['border']}; border-radius: 5px; padding: 3px 8px; font-size: 11px; }}")
+        self._game_search.textChanged.connect(self._filter_game_list)
+        list_hdr_lay.addWidget(self._game_search)
         left_lay.addWidget(list_hdr)
 
         self._list_scroll = QScrollArea()
@@ -803,6 +851,79 @@ class AdminPanel(QDialog):
             self._global_host_lay.addWidget(self._build_general_widget())
         self._global_host.show()
 
+    def _filter_game_list(self, text: str):
+        t = (text or "").strip().lower()
+        for gid, btn in self._game_btns.items():
+            if gid.startswith("__"):
+                continue   # أزرار عامة تبقى ظاهرة
+            btn.setVisible(t in gid.lower())
+
+    def _add_game_dialog(self):
+        c = theme.c
+        dlg = QDialog(self)
+        dlg.setWindowTitle("➕  إضافة لعبة")
+        dlg.setFixedSize(460, 320)
+        dlg.setStyleSheet(
+            f"QDialog {{ background: {c['bg']}; }} QLabel {{ color: {c['primary']};"
+            f" background: transparent; border: none; }}"
+            f"QLineEdit, QComboBox {{ background: {c['surface']}; color: {c['primary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 4px 8px; }}")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(10)
+
+        lay.addWidget(QLabel("اسم اللعبة (المعرّف):"))
+        name_f = QLineEdit(); name_f.setPlaceholderText("مثال: My Game")
+        lay.addWidget(name_f)
+        lay.addWidget(QLabel("مسار اللعبة:"))
+        pr = QHBoxLayout()
+        path_f = QLineEdit(); pr.addWidget(path_f, 1)
+        br = QPushButton("📂"); br.setFixedWidth(36); br.setCursor(QCursor(Qt.PointingHandCursor))
+        br.clicked.connect(lambda: path_f.setText(
+            QFileDialog.getExistingDirectory(dlg, "مجلد اللعبة", "") or path_f.text()))
+        pr.addWidget(br); lay.addLayout(pr)
+        lay.addWidget(QLabel("المحرّك:"))
+        eng_combo = QComboBox(); eng_combo.addItems(["ue5", "ue4", "unity", "hurricane", "auto"])
+        lay.addWidget(eng_combo)
+        lay.addWidget(QLabel("وضع التعريب:"))
+        mm_combo = QComboBox()
+        for val, label in MOD_MODES:
+            mm_combo.addItem(label, val)
+        lay.addWidget(mm_combo)
+        lay.addStretch()
+
+        br2 = QHBoxLayout()
+        cancel = QPushButton("إلغاء"); cancel.clicked.connect(dlg.reject)
+        cancel.setStyleSheet(f"QPushButton {{ background: {c['surface']}; color: {c['muted']};"
+                             f" border: 1px solid {c['border']}; border-radius: 8px; padding: 6px 16px; }}")
+        ok = QPushButton("➕  إضافة")
+        ok.setStyleSheet(f"QPushButton {{ background: {c['green']}; color: #fff;"
+                         " border: none; border-radius: 8px; font-weight: bold; padding: 6px 18px; }")
+        def _do_add():
+            gid = name_f.text().strip()
+            if not gid:
+                QMessageBox.warning(dlg, "تنبيه", "أدخل اسم اللعبة"); return
+            if self._gm and self._gm.get_game(gid):
+                QMessageBox.warning(dlg, "تنبيه", "اللعبة موجودة مسبقاً"); return
+            cfg = {
+                "name": gid,
+                "game_path": path_f.text().strip(),
+                "engine": eng_combo.currentText(),
+                "mod_mode": mm_combo.currentData() or "",
+                "source_lang": "en", "target_lang": "ar", "enabled": True,
+            }
+            if self._gm and self._gm.add_game(gid, cfg):
+                dlg.accept()
+                self._populate_game_list()
+                self.features_saved.emit(gid)
+                self._select_game(gid)
+            else:
+                QMessageBox.critical(dlg, "خطأ", "تعذّر إضافة اللعبة")
+        ok.clicked.connect(_do_add)
+        br2.addWidget(cancel); br2.addStretch(); br2.addWidget(ok)
+        lay.addLayout(br2)
+        dlg.exec()
+
     # ── Tabs builder ──────────────────────────────────────────────────────────
 
     def _build_tabs(self, game_id: str):
@@ -810,11 +931,107 @@ class AdminPanel(QDialog):
         cfg = self._gm.get_game(game_id) or {} if self._gm else {}
 
         self._tabs.addTab(self._build_features_tab(game_id, cfg),   "👁  الميزات")
+        self._tabs.addTab(self._build_actions_tab(game_id, cfg),    "⚡  إجراءات")
         self._tabs.addTab(self._build_cover_tab(game_id, cfg),      "🖼  صورة العرض")
         self._tabs.addTab(self._build_package_tab(game_id, cfg),    "📦  حزمة التعريب")
         self._tabs.addTab(self._build_release_tab(game_id, cfg),    "🚀  نشر الترجمة")
         self._tabs.addTab(self._build_config_tab(game_id, cfg),     "🗒  الإعدادات الخام")
         self._tabs.addTab(self._build_cache_tab(game_id, cfg),      "💾  الكاش")
+
+    def _build_actions_tab(self, game_id: str, cfg: dict) -> QWidget:
+        c = theme.c
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(12)
+        game_path = cfg.get("game_path", "")
+
+        lay.addWidget(QLabel("إجراءات سريعة"))
+
+        def mkbtn(label, color_key, slot):
+            b = QPushButton(label); b.setFixedHeight(36)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            b.setStyleSheet(
+                f"QPushButton {{ background: rgba(0,0,0,30); color: {clr};"
+                f" border: 1px solid {clr}; border-radius: 8px; font-weight: bold;"
+                f" padding: 0 14px; text-align: left; }}"
+                f"QPushButton:hover {{ background: {clr}; color: #fff; }}")
+            b.clicked.connect(slot)
+            return b
+
+        def _open(path):
+            if path and os.path.isdir(path):
+                os.startfile(path)
+            else:
+                QMessageBox.warning(self, "تنبيه", "المسار غير موجود")
+
+        def _open_ready():
+            try:
+                from games.translation_package import TranslationPackage
+                rd = TranslationPackage().get_ready_dir(game_id)
+                os.makedirs(rd, exist_ok=True); os.startfile(rd)
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ", str(e))
+
+        def _launch():
+            proc = cfg.get("process_name", "")
+            acf_appid = cfg.get("steam_appid", "")
+            try:
+                if acf_appid:
+                    os.startfile(f"steam://run/{acf_appid}")
+                elif cfg.get("game_exe_inject") and os.path.isfile(cfg["game_exe_inject"]):
+                    os.startfile(cfg["game_exe_inject"])
+                else:
+                    QMessageBox.information(self, "تشغيل", "حدّد steam_appid أو game_exe_inject في الإعدادات")
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ", str(e))
+
+        lay.addWidget(mkbtn("📂  فتح مجلد اللعبة", "teal", lambda: _open(game_path)))
+        lay.addWidget(mkbtn("📦  فتح مجلد المود (ready)", "blue", _open_ready))
+        lay.addWidget(mkbtn("▶️  تشغيل اللعبة", "green", _launch))
+
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"QFrame {{ background: {c['border']}; max-height: 1px; border: none; }}")
+        lay.addWidget(sep)
+
+        # تفعيل/تعطيل
+        en_cb = QCheckBox("اللعبة مُفعَّلة (تظهر في الصفحة الرئيسية)")
+        en_cb.setChecked(bool(cfg.get("enabled", True)))
+        en_cb.setStyleSheet(f"color: {c['primary']}; font-size: 13px;")
+        def _toggle_enabled(state):
+            if self._gm:
+                self._gm.update_game(game_id, {"enabled": bool(state)})
+                self.features_saved.emit(game_id)
+        en_cb.stateChanged.connect(_toggle_enabled)
+        lay.addWidget(en_cb)
+
+        lay.addStretch()
+
+        # منطقة خطر
+        danger_lbl = QLabel("⚠  منطقة الخطر")
+        danger_lbl.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: bold;")
+        lay.addWidget(danger_lbl)
+        del_btn = QPushButton("🗑  حذف اللعبة نهائياً")
+        del_btn.setFixedHeight(34); del_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        del_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(0,0,0,30); color: {c['accent']};"
+            f" border: 1px solid {c['accent']}; border-radius: 8px; padding: 0 16px; }}"
+            f"QPushButton:hover {{ background: {c['accent']}; color: #fff; }}")
+        def _delete():
+            if QMessageBox.question(
+                self, "تأكيد الحذف",
+                f"حذف إعداد اللعبة «{game_id}» نهائياً؟\n(لا يحذف ملفات اللعبة، فقط الإعداد من التطبيق)",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            if self._gm and self._gm.delete_game(game_id):
+                self._populate_game_list()
+                self._tabs.hide(); self._placeholder.show()
+                self.features_saved.emit(game_id)
+                QMessageBox.information(self, "✓", "حُذفت اللعبة")
+        del_btn.clicked.connect(_delete)
+        lay.addWidget(del_btn)
+        return w
 
     # ── Game health check (مشترك بين الـ dashboard وزر الفحص) ──────────────────
 
@@ -1698,9 +1915,20 @@ class AdminPanel(QDialog):
             except json.JSONDecodeError as e:
                 QMessageBox.critical(self, "خطأ", f"JSON غير صالح:\n{e}")
                 return
+            if not isinstance(new_cfg, dict):
+                QMessageBox.critical(self, "خطأ", "الإعداد يجب أن يكون كائن JSON {...}")
+                return
+            # نسخة احتياطية قبل الحفظ
+            try:
+                src = os.path.join(_PROJECT_ROOT, "games", "configs", f"{game_id}.json")
+                if os.path.isfile(src):
+                    shutil.copy2(src, src + ".bak")
+            except Exception:
+                pass
             if self._gm:
                 self._gm.update_game(game_id, new_cfg)
-            QMessageBox.information(self, "✓", "تم حفظ الإعدادات")
+            self.features_saved.emit(game_id)
+            QMessageBox.information(self, "✓", "تم حفظ الإعدادات (نسخة احتياطية: .bak)")
 
         save_btn.clicked.connect(_save)
         btn_row.addWidget(save_btn)
@@ -1778,6 +2006,104 @@ class AdminPanel(QDialog):
         btn_row.addWidget(del_btn)
         btn_row.addStretch()
         lay.addLayout(btn_row)
+
+        # ── نسخ احتياطي / استعادة + عمليات تنظيف ──────────────────────────────
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"QFrame {{ background: {c['border']}; max-height: 1px; border: none; }}")
+        lay.addWidget(sep)
+        lay.addWidget(QLabel("نسخ احتياطي وصيانة"))
+
+        def _db_path():
+            try:
+                return self._cache._game_db_path(game_name)
+            except Exception:
+                return ""
+
+        def _backup():
+            p = _db_path()
+            if not p or not os.path.isfile(p):
+                QMessageBox.warning(self, "تنبيه", "لا يوجد ملف كاش لهذه اللعبة"); return
+            dst, _ = QFileDialog.getSaveFileName(self, "حفظ نسخة احتياطية", f"{game_name}.db", "SQLite (*.db)")
+            if dst:
+                shutil.copy2(p, dst)
+                QMessageBox.information(self, "✓", f"حُفظت النسخة:\n{dst}")
+
+        def _restore():
+            p = _db_path()
+            src, _ = QFileDialog.getOpenFileName(self, "اختر نسخة احتياطية", "", "SQLite (*.db)")
+            if not src:
+                return
+            if QMessageBox.question(self, "تأكيد",
+                "استبدال كاش هذه اللعبة بالنسخة المختارة؟ (سيُستبدل الحالي)",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            try:
+                if p and os.path.isfile(p):
+                    shutil.copy2(p, p + ".bak")
+                shutil.copy2(src, p)
+                _refresh_stats()
+                QMessageBox.information(self, "✓", "استُعيد الكاش (نسخة سابقة: .bak) — أعد تشغيل التطبيق")
+            except Exception as e:
+                QMessageBox.critical(self, "خطأ", str(e))
+
+        def _clean_cjk():
+            import sqlite3, re
+            p = _db_path()
+            if not p or not os.path.isfile(p):
+                return
+            try:
+                con = sqlite3.connect(p)
+                cjk = re.compile(r'[　-〿぀-ヿ㐀-䶿一-鿿＀-￯가-힯]')
+                rows = con.execute("SELECT id, translated_text FROM translations").fetchall()
+                bad = [i for i, t in rows if cjk.search(t or "")]
+                con.executemany("DELETE FROM translations WHERE id=?", [(i,) for i in bad])
+                con.commit(); con.close()
+                _refresh_stats()
+                QMessageBox.information(self, "✓", f"حُذف {len(bad)} صف ملوّث بـ CJK")
+            except Exception as e:
+                QMessageBox.critical(self, "خطأ", str(e))
+
+        def _fix_periods():
+            import sqlite3
+            try:
+                from engine.models.base import enforce_trailing_punctuation
+            except Exception:
+                QMessageBox.warning(self, "تنبيه", "enforce_trailing_punctuation غير متاح"); return
+            p = _db_path()
+            if not p or not os.path.isfile(p):
+                return
+            try:
+                con = sqlite3.connect(p)
+                rows = con.execute("SELECT id, original_text, translated_text FROM translations").fetchall()
+                fixed = 0
+                for i, o, t in rows:
+                    nt = enforce_trailing_punctuation(o or "", t or "")
+                    if nt != t:
+                        con.execute("UPDATE translations SET translated_text=? WHERE id=?", (nt, i)); fixed += 1
+                con.commit(); con.close()
+                _refresh_stats()
+                QMessageBox.information(self, "✓", f"صُحّح {fixed} نقطة زائدة")
+            except Exception as e:
+                QMessageBox.critical(self, "خطأ", str(e))
+
+        maint_row = QHBoxLayout()
+        for mlabel, mcolor, mslot in [
+            ("💾  نسخة احتياطية", "teal", _backup),
+            ("♻️  استعادة",       "blue", _restore),
+            ("🧹  تنظيف CJK",     "orange", _clean_cjk),
+            ("🩹  إصلاح النقاط",  "yellow", _fix_periods),
+        ]:
+            mb = QPushButton(mlabel); mb.setFixedHeight(30)
+            mb.setCursor(QCursor(Qt.PointingHandCursor))
+            mclr = c.get(mcolor, c["accent"])
+            mb.setStyleSheet(
+                f"QPushButton {{ background: rgba(0,0,0,26); color: {mclr};"
+                f" border: 1px solid {mclr}; border-radius: 7px; padding: 0 12px; }}"
+                f"QPushButton:hover {{ background: {mclr}; color: #fff; }}")
+            mb.clicked.connect(mslot)
+            maint_row.addWidget(mb)
+        maint_row.addStretch()
+        lay.addLayout(maint_row)
         lay.addStretch()
         return w
 
