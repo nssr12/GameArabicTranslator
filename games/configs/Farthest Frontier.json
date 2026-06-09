@@ -22,5 +22,6 @@
   "bepinex_mod": {},
   "apply_bidi": false,
   "text_reorder_char_limit": 0,
-  "translate_timeout": 60
+  "translate_timeout": 60,
+  "steam_subpath": "Farthest Frontier (Mono)"
 }

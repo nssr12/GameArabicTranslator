@@ -28,5 +28,7 @@
     "translate_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Manor Lords\\ManorLords\\Binaries\\Win64\\Translate"
   },
   "aes_key": "0xD7D2FFA2744D18A7B84DFF09591C212C2068413A23BA3967F9890A6654989321",
-  "usmap_path": "C:\\Users\\nssr1\\AppData\\Local\\UAssetGUI\\Mappings\\ManorLords.usmap"
+  "usmap_path": "C:\\Users\\nssr1\\AppData\\Local\\UAssetGUI\\Mappings\\ManorLords.usmap",
+  "steam_appid": "1363080",
+  "steam_subpath": ""
 }

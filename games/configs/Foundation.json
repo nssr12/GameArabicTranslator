@@ -12,5 +12,7 @@
     "wrap": 30,
     "proxy_dll": "CrashRpt1403.dll",
     "lang_code": "ar"
-  }
+  },
+  "steam_appid": "690830",
+  "steam_subpath": ""
 }

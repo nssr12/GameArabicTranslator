@@ -16,5 +16,7 @@
   "hidden_features": [],
   "shown_features": [
     "iostore_section"
-  ]
+  ],
+  "steam_appid": "1371580",
+  "steam_subpath": ""
 }

@@ -18,5 +18,7 @@
   "shown_features": [
     "iostore_section"
   ],
-  "mod_mode": ""
+  "mod_mode": "",
+  "steam_appid": "2661300",
+  "steam_subpath": ""
 }

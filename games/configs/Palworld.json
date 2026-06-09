@@ -23,5 +23,7 @@
   "unreal_hook": {
     "win64_dir": "D:\\SteamLibrary\\steamapps\\common\\Palworld\\Pal\\Binaries\\Win64",
     "translate_dir": "D:\\SteamLibrary\\steamapps\\common\\Palworld\\Pal\\Binaries\\Win64\\Translate"
-  }
+  },
+  "steam_appid": "1623730",
+  "steam_subpath": ""
 }

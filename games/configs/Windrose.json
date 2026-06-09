@@ -16,5 +16,7 @@
     "locres_section",
     "iostore_section"
   ],
-  "locres_path": "D:/SteamLibrary/steamapps/common/Windrose/R5/Content/F_model/R5/Content/Localization/Game/en/Game.locres"
+  "locres_path": "D:/SteamLibrary/steamapps/common/Windrose/R5/Content/F_model/R5/Content/Localization/Game/en/Game.locres",
+  "steam_appid": "3041230",
+  "steam_subpath": "R5/Content/Paks"
 }

@@ -44,6 +44,34 @@ class GameManager:
                         self._games[game_id] = config
                 except Exception as e:
                     print(f"[GameManager] Error loading {filename}: {e}")
+        # كشف تلقائي لمسارات الألعاب (لجهاز مختلف عن مسار المطوّر)
+        self._auto_resolve_paths()
+
+    def _auto_resolve_paths(self):
+        """يصحّح game_path تلقائياً عبر Steam عند عدم وجود المسار المضبوط
+        (مثلاً على جهاز آخر بمسار تثبيت مختلف)."""
+        try:
+            from games import steam_detector
+        except Exception:
+            return
+        for gid, cfg in self._games.items():
+            cur = (cfg.get("game_path", "") or "").strip()
+            if cur and os.path.isdir(cur):
+                continue   # المسار المضبوط سليم
+            try:
+                found = steam_detector.resolve_game_path(gid, cfg)
+            except Exception:
+                found = None
+            if found and os.path.normpath(found) != os.path.normpath(cur or ""):
+                cfg["game_path"] = found.replace("\\", "/")
+                # حدّث المسارات المشتقّة (unreal_hook) إن وُجدت
+                uh = cfg.get("unreal_hook")
+                if isinstance(uh, dict):
+                    for k in ("win64_dir", "translate_dir"):
+                        if uh.get(k) and not os.path.isdir(uh[k]):
+                            uh.pop(k, None)
+                self._save_config(gid, cfg)
+                print(f"[GameManager] auto-detected path for {gid}: {found}")
     
     def get_game(self, game_id: str) -> Optional[dict]:
         return self._games.get(game_id)

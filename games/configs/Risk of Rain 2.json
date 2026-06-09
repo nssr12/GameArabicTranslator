@@ -62,5 +62,7 @@
     "locres_section",
     "iostore_section"
   ],
-  "bepinex_mod": {}
+  "bepinex_mod": {},
+  "steam_appid": "632360",
+  "steam_subpath": ""
 }
