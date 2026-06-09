@@ -140,7 +140,7 @@ def main():
     run(["git", "add", "manifest.json", "games/translation_registry.py"])
     rc = run(["git", "commit", "-m", f"Release app v{version}"], check=False)
     if rc == 0:
-        run(["git", "push", "origin", "main"])
+        run(["git", "push", "origin", "HEAD:main"])
     else:
         print("manifest.json unchanged — skipping commit.")
 

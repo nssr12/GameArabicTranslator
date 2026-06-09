@@ -104,7 +104,7 @@ def main():
     run(["git", "-C", root, "add", "manifest.json"])
     run(["git", "-C", root, "commit", "-m",
          f"Update manifest: {game_id} v{version} ({total_mb} MB)"])
-    run(["git", "-C", root, "push", "origin", "main"])
+    run(["git", "-C", root, "push", "origin", "HEAD:main"])
 
     print(f"\n=== Done! ===")
     print(f"Release: https://github.com/{REPO}/releases/tag/{tag}")

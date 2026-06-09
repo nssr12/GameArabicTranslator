@@ -290,7 +290,7 @@ class _TranslationReleaseWorker(QThread):
         ).returncode
         if rc == 0:
             r2 = subprocess.run(
-                ["git", "push", "origin", "main"],
+                ["git", "push", "origin", "HEAD:main"],
                 cwd=_PROJECT_ROOT, capture_output=True, text=True,
             )
             if r2.returncode == 0:
@@ -399,7 +399,7 @@ class _ForCacheUploadWorker(QThread):
         ).returncode
         if rc == 0:
             r2 = subprocess.run(
-                ["git", "push", "origin", "main"],
+                ["git", "push", "origin", "HEAD:main"],
                 cwd=_PROJECT_ROOT, capture_output=True, text=True,
             )
             self.log_line.emit(
