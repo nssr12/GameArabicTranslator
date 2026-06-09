@@ -7,30 +7,40 @@
   },
   "translations": {
     "Grounded2": {
-      "version": "0.3",
+      "version": "0.4",
       "size_mb": 36,
       "files": [
         {
           "name": "Paks_legacy_P.pak",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.3/Paks_legacy_P.pak",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.4/Paks_legacy_P.pak",
           "game_target": "Augusta/Content/Paks/Paks_legacy_P.pak",
-          "size": 347
+          "size": 347,
+          "sha256": "75e7144577253917f6da7312ef5e585b12fb728226a22b0938323751a6b555cd"
         },
         {
           "name": "Paks_legacy_P.ucas",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.3/Paks_legacy_P.ucas",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.4/Paks_legacy_P.ucas",
           "game_target": "Augusta/Content/Paks/Paks_legacy_P.ucas",
-          "size": 37604057
+          "size": 37632727,
+          "sha256": "c4256d0482a57d2e9f65b453ea6ccb8aa9de07189a449432f3852cf35132fd03"
         },
         {
           "name": "Paks_legacy_P.utoc",
-          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.3/Paks_legacy_P.utoc",
+          "url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.4/Paks_legacy_P.utoc",
           "game_target": "Augusta/Content/Paks/Paks_legacy_P.utoc",
-          "size": 12184
+          "size": 12184,
+          "sha256": "8460424a67ce003b08f3c492dc1a48cd61e9b2d43072a5e8115f57801e2ee0f0"
         }
       ],
+      "release_notes": "اصلاحات عامه",
       "for_cache_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.3/Grounded2_for_cache.zip",
-      "for_cache_size_mb": 29
+      "for_cache_size_mb": 29,
+      "changelog": [
+        {
+          "version": "0.4",
+          "notes": "اصلاحات عامه"
+        }
+      ]
     },
     "Windrose": {
       "version": "0.4",
