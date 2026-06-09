@@ -33,14 +33,15 @@
         }
       ],
       "release_notes": "اصلاحات عامه",
-      "for_cache_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.3/Grounded2_for_cache.zip",
+      "for_cache_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/translation-Grounded2-v0.4/Grounded2_for_cache.zip",
       "for_cache_size_mb": 29,
       "changelog": [
         {
           "version": "0.4",
           "notes": "اصلاحات عامه"
         }
-      ]
+      ],
+      "for_cache_sha256": "2f981aad6989104ae8e3a2598bfe654e9d858d442d9670e29b5b7803e9c3d140"
     },
     "Windrose": {
       "version": "0.4",
