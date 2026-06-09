@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QPushButton, QLineEdit, QTextEdit, QScrollArea, QTabWidget,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QFileDialog, QMessageBox, QSizePolicy,
-    QToolButton, QApplication,
+    QToolButton, QApplication, QComboBox,
 )
 from PySide6.QtCore  import Qt, Signal, QThread, QTimer
 from PySide6.QtGui   import QCursor, QFont, QColor, QPixmap
@@ -32,8 +32,29 @@ FEATURE_DEFS = [
     ("font_section",    "🔤  زر استبدال الخط"),
     ("locres_section",  "📄  قسم ملف Locres  (UE4)"),
     ("iostore_section", "📦  قسم IoStore / UAsset  (UE5)"),
+    ("unreal_hook_section", "🪝  قسم Unreal Hook  (dxgi)"),
 ]
-_SHOWN_ONLY = {"locres_section", "iostore_section"}
+_SHOWN_ONLY = {"locres_section", "iostore_section", "unreal_hook_section"}
+
+# أوضاع التعريب المتاحة لكل لعبة (engine + mod_mode + hook_mode)
+MOD_MODES = [
+    ("",                "— تلقائي / غير محدّد —"),
+    ("datatable_pak",   "📦  DataTable .pak  (Manor Lords / UE5 ساكن)"),
+    ("foundation_proxy","🏛️  Foundation proxy DLL  (Hurricane)"),
+    ("unreal_hook",     "🪝  Unreal Hook dxgi  (UE5 حيّ)"),
+    ("ue4ss",           "🔧  UE4SS mod"),
+    ("bepinex",         "🎮  BepInEx + XUnity  (Unity)"),
+    ("proxy",           "🌐  بروكسي حيّ فقط"),
+]
+
+# الأدوات الخارجية (المفتاح في config.json["tools"] ← التسمية + المسار الافتراضي)
+TOOL_DEFS = [
+    ("uassetgui_path", "UAssetGUI  (uasset⇄JSON)", "tools/UAssetGUI/UAssetGUI.exe"),
+    ("repak_path",     "repak  (حزم pak V11)",       "tools/repak/repak.exe"),
+    ("retoc_path",     "retoc  (IoStore ⇄ legacy)",  "tools/retoc/retoc.exe"),
+    ("unrealpak_path", "UnrealPak  (pak قديم)",      ""),
+    ("ue4loc_tool",    "UE4LocalizationsTool (.locres)", "tools/UE4localizationsTool/UE4localizationsTool.exe"),
+]
 
 _SCAN_EXTS = {".uasset", ".uexp", ".pak", ".utoc", ".ucas", ".locres", ".ttf", ".ufont"}
 
@@ -615,7 +636,7 @@ class AdminPanel(QDialog):
         right_lay.setContentsMargins(16, 16, 16, 16)
         right_lay.setSpacing(12)
 
-        self._placeholder = QLabel("← اختر لعبة من القائمة")
+        self._placeholder = QLabel("← اختر لعبة أو «لوحة المعلومات» / «إعدادات عامة»")
         self._placeholder.setAlignment(Qt.AlignCenter)
         self._placeholder.setStyleSheet(f"color: {c['muted']}; font-size: 14px;")
         right_lay.addWidget(self._placeholder)
@@ -623,6 +644,13 @@ class AdminPanel(QDialog):
         self._tabs = QTabWidget()
         self._tabs.hide()
         right_lay.addWidget(self._tabs, 1)
+
+        # مضيف المحتوى العام (لوحة المعلومات / الإعدادات العامة) — يُملأ عند الطلب
+        self._global_host = QWidget()
+        self._global_host.hide()
+        self._global_host_lay = QVBoxLayout(self._global_host)
+        self._global_host_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.addWidget(self._global_host, 1)
 
         body.addWidget(left)
         body.addWidget(right, 1)
@@ -692,11 +720,36 @@ class AdminPanel(QDialog):
             if item.widget():
                 item.widget().deleteLater()
 
+        # أزرار عامة (غير مرتبطة بلعبة) في الأعلى
+        self._game_btns: dict[str, QPushButton] = {}
+        for sid, slabel in [("__dashboard__", "📊  لوحة المعلومات"),
+                            ("__general__",   "⚙️  إعدادات عامة")]:
+            sb = QPushButton(slabel)
+            sb.setCursor(QCursor(Qt.PointingHandCursor))
+            sb.setCheckable(True)
+            sb.setStyleSheet(f"""
+                QPushButton {{
+                    background: rgba(0,0,0,30); color: {c['secondary']};
+                    border: 1px solid {c['border']}; border-radius: 6px;
+                    padding: 7px 10px; text-align: left; font-size: 12px; font-weight: bold;
+                }}
+                QPushButton:hover {{ background: {c['hover']}; color: {c['accent']}; }}
+                QPushButton:checked {{ background: {c['hover']}; color: {c['accent']};
+                    border-color: {c['accent']}; }}
+            """)
+            sb.clicked.connect(lambda _checked, k=sid: self._select_special(k))
+            self._game_btns[sid] = sb
+            self._list_lay.insertWidget(self._list_lay.count() - 1, sb)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"QFrame {{ background: {c['border']}; max-height: 1px; border: none; }}")
+        self._list_lay.insertWidget(self._list_lay.count() - 1, sep)
+
         if not self._gm:
             return
 
         games = self._gm.get_game_list()
-        self._game_btns: dict[str, QPushButton] = {}
 
         for game in games:
             gid = game["id"]
@@ -727,8 +780,28 @@ class AdminPanel(QDialog):
 
         self._selected_id = game_id
         self._placeholder.hide()
+        self._global_host.hide()
         self._tabs.show()
         self._build_tabs(game_id)
+
+    def _clear_global_host(self):
+        while self._global_host_lay.count():
+            it = self._global_host_lay.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+
+    def _select_special(self, kind: str):
+        for gid, btn in self._game_btns.items():
+            btn.setChecked(gid == kind)
+        self._selected_id = None
+        self._placeholder.hide()
+        self._tabs.hide()
+        self._clear_global_host()
+        if kind == "__dashboard__":
+            self._global_host_lay.addWidget(self._build_dashboard_widget())
+        else:
+            self._global_host_lay.addWidget(self._build_general_widget())
+        self._global_host.show()
 
     # ── Tabs builder ──────────────────────────────────────────────────────────
 
@@ -743,6 +816,313 @@ class AdminPanel(QDialog):
         self._tabs.addTab(self._build_config_tab(game_id, cfg),     "🗒  الإعدادات الخام")
         self._tabs.addTab(self._build_cache_tab(game_id, cfg),      "💾  الكاش")
 
+    # ── Game health check (مشترك بين الـ dashboard وزر الفحص) ──────────────────
+
+    def _game_health(self, game_id: str, cfg: dict) -> dict:
+        """يفحص لعبة ويُرجع dict بالحالة: مسار، مود، ترجمات، أدوات."""
+        game_path = cfg.get("game_path", "")
+        eng = (cfg.get("engine") or "").lower()
+        mod_mode = cfg.get("mod_mode", "")
+        hook_mode = cfg.get("hook_mode", "")
+        h = {
+            "id": game_id,
+            "mode": mod_mode or hook_mode or eng or "—",
+            "path_ok": bool(game_path) and os.path.isdir(game_path),
+            "installed": None,       # True/False/None(غير منطبق)
+            "translations": 0,
+            "issues": [],
+        }
+        if not h["path_ok"]:
+            h["issues"].append("مسار اللعبة غير صالح")
+
+        # حالة المود حسب النوع
+        try:
+            if mod_mode == "datatable_pak":
+                from games.manorlords_mod import ManorLordsMod
+                h["installed"] = ManorLordsMod().get_install_status(cfg, game_path)
+                ok, msg = ManorLordsMod.tools_exist()
+                if not ok:
+                    h["issues"].append(msg)
+            elif eng == "hurricane" or hook_mode == "foundation_proxy":
+                from games.foundation_mod import FoundationMod
+                h["installed"] = FoundationMod().get_install_status(cfg, game_path)
+            elif eng == "unity" or "bepinex_mod" in cfg:
+                from games.bepinex_mod import BepInExMod
+                h["installed"] = BepInExMod().get_install_status(cfg, game_path)
+            elif hook_mode == "unreal_hook" or "unreal_hook_section" in (cfg.get("shown_features") or []):
+                from games.unreal_hook_mod import UnrealHookMod
+                h["installed"] = UnrealHookMod().is_installed(cfg)
+        except Exception as e:
+            h["issues"].append(f"فحص المود: {e}")
+
+        # عدد الترجمات بالكاش
+        try:
+            if self._cache:
+                h["translations"] = self._cache.count_entries(cfg.get("name", game_id))
+        except Exception:
+            pass
+        return h
+
+    # ── Dashboard (نظرة شاملة لكل الألعاب) ─────────────────────────────────────
+
+    def _build_dashboard_widget(self) -> QWidget:
+        c = theme.c
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(10)
+
+        hdr = QHBoxLayout()
+        title = QLabel("📊  نظرة شاملة على كل الألعاب")
+        title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {c['accent']};")
+        hdr.addWidget(title)
+        hdr.addStretch()
+        refresh = QPushButton("🔄  تحديث")
+        refresh.setCursor(QCursor(Qt.PointingHandCursor))
+        refresh.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['secondary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 4px 14px; }}"
+            f"QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; }}")
+        hdr.addWidget(refresh)
+        lay.addLayout(hdr)
+
+        table = QTableWidget(0, 6)
+        table.setHorizontalHeaderLabels(["اللعبة", "الوضع", "المسار", "المود", "ترجمات", "ملاحظات"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().hide()
+        lay.addWidget(table, 1)
+
+        def _yn(v, true_t="✓", false_t="✗"):
+            if v is None:
+                return ("—", c['muted'])
+            return (true_t, c['green']) if v else (false_t, c['accent'])
+
+        def _refresh():
+            table.setRowCount(0)
+            games = self._gm.get_game_list() if self._gm else []
+            for g in games:
+                gid = g["id"]
+                cfg = self._gm.get_game(gid) or {}
+                hh = self._game_health(gid, cfg)
+                r = table.rowCount()
+                table.insertRow(r)
+                table.setItem(r, 0, QTableWidgetItem(gid))
+                table.setItem(r, 1, QTableWidgetItem(str(hh["mode"])))
+                for col, val in [(2, hh["path_ok"]), (3, hh["installed"])]:
+                    txt, col_c = _yn(val)
+                    it = QTableWidgetItem(txt)
+                    it.setTextAlignment(Qt.AlignCenter)
+                    it.setForeground(QColor(col_c))
+                    table.setItem(r, col, it)
+                tr = QTableWidgetItem(f"{hh['translations']:,}")
+                tr.setTextAlignment(Qt.AlignCenter)
+                table.setItem(r, 4, tr)
+                notes = QTableWidgetItem("؛ ".join(hh["issues"]) if hh["issues"] else "سليم")
+                notes.setForeground(QColor(c['accent'] if hh["issues"] else c['green']))
+                table.setItem(r, 5, notes)
+
+        refresh.clicked.connect(_refresh)
+        _refresh()
+        return w
+
+    # ── General settings (أدوات + ترجمة + مفاتيح) ─────────────────────────────
+
+    def _save_main_config(self):
+        if self._config_path:
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump(self._config, f, indent=2, ensure_ascii=False)
+
+    def _build_general_widget(self) -> QWidget:
+        c = theme.c
+        tabs = QTabWidget()
+        tabs.addTab(self._build_tools_subtab(), "🛠  الأدوات")
+        tabs.addTab(self._build_translation_subtab(), "🌐  الترجمة")
+        tabs.addTab(self._build_keys_subtab(), "🔑  المفاتيح")
+        return tabs
+
+    def _build_tools_subtab(self) -> QWidget:
+        c = theme.c
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(10)
+        lay.addWidget(QLabel("مسارات الأدوات الخارجية (محفوظة في config.json)"))
+
+        tools = self._config.setdefault("tools", {})
+        fields: dict[str, QLineEdit] = {}
+
+        def _row(key, label, default):
+            row = QFrame()
+            row.setStyleSheet(f"QFrame {{ background: {c['card']}; border: 1px solid {c['border']};"
+                              " border-radius: 6px; }")
+            rl = QVBoxLayout(row); rl.setContentsMargins(10, 8, 10, 8); rl.setSpacing(4)
+            top = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"color: {c['primary']}; font-size: 12px; font-weight: bold;")
+            top.addWidget(lbl)
+            top.addStretch()
+            st = QLabel()
+            top.addWidget(st)
+            rl.addLayout(top)
+            f = QLineEdit(tools.get(key, "") or "")
+            cur = tools.get(key, "") or (os.path.join(_PROJECT_ROOT, default) if default else "")
+            f.setText(cur)
+            fields[key] = f
+            ir = QHBoxLayout()
+            ir.addWidget(f, 1)
+            br = QPushButton("📂")
+            br.setFixedWidth(36); br.setCursor(QCursor(Qt.PointingHandCursor))
+            br.setStyleSheet(f"QPushButton {{ background: {c['surface']}; color: {c['secondary']};"
+                             f" border: 1px solid {c['border']}; border-radius: 6px; }}")
+            def _browse(fld=f):
+                p, _ = QFileDialog.getOpenFileName(self, "اختر الأداة", "", "Executables (*.exe);;All (*.*)")
+                if p:
+                    fld.setText(p); _upd()
+            br.clicked.connect(_browse)
+            ir.addWidget(br)
+            rl.addLayout(ir)
+            def _upd(fld=f, lab=st):
+                ok = bool(fld.text().strip()) and os.path.isfile(fld.text().strip())
+                lab.setText("✓ موجود" if ok else "✗ مفقود")
+                lab.setStyleSheet(f"color: {c['green'] if ok else c['accent']}; font-size: 10px;")
+            f.textChanged.connect(lambda _t: _upd())
+            _upd()
+            lay.addWidget(row)
+
+        for key, label, default in TOOL_DEFS:
+            _row(key, label, default)
+
+        lay.addStretch()
+        save = QPushButton("💾  حفظ مسارات الأدوات")
+        save.setFixedHeight(34); save.setCursor(QCursor(Qt.PointingHandCursor))
+        save.setStyleSheet(f"QPushButton {{ background: {c['accent']}; color: #fff;"
+                           " border: none; border-radius: 8px; font-weight: bold; padding: 0 18px; }")
+        def _save():
+            for key, f in fields.items():
+                tools[key] = f.text().strip()
+            self._save_main_config()
+            QMessageBox.information(self, "✓", "حُفظت مسارات الأدوات")
+        save.clicked.connect(_save)
+        lay.addWidget(save)
+        return w
+
+    def _build_translation_subtab(self) -> QWidget:
+        c = theme.c
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(12)
+        lay.addWidget(QLabel("إعدادات الترجمة العامة (config.json)"))
+
+        # الموديل النشط
+        mrow = QHBoxLayout()
+        mrow.addWidget(QLabel("الموديل الافتراضي:"))
+        model_combo = QComboBox()
+        models = list((self._config.get("models") or {}).keys())
+        model_combo.addItems(models)
+        cur_model = self._config.get("default_model", "ollama")
+        if cur_model in models:
+            model_combo.setCurrentText(cur_model)
+        mrow.addWidget(model_combo); mrow.addStretch()
+        lay.addLayout(mrow)
+
+        # اسم موديل Ollama
+        orow = QHBoxLayout()
+        orow.addWidget(QLabel("موديل Ollama:"))
+        ollama_field = QLineEdit((self._config.get("models", {}).get("ollama", {}) or {}).get("model", ""))
+        ollama_field.setFixedWidth(220)
+        orow.addWidget(ollama_field); orow.addStretch()
+        lay.addLayout(orow)
+
+        # tag_mode
+        trow = QHBoxLayout()
+        trow.addWidget(QLabel("وضع حماية التاقات:"))
+        tag_combo = QComboBox()
+        tag_combo.addItems(["bulletproof", "tiered", "strip", "inline"])
+        tag_combo.setCurrentText(self._config.get("tag_mode", "bulletproof"))
+        trow.addWidget(tag_combo); trow.addStretch()
+        lay.addLayout(trow)
+
+        # number_templating
+        num_cb = QCheckBox("تقويلب الأرقام (تقليل تكرار الكاش)")
+        num_cb.setChecked(bool(self._config.get("number_templating", True)))
+        lay.addWidget(num_cb)
+
+        lay.addStretch()
+        save = QPushButton("💾  حفظ إعدادات الترجمة")
+        save.setFixedHeight(34); save.setCursor(QCursor(Qt.PointingHandCursor))
+        save.setStyleSheet(f"QPushButton {{ background: {c['accent']}; color: #fff;"
+                           " border: none; border-radius: 8px; font-weight: bold; padding: 0 18px; }")
+        def _save():
+            self._config["default_model"] = model_combo.currentText()
+            self._config["tag_mode"] = tag_combo.currentText()
+            self._config["number_templating"] = num_cb.isChecked()
+            self._config.setdefault("models", {}).setdefault("ollama", {})["model"] = ollama_field.text().strip()
+            self._save_main_config()
+            QMessageBox.information(self, "✓", "حُفظت إعدادات الترجمة\n(أعد تشغيل التطبيق لتطبيقها)")
+        save.clicked.connect(_save)
+        lay.addWidget(save)
+        return w
+
+    def _build_keys_subtab(self) -> QWidget:
+        c = theme.c
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(12)
+        lay.addWidget(QLabel("مفاتيح AES (لفكّ/حزم paks المشفّرة)"))
+
+        tools = self._config.setdefault("tools", {})
+        gr = QHBoxLayout()
+        gr.addWidget(QLabel("مفتاح UnrealPak العام:"))
+        glob_field = QLineEdit(tools.get("unrealpak_aes", ""))
+        gr.addWidget(glob_field, 1)
+        lay.addLayout(gr)
+
+        # مفتاح Manor Lords من keys.json
+        keys_path = os.path.join(_PROJECT_ROOT, "games", "keys.json")
+        ml_key = ""
+        try:
+            with open(keys_path, encoding="utf-8") as f:
+                ml_key = (json.load(f).get("EncryptionKey", {}) or {}).get("Key", "")
+        except Exception:
+            pass
+        mr = QHBoxLayout()
+        mr.addWidget(QLabel("مفتاح Manor Lords (keys.json):"))
+        ml_field = QLineEdit(ml_key)
+        mr.addWidget(ml_field, 1)
+        lay.addLayout(mr)
+
+        note = QLabel("⚠ المفاتيح حسّاسة — لا تشاركها. تُستخدم في retoc/UnrealPak/repak.")
+        note.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        lay.addStretch()
+        save = QPushButton("💾  حفظ المفاتيح")
+        save.setFixedHeight(34); save.setCursor(QCursor(Qt.PointingHandCursor))
+        save.setStyleSheet(f"QPushButton {{ background: {c['accent']}; color: #fff;"
+                           " border: none; border-radius: 8px; font-weight: bold; padding: 0 18px; }")
+        def _save():
+            tools["unrealpak_aes"] = glob_field.text().strip()
+            self._save_main_config()
+            try:
+                with open(keys_path, "w", encoding="utf-8") as f:
+                    json.dump({"EncryptionKey": {"Key": ml_field.text().strip()}}, f, indent=2)
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ", f"keys.json: {e}")
+                return
+            QMessageBox.information(self, "✓", "حُفظت المفاتيح")
+        save.clicked.connect(_save)
+        lay.addWidget(save)
+        return w
+
     # ── Features tab ──────────────────────────────────────────────────────────
 
     def _build_features_tab(self, game_id: str, cfg: dict) -> QWidget:
@@ -755,6 +1135,36 @@ class AdminPanel(QDialog):
         title = QLabel("تحكم في الأقسام والأزرار الظاهرة في صفحة اللعبة")
         title.setStyleSheet(f"color: {c['muted']}; font-size: 11px;")
         lay.addWidget(title)
+
+        # ── وضع التعريب (engine/mod_mode) + فحص صحّة ───────────────────────────
+        mm_row = QHBoxLayout()
+        mm_lbl = QLabel("وضع التعريب:")
+        mm_lbl.setStyleSheet(f"color: {c['primary']}; font-size: 12px; font-weight: bold;")
+        mm_row.addWidget(mm_lbl)
+        self._mod_mode_combo = QComboBox()
+        for val, label in MOD_MODES:
+            self._mod_mode_combo.addItem(label, val)
+        cur_mm = cfg.get("mod_mode", "") or cfg.get("hook_mode", "") or ""
+        idx = next((i for i, (v, _l) in enumerate(MOD_MODES) if v == cur_mm), 0)
+        self._mod_mode_combo.setCurrentIndex(idx)
+        mm_row.addWidget(self._mod_mode_combo, 1)
+        health_btn = QPushButton("🩺  فحص صحّة")
+        health_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        health_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['secondary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 4px 12px; }}"
+            f"QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; }}")
+        health_btn.clicked.connect(lambda _ck, g=game_id: self._show_health(g))
+        mm_row.addWidget(health_btn)
+        lay.addLayout(mm_row)
+
+        mm_hint = QLabel("ⓘ يحدّد البطاقة/القسم المعروض في صفحة اللعبة (datatable_pak ⇐ Manor Lords).")
+        mm_hint.setStyleSheet(f"color: {c['muted']}; font-size: 9px;")
+        lay.addWidget(mm_hint)
+
+        sep0 = QFrame(); sep0.setFrameShape(QFrame.HLine)
+        sep0.setStyleSheet(f"QFrame {{ background: {c['border']}; max-height: 1px; border: none; }}")
+        lay.addWidget(sep0)
 
         hidden      = set(cfg.get("hidden_features", []))
         shown_extra = set(cfg.get("shown_features",  []))
@@ -812,20 +1222,42 @@ class AdminPanel(QDialog):
                 if not checked:
                     new_hidden.append(key)
 
+        updates = {"hidden_features": new_hidden, "shown_features": new_shown}
+        # وضع التعريب (mod_mode)
+        try:
+            mm = self._mod_mode_combo.currentData()
+            updates["mod_mode"] = mm or ""
+        except Exception:
+            pass
+
         saved = False
         if self._gm:
-            saved = self._gm.update_game(game_id, {
-                "hidden_features": new_hidden,
-                "shown_features":  new_shown,
-            })
+            saved = self._gm.update_game(game_id, updates)
         else:
             print("[AdminPanel] _save_features: game_manager is None!")
 
         if saved:
             self.features_saved.emit(game_id)
-            QMessageBox.information(self, "✓", "تم حفظ إعدادات الميزات")
+            QMessageBox.information(self, "✓", "تم حفظ إعدادات الميزات + وضع التعريب")
         else:
             QMessageBox.warning(self, "خطأ", "تعذّر حفظ الميزات — اللعبة غير موجودة في الإعدادات")
+
+    def _show_health(self, game_id: str):
+        cfg = (self._gm.get_game(game_id) if self._gm else {}) or {}
+        h = self._game_health(game_id, cfg)
+        def mark(v):
+            return "✓ نعم" if v is True else ("✗ لا" if v is False else "— غير منطبق")
+        lines = [
+            f"اللعبة:          {game_id}",
+            f"الوضع:           {h['mode']}",
+            f"مسار اللعبة:     {mark(h['path_ok'])}  ({cfg.get('game_path','—')})",
+            f"المود مثبّت:     {mark(h['installed'])}",
+            f"ترجمات بالكاش:  {h['translations']:,}",
+            "",
+            "الملاحظات:",
+        ]
+        lines += ["  • " + s for s in h["issues"]] or ["  ✓ لا مشاكل"]
+        QMessageBox.information(self, f"🩺  فحص صحّة — {game_id}", "\n".join(lines))
 
     # ── Cover Image tab ───────────────────────────────────────────────────────
 
