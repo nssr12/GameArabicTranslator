@@ -2,11 +2,11 @@
 
 > ملف سياق المشروع لـ Claude / AI assistants.
 > للمستخدمين النهائيين، انظر [README.md](README.md).
-> آخر تحديث: 2026-06-01 (v2.3 — استقرار Ollama + جودة الترجمة + تقليل تكرار الكاش)
+> آخر تحديث: 2026-06-08 (v2.4 — تعريب Manor Lords مود DataTable .pak + حماية UE RichText + عكس RTL انتقائي + تطوير لوحة الأدمن)
 
 ## TL;DR
 
-Game Arabic Translator v2.3 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
+Game Arabic Translator v2.4 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
 
 > ⚠ **ملاحظة framework**: الكود يستورد فعلياً من `PySide6` (لا PyQt6). استخدم `Signal`/`Slot`/`@Property` (لا `pyqtSignal`/`pyqtSlot`/`pyqtProperty`) في أي كود Qt جديد.
 
@@ -14,7 +14,10 @@ Game Arabic Translator v2.3 — تطبيق Python/**PySide6** لترجمة أل�
 - **محرّكات متعدّدة** (Ollama, Google, DeepL, HuggingFace MarianMT/mBART/NLLB)
 - **SQLite cache** لكل لعبة (schema v2): `UNIQUE(original_text, model_used)` + جدول `failed_translations`
 - **BepInEx mods C#** لمعالجة العرض RTL + sprite assets داخل اللعبة (Unity)
-- **Unreal Hook DLL injection** (cppfs + dxgi hijack) لـ UE5 — Manor Lords, Palworld
+- **Unreal Hook DLL injection** (cppfs + dxgi hijack) لـ UE5 — Palworld
+- **مود DataTable .pak ساكن** (`manorlords_mod.py` + repak V11) لـ **Manor Lords** — أنظف من البروكسي الحيّ
+- **حماية تاقات UE RichText** (`ue_richtext.py`) + **عكس RTL انتقائي** (`ue_rtl_reverse.py`) لودجات بلا BiDi
+- **لوحة أدمن** (`admin_panel.py`): لوحة معلومات + إعدادات عامة + إدارة ألعاب + صيانة كاش
 - **فلتر تاقات عام** (config.json::tag_mode) موحَّد عبر البروكسي، الكاش، والترجمة الفورية
 
 ## أوامر سريعة
@@ -77,7 +80,7 @@ d:\GameArabicTranslator\
 │   │   ├── i2_translate.py        ← صفحة ترجمة I2Languages JSON (تحليل + دفعي + حفظ Arabic-only)
 │   │   └── unrealpak.py           ← صفحة فك/حزم ملفات .pak (UnrealPak.exe)
 │   └── dialogs/
-│       ├── admin_panel.py            ← لوحة إدارة محمية بـ PIN (إخفاء/إظهار أقسام الواجهة)
+│       ├── admin_panel.py            ← لوحة إدارة محمية بـ PIN: لوحة معلومات + إعدادات عامة + إدارة ألعاب + صيانة كاش (انظر قسم لوحة الأدمن)
 │       ├── tag_config_dialog.py
 │       ├── tag_discovery_dialog.py   ← ⭐ جديد — اكتشاف XML tags من نصوص الكاش
 │       ├── tag_mode_confirm_dialog.py ← ⚠ مهجور — لم يعد يُستدعى (الفلتر عام الآن)
@@ -987,6 +990,45 @@ I2 batch translator يخزّن ترجمات بصيغة template (`{0} Days`, `Po
 - **المحتوى الديناميكي (أرقام/أسماء)** = أكبر مصدر تضخّم كاش وأعراض "إنجليزي ثم عربي". قولِب ما يمكن (الأرقام)، واقبل الباقي مع ضمان العرض الصحيح.
 - **تعديل كود Python يتطلّب إعادة تشغيل التطبيق** — زر الخادم لا يكفي (Python يحمّل الوحدات مرّة واحدة).
 
+## ⭐ لوحة الأدمن (gui/qt/dialogs/admin_panel.py)
+
+لوحة إدارة محمية بـ PIN (`open_admin()` → `PINDialog` → `AdminPanel` غير مودال). تُفتح من زر
+مخفيّ. الإعداد في `config.json["admin"]["pin_hash"]` (sha256، افتراضي `1234`).
+
+### البنية (يسار: قائمة + أزرار عامة | يمين: محتوى)
+
+- **قائمة الألعاب** (يسار): بحث/فلترة + زر **«➕ إضافة لعبة»** (حوار اسم/مسار/محرّك/mod_mode →
+  `game_manager.add_game`). فوقها **زرّان عامّان**:
+  - **📊 لوحة المعلومات** — جدول كل الألعاب: الوضع / المسار صالح / المود مثبّت / عدد الترجمات /
+    ملاحظات. يستخدم `_game_health(gid, cfg)` (helper مشترك يفحص حسب نوع المود).
+  - **⚙️ إعدادات عامة** — 3 تبويبات فرعية: **🛠 الأدوات** (مسارات UAssetGUI/repak/retoc/UnrealPak/
+    UE4Loc + تصفّح + فحص وجود → `config.json["tools"]`)، **🌐 الترجمة** (default_model/tag_mode/
+    number_templating/موديل Ollama)، **🔑 المفاتيح** (`unrealpak_aes` + مفتاح Manor Lords في `keys.json`).
+
+### تبويبات كل لعبة (`_build_tabs`)
+
+| التبويب | الوظيفة |
+|------|------|
+| 👁 الميزات | إظهار/إخفاء أقسام صفحة اللعبة (`hidden_features`/`shown_features`) + **منتقي وضع التعريب** (engine/mod_mode) + زر **🩺 فحص صحّة** |
+| ⚡ إجراءات | فتح مجلد اللعبة/المود، تشغيل اللعبة، تفعيل/تعطيل (`enabled`)، **حذف اللعبة** (منطقة خطر) |
+| 🖼 صورة العرض | غلاف اللعبة |
+| 📦 حزمة التعريب | ملفات المود + `for_cache` (رفع سحابة) |
+| 🚀 نشر الترجمة | GitHub Release + `manifest.json` + git push |
+| 🗒 الإعدادات الخام | محرّر JSON + **نسخة احتياطية تلقائية `.bak`** + تحقّق dict |
+| 💾 الكاش | إحصاء + مسح + **نسخ احتياطي/استعادة DB** + 🧹 تنظيف CJK + 🩹 إصلاح النقاط |
+
+### مفاتيح برمجية
+
+- **`FEATURE_DEFS`** — مفاتيح الميزات القابلة للتبديل (تطابق ما تقرأه `games.py`: translate/edit_config/
+  font_section/cache_section/locres_section/iostore_section/unreal_hook_section). `_SHOWN_ONLY` = تُحفظ في
+  `shown_features` بدل `hidden_features`.
+- **`MOD_MODES`** — أوضاع التعريب (datatable_pak/foundation_proxy/unreal_hook/ue4ss/bepinex/proxy) ←
+  منتقي في تبويب الميزات يحفظ `cfg["mod_mode"]`.
+- **`TOOL_DEFS`** — قائمة الأدوات (المفتاح في `tools` + التسمية + المسار الافتراضي).
+- **أمان PIN**: قفل 30ث بعد 5 محاولات (`QTimer.singleShot`) + زر 👁 إظهار/إخفاء.
+- **عمّال خلفية (QThread)**: `_AppReleaseWorker` (publish_app.py)، `_TranslationReleaseWorker` (GitHub)،
+  `_ForCacheUploadWorker`.
+
 ## الإصلاحات الجوهرية من هذه الجلسة (2026-05-22)
 
 تاريخ الـ commits السابقة:
@@ -1118,6 +1160,13 @@ cache.set_model_priority(game, model, priority)        # رفع/خفض الأو�
 | إعدادات اللعبة | `games/configs/<GameName>.json` |
 | تثبيت/إلغاء mod (Unity) | `games/bepinex_mod.py::install()` و `uninstall()` |
 | تثبيت/إلغاء hook (UE5) | `games/unreal_hook_mod.py::install()` و `uninstall()` |
+| **مود Manor Lords (DataTable .pak)** | `games/manorlords_mod.py::ManorLordsMod` (build/install/uninstall) |
+| **ترجمة جداول Manor Lords دفعةً** | `tools/manorlords/build_all.py` (Ollama) ثم أزرار التطبيق (كاش) |
+| **حزم pak V11** | `tools/manorlords/pack_mod.py` (`tools/repak/repak.exe --version V11`) |
+| **حماية تاقات UE RichText** | `engine/ue_richtext.py::translate()` (يحمي كل `<…>`/`</>`/`{…}`) |
+| **عكس RTL لودجات بلا BiDi** | `engine/ue_rtl_reverse.py::reverse_for_display()` + `engine/rtl_overrides.py` (تعليم لكل نص/جدول) |
+| **زر «🔁 عكس RTL» + مؤشّر** | `gui/qt/pages/cache.py` (يعلّم نصوص صفحة المساعدة) |
+| **لوحة الأدمن** | `gui/qt/dialogs/admin_panel.py` (لوحة معلومات + إعدادات عامة + إدارة ألعاب + صيانة كاش) |
 | ترجمة ملفات اللعبة | `games/<game>/translator.py` (مثل `games/flotsam/translator.py`) |
 | سجل البروكسي والإحصاءات | `gui/qt/pages/games.py::LogPanel` |
 | تحرير قائمة المنع | `gui/qt/dialogs/skip_list_dialog.py` |
