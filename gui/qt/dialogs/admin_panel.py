@@ -173,13 +173,14 @@ class _TranslationReleaseWorker(QThread):
     _REPO = "nssr12/GameArabicTranslator"
 
     def __init__(self, game_id: str, version: str, ready_dir: str,
-                 manifest_path: str, file_targets: dict):
+                 manifest_path: str, file_targets: dict, notes: str = ""):
         super().__init__()
         self._game_id       = game_id
         self._version       = version
         self._ready_dir     = ready_dir
         self._manifest_path = manifest_path
         self._file_targets  = file_targets   # {filename: game_target}
+        self._notes         = (notes or "").strip()
 
     def run(self):
         import subprocess
@@ -221,11 +222,12 @@ class _TranslationReleaseWorker(QThread):
 
         # Create GitHub release + upload files
         self.log_line.emit(f"\n>> إنشاء GitHub Release: {tag}  ({len(files)} ملف)…")
+        rel_notes = self._notes or f"ترجمة عربية للعبة {game_id} - الإصدار {version}"
         cmd = [
             "gh", "release", "create", tag,
             "--repo", REPO,
             "--title", f"Translation {game_id} v{version}",
-            "--notes", f"ترجمة عربية للعبة {game_id} - الإصدار {version}",
+            "--notes", rel_notes,
             *files,
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=_PROJECT_ROOT)
@@ -235,7 +237,8 @@ class _TranslationReleaseWorker(QThread):
             return
         self.log_line.emit(f"✓ GitHub Release: {tag}")
 
-        # Build manifest file entries
+        # Build manifest file entries (مع sha256 للتحقّق الأمني عند المستخدم)
+        from games.security import sha256_file
         manifest_files = []
         total_bytes    = 0
         for fp in files:
@@ -249,17 +252,31 @@ class _TranslationReleaseWorker(QThread):
                 "url":         url,
                 "game_target": target,
                 "size":        size,
+                "sha256":      sha256_file(fp),
             })
 
-        # Update manifest.json
+        # Update manifest.json (نحافظ على روابط for_cache السابقة إن وُجدت)
         self.log_line.emit("\n>> تحديث manifest.json…")
         with open(self._manifest_path, encoding="utf-8") as f:
             m = json.load(f)
-        m.setdefault("translations", {})[game_id] = {
+        prev = m.setdefault("translations", {}).get(game_id, {}) or {}
+        entry = {
             "version": version,
             "size_mb": max(1, round(total_bytes / (1024 * 1024))),
             "files":   manifest_files,
         }
+        if self._notes:
+            entry["release_notes"] = self._notes
+        # احفظ روابط for_cache القديمة (تُحدَّث لاحقاً برفع for_cache إن طُلب)
+        for k in ("for_cache_url", "for_cache_size_mb", "for_cache_sha256"):
+            if k in prev:
+                entry[k] = prev[k]
+        # سجل التغييرات (changelog) — نُراكم آخر 10 إصدارات
+        changelog = list(prev.get("changelog", []) or [])
+        changelog = [e for e in changelog if e.get("version") != version]
+        changelog.insert(0, {"version": version, "notes": self._notes})
+        entry["changelog"] = changelog[:10]
+        m["translations"][game_id] = entry
         with open(self._manifest_path, "w", encoding="utf-8") as f:
             json.dump(m, f, ensure_ascii=False, indent=2)
         self.log_line.emit("✓ manifest.json محدَّث")
@@ -356,11 +373,13 @@ class _ForCacheUploadWorker(QThread):
         url = f"https://github.com/{REPO}/releases/download/{tag}/{zip_name}"
         self.log_line.emit("\n>> تحديث manifest.json…")
         try:
+            from games.security import sha256_file
             with open(self._manifest_path, encoding="utf-8") as f:
                 m = json.load(f)
             m.setdefault("translations", {}).setdefault(game_id, {}).update({
                 "for_cache_url":     url,
                 "for_cache_size_mb": max(1, round(size_mb)),
+                "for_cache_sha256":  sha256_file(zip_path),
             })
             with open(self._manifest_path, "w", encoding="utf-8") as f:
                 json.dump(m, f, ensure_ascii=False, indent=2)
@@ -393,6 +412,43 @@ class _ForCacheUploadWorker(QThread):
         self.log_line.emit(f"\n✅ for_cache لـ {game_id} متاح الآن للمستخدمين")
         self.finished.emit(True)
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ── Download-stats worker (عدّادات تحميل GitHub Releases) ─────────────────────
+
+class _DownloadStatsWorker(QThread):
+    """يجلب عدد تنزيلات كل Release من GitHub عبر gh api."""
+    done = Signal(list)   # [{tag, title, total, assets:[{name,count}]}]
+
+    _REPO = "nssr12/GameArabicTranslator"
+
+    def run(self):
+        import subprocess
+        try:
+            r = subprocess.run(
+                ["gh", "api", f"repos/{self._REPO}/releases?per_page=100"],
+                capture_output=True, text=True, cwd=_PROJECT_ROOT, timeout=60,
+            )
+            if r.returncode != 0 or not (r.stdout or "").strip():
+                self.done.emit([])
+                return
+            data = json.loads(r.stdout)
+            out = []
+            for rel in data:
+                assets = rel.get("assets", []) or []
+                total = sum(int(a.get("download_count", 0) or 0) for a in assets)
+                out.append({
+                    "tag":    rel.get("tag_name", ""),
+                    "title":  rel.get("name", "") or rel.get("tag_name", ""),
+                    "total":  total,
+                    "assets": [{"name": a.get("name", ""),
+                                "count": int(a.get("download_count", 0) or 0)}
+                               for a in assets],
+                })
+            out.sort(key=lambda e: e["total"], reverse=True)
+            self.done.emit(out)
+        except Exception:
+            self.done.emit([])
 
 
 # ── PIN dialog ────────────────────────────────────────────────────────────────
@@ -1094,6 +1150,14 @@ class AdminPanel(QDialog):
         title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {c['accent']};")
         hdr.addWidget(title)
         hdr.addStretch()
+        stats_btn = QPushButton("📈  إحصاءات التحميل")
+        stats_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        stats_btn.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['secondary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 4px 14px; }}"
+            f"QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; }}")
+        stats_btn.clicked.connect(self._show_download_stats)
+        hdr.addWidget(stats_btn)
         refresh = QPushButton("🔄  تحديث")
         refresh.setCursor(QCursor(Qt.PointingHandCursor))
         refresh.setStyleSheet(
@@ -1147,6 +1211,51 @@ class AdminPanel(QDialog):
         refresh.clicked.connect(_refresh)
         _refresh()
         return w
+
+    def _show_download_stats(self):
+        """يفتح حواراً يعرض عدد تنزيلات كل Release (عبر gh api)."""
+        c = theme.c
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📈 إحصاءات تحميل الإصدارات")
+        dlg.setMinimumSize(520, 420)
+        dlg.setStyleSheet(f"QDialog {{ background: {c['bg']}; }}"
+                          f"QLabel {{ color: {c['primary']}; }}")
+        v = QVBoxLayout(dlg)
+        info = QLabel("⏳  جارٍ الجلب من GitHub…")
+        info.setStyleSheet(f"color: {c['muted']}; font-size: 12px;")
+        v.addWidget(info)
+        table = QTableWidget(0, 2)
+        table.setHorizontalHeaderLabels(["الإصدار", "عدد التنزيلات"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().hide()
+        v.addWidget(table, 1)
+        total_lbl = QLabel("")
+        total_lbl.setStyleSheet(f"color: {c['accent']}; font-weight: bold;")
+        v.addWidget(total_lbl)
+
+        def _on_done(rows):
+            if not rows:
+                info.setText("✗ تعذّر الجلب — تأكّد من تسجيل دخول gh (gh auth status).")
+                return
+            info.setText(f"✓ {len(rows)} إصدار")
+            grand = 0
+            for e in rows:
+                r = table.rowCount()
+                table.insertRow(r)
+                table.setItem(r, 0, QTableWidgetItem(e["title"] or e["tag"]))
+                it = QTableWidgetItem(f"{e['total']:,}")
+                it.setTextAlignment(Qt.AlignCenter)
+                it.setToolTip("\n".join(f"{a['name']}: {a['count']:,}" for a in e["assets"]))
+                table.setItem(r, 1, it)
+                grand += e["total"]
+            total_lbl.setText(f"الإجمالي: {grand:,} تنزيل")
+
+        self._stats_worker = _DownloadStatsWorker()
+        self._stats_worker.done.connect(_on_done)
+        self._stats_worker.start()
+        dlg.exec()
 
     # ── General settings (أدوات + ترجمة + مفاتيح) ─────────────────────────────
 
@@ -1287,57 +1396,183 @@ class AdminPanel(QDialog):
         lay.addWidget(save)
         return w
 
+    def _section_label(self, text: str) -> QLabel:
+        """عنوان قسم بنمط موحّد داخل التبويبات."""
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"color: {theme.c['primary']}; font-size: 13px; font-weight: bold;")
+        return lbl
+
+    @staticmethod
+    def _mask_key(k: str) -> str:
+        """يُقنّع المفتاح للعرض في الجدول (يبقي أوّله/آخره)."""
+        k = (k or "").strip()
+        if not k:
+            return "—"
+        if len(k) <= 14:
+            return k[:4] + "…"
+        return f"{k[:8]}…{k[-4:]}"
+
     def _build_keys_subtab(self) -> QWidget:
         c = theme.c
         w = QWidget()
-        lay = QVBoxLayout(w)
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget(); lay = QVBoxLayout(body)
         lay.setContentsMargins(18, 14, 18, 14)
         lay.setSpacing(12)
-        lay.addWidget(QLabel("مفاتيح AES (لفكّ/حزم paks المشفّرة)"))
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
 
-        tools = self._config.setdefault("tools", {})
-        gr = QHBoxLayout()
-        gr.addWidget(QLabel("مفتاح UnrealPak العام:"))
-        glob_field = QLineEdit(tools.get("unrealpak_aes", ""))
-        gr.addWidget(glob_field, 1)
-        lay.addLayout(gr)
+        # ── مفتاح AES + مابنق لكل لعبة ───────────────────────────────────────
+        lay.addWidget(self._section_label("🎮  مفتاح AES ومابنق لكل لعبة"))
+        intro = QLabel("لكل لعبة UE مفتاح تشفير ومابنق خاصّان. تُحفظ في config اللعبة "
+                       "وتُملأ تلقائياً في معالج IoStore / أدوات الحزم لتلك اللعبة.")
+        intro.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
 
-        # مفتاح Manor Lords من keys.json
-        keys_path = os.path.join(_PROJECT_ROOT, "games", "keys.json")
-        ml_key = ""
-        try:
-            with open(keys_path, encoding="utf-8") as f:
-                ml_key = (json.load(f).get("EncryptionKey", {}) or {}).get("Key", "")
-        except Exception:
-            pass
-        mr = QHBoxLayout()
-        mr.addWidget(QLabel("مفتاح Manor Lords (keys.json):"))
-        ml_field = QLineEdit(ml_key)
-        mr.addWidget(ml_field, 1)
-        lay.addLayout(mr)
+        pick_row = QHBoxLayout()
+        pick_row.addWidget(QLabel("اللعبة:"))
+        self._key_game_combo = QComboBox()
+        game_ids = [g["id"] for g in self._gm.get_game_list()] if self._gm else []
+        for gid in game_ids:
+            self._key_game_combo.addItem(gid, gid)
+        pick_row.addWidget(self._key_game_combo, 1)
+        lay.addLayout(pick_row)
 
-        note = QLabel("⚠ المفاتيح حسّاسة — لا تشاركها. تُستخدم في retoc/UnrealPak/repak.")
+        # مفتاح AES للّعبة
+        kr = QHBoxLayout()
+        kr.addWidget(QLabel("مفتاح AES:"))
+        self._key_aes_field = QLineEdit()
+        self._key_aes_field.setPlaceholderText("0x…  (اتركه فارغاً = بلا تشفير)")
+        kr.addWidget(self._key_aes_field, 1)
+        lay.addLayout(kr)
+
+        # ملف المابنق (.usmap)
+        ur = QHBoxLayout()
+        ur.addWidget(QLabel("ملف المابنق (.usmap):"))
+        self._key_usmap_field = QLineEdit()
+        self._key_usmap_field.setPlaceholderText("…/Mappings/<Game>.usmap")
+        ur.addWidget(self._key_usmap_field, 1)
+        browse = QPushButton("📂  تصفّح…")
+        browse.setCursor(QCursor(Qt.PointingHandCursor))
+        browse.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['secondary']};"
+            f" border: 1px solid {c['border']}; border-radius: 6px; padding: 4px 10px; }}"
+            f"QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; }}")
+
+        def _browse_usmap():
+            start = self._key_usmap_field.text().strip() or os.path.expanduser("~")
+            path, _ = QFileDialog.getOpenFileName(
+                self, "اختر ملف المابنق", start, "Usmap (*.usmap);;كل الملفات (*.*)")
+            if path:
+                self._key_usmap_field.setText(os.path.normpath(path))
+        browse.clicked.connect(_browse_usmap)
+        ur.addWidget(browse)
+        lay.addLayout(ur)
+
+        # أزرار حفظ/حذف
+        btn_row = QHBoxLayout()
+        save_g = QPushButton("💾  حفظ للّعبة")
+        save_g.setCursor(QCursor(Qt.PointingHandCursor)); save_g.setFixedHeight(32)
+        save_g.setStyleSheet(f"QPushButton {{ background: {c['accent']}; color: #fff;"
+                             " border: none; border-radius: 8px; font-weight: bold; padding: 0 16px; }")
+        del_g = QPushButton("🗑  حذف مفتاح/مابنق اللعبة")
+        del_g.setCursor(QCursor(Qt.PointingHandCursor)); del_g.setFixedHeight(32)
+        del_g.setStyleSheet(f"QPushButton {{ background: {c['surface']}; color: #e06c6c;"
+                            f" border: 1px solid #e06c6c; border-radius: 8px; padding: 0 16px; }}"
+                            "QPushButton:hover { background: #e06c6c; color: #fff; }")
+        btn_row.addWidget(save_g); btn_row.addWidget(del_g); btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        note = QLabel("ⓘ يُخزَّن في config اللعبة (aes_key / usmap_path). يُستخدم في "
+                      "retoc/UnrealPak/repak/UAssetGUI لهذه اللعبة فقط.")
         note.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
         note.setWordWrap(True)
         lay.addWidget(note)
 
+        sepB = QFrame(); sepB.setFrameShape(QFrame.HLine)
+        sepB.setStyleSheet(f"QFrame {{ background: {c['border']}; max-height: 1px; border: none; }}")
+        lay.addWidget(sepB)
+
+        # ── (3) جدول ملخّص ──────────────────────────────────────────────────
+        lay.addWidget(self._section_label("📋  ملخّص (الألعاب المُهيّأة)"))
+        self._key_table = QTableWidget(0, 3)
+        self._key_table.setHorizontalHeaderLabels(["اللعبة", "مفتاح AES", "المابنق"])
+        self._key_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._key_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self._key_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self._key_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._key_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._key_table.setMinimumHeight(140)
+        lay.addWidget(self._key_table)
+
+        warn = QLabel("⚠ المفاتيح حسّاسة — لا تشاركها.")
+        warn.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        lay.addWidget(warn)
         lay.addStretch()
-        save = QPushButton("💾  حفظ المفاتيح")
-        save.setFixedHeight(34); save.setCursor(QCursor(Qt.PointingHandCursor))
-        save.setStyleSheet(f"QPushButton {{ background: {c['accent']}; color: #fff;"
-                           " border: none; border-radius: 8px; font-weight: bold; padding: 0 18px; }")
-        def _save():
-            tools["unrealpak_aes"] = glob_field.text().strip()
-            self._save_main_config()
-            try:
-                with open(keys_path, "w", encoding="utf-8") as f:
-                    json.dump({"EncryptionKey": {"Key": ml_field.text().strip()}}, f, indent=2)
-            except Exception as e:
-                QMessageBox.warning(self, "خطأ", f"keys.json: {e}")
+
+        # ── سلوك ────────────────────────────────────────────────────────────
+        def _load_fields(gid: str):
+            cfg = (self._gm.get_game(gid) if self._gm else {}) or {}
+            self._key_aes_field.setText(cfg.get("aes_key", "") or "")
+            self._key_usmap_field.setText(cfg.get("usmap_path", "") or "")
+
+        def _refresh_table():
+            rows = []
+            for gid in game_ids:
+                cfg = (self._gm.get_game(gid) if self._gm else {}) or {}
+                ak = (cfg.get("aes_key", "") or "").strip()
+                um = (cfg.get("usmap_path", "") or "").strip()
+                if ak or um:
+                    rows.append((gid, ak, um))
+            self._key_table.setRowCount(len(rows))
+            for r, (gid, ak, um) in enumerate(rows):
+                self._key_table.setItem(r, 0, QTableWidgetItem(gid))
+                self._key_table.setItem(r, 1, QTableWidgetItem(self._mask_key(ak)))
+                um_item = QTableWidgetItem(os.path.basename(um) if um else "—")
+                um_item.setToolTip(um)
+                self._key_table.setItem(r, 2, um_item)
+
+        def _save_game_key():
+            gid = self._key_game_combo.currentData()
+            if not gid or not self._gm:
                 return
-            QMessageBox.information(self, "✓", "حُفظت المفاتيح")
-        save.clicked.connect(_save)
-        lay.addWidget(save)
+            updates = {
+                "aes_key":    self._key_aes_field.text().strip(),
+                "usmap_path": self._key_usmap_field.text().strip(),
+            }
+            if self._gm.update_game(gid, updates):
+                _refresh_table()
+                QMessageBox.information(self, "✓", f"حُفظ مفتاح/مابنق «{gid}»")
+            else:
+                QMessageBox.warning(self, "خطأ", "تعذّر الحفظ في config اللعبة")
+
+        def _delete_game_key():
+            gid = self._key_game_combo.currentData()
+            if not gid or not self._gm:
+                return
+            if QMessageBox.question(
+                    self, "حذف", f"حذف مفتاح AES والمابنق من «{gid}»؟",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._gm.update_game(gid, {"aes_key": "", "usmap_path": ""})
+            self._key_aes_field.clear()
+            self._key_usmap_field.clear()
+            _refresh_table()
+            QMessageBox.information(self, "✓", f"حُذف من «{gid}»")
+
+        self._key_game_combo.currentIndexChanged.connect(
+            lambda _i: _load_fields(self._key_game_combo.currentData()))
+        save_g.clicked.connect(_save_game_key)
+        del_g.clicked.connect(_delete_game_key)
+
+        if game_ids:
+            _load_fields(game_ids[0])
+        _refresh_table()
         return w
 
     # ── Features tab ──────────────────────────────────────────────────────────
@@ -2173,21 +2408,49 @@ class AdminPanel(QDialog):
 
         lay.addWidget(info_card)
 
-        # New version input
+        # for_cache availability
+        try:
+            fc_dir = pkg.get_for_cache_dir(game_id)
+        except Exception:
+            fc_dir = ""
+        fc_exists = bool(fc_dir) and os.path.isdir(fc_dir) and bool(os.listdir(fc_dir))
+
+        # New version input (مع اقتراح تلقائي = patch+1)
         ver_row = QHBoxLayout()
         ver_row_lbl = QLabel("إصدار جديد:")
         ver_row_lbl.setStyleSheet(f"color: {c['primary']}; font-size: 12px;")
         ver_row.addWidget(ver_row_lbl)
         ver_input = QLineEdit()
         ver_input.setFixedWidth(110)
-        ver_input.setPlaceholderText("مثال: 0.3")
+        ver_input.setPlaceholderText("مثال: 0.5")
+        ver_input.setText(self._suggest_next_version(cur_ver))
         ver_row.addWidget(ver_input)
         ver_row.addStretch()
         lay.addLayout(ver_row)
 
+        # ملاحظات الإصدار (إجبارية) — تظهر للمستخدم في GitHub + manifest
+        notes_lbl = QLabel("ملاحظات الإصدار (ما الجديد؟) — إجبارية:")
+        notes_lbl.setStyleSheet(f"color: {c['primary']}; font-size: 12px;")
+        lay.addWidget(notes_lbl)
+        notes_input = QTextEdit()
+        notes_input.setPlaceholderText("مثال: تصحيح ترجمة المهام + إصلاح تاقات RichText…")
+        notes_input.setFixedHeight(70)
+        lay.addWidget(notes_input)
+
+        # رفع for_cache مع النشر
+        fc_check = QCheckBox("ارفع الكاش المرجعي (for_cache) مع النشر")
+        fc_check.setChecked(fc_exists)
+        fc_check.setEnabled(fc_exists)
+        fc_check.setStyleSheet(f"color: {c['secondary']}; font-size: 11px;")
+        lay.addWidget(fc_check)
+        if not fc_exists:
+            fc_hint = QLabel("ⓘ لا يوجد مجلد for_cache لهذه اللعبة.")
+            fc_hint.setStyleSheet(f"color: {c['muted']}; font-size: 9px;")
+            lay.addWidget(fc_hint)
+
         note = QLabel(
-            "سيتم إنشاء GitHub Release ورفع الملفات، ثم تحديث manifest.json والـ git push.\n"
-            "المستخدمون سيرون شارة التحديث عند فتح التطبيق."
+            "«نشر كل شيء» = GitHub Release + رفع الملفات (مع sha256) + (اختياري) for_cache "
+            "+ تحديث manifest.json + git push. المستخدمون يرون شارة التحديث عند فتح التطبيق."
         )
         note.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
         note.setWordWrap(True)
@@ -2195,7 +2458,7 @@ class AdminPanel(QDialog):
 
         lay.addStretch()
 
-        pub_btn = QPushButton("🚀  نشر الترجمة")
+        pub_btn = QPushButton("🚀  نشر كل شيء")
         pub_btn.setFixedHeight(38)
         pub_btn.setCursor(QCursor(Qt.PointingHandCursor))
         pub_btn.setEnabled(bool(ready_files))
@@ -2207,8 +2470,13 @@ class AdminPanel(QDialog):
 
         def _publish():
             version = ver_input.text().strip()
+            notes   = notes_input.toPlainText().strip()
             if not version:
                 QMessageBox.warning(w, "تنبيه", "أدخل رقم الإصدار الجديد")
+                return
+            if not notes:
+                QMessageBox.warning(w, "تنبيه", "ملاحظات الإصدار إجبارية — اكتب ما الجديد.")
+                notes_input.setFocus()
                 return
             # game_target map: from existing manifest first, fallback to filename
             file_targets: dict = {}
@@ -2220,19 +2488,48 @@ class AdminPanel(QDialog):
             except Exception:
                 pass
 
+            do_fc = fc_check.isChecked() and fc_exists
             log_dlg = _LogDialog(f"🚀  نشر ترجمة {game_id} v{version}", parent=self)
-            worker  = _TranslationReleaseWorker(
-                game_id, version, ready_dir, manifest_path, file_targets
+
+            tr_worker = _TranslationReleaseWorker(
+                game_id, version, ready_dir, manifest_path, file_targets, notes
             )
-            worker.log_line.connect(log_dlg.append_line)
-            worker.finished.connect(log_dlg.set_finished)
-            self._tr_worker = worker   # prevent GC
-            worker.start()
+            tr_worker.log_line.connect(log_dlg.append_line)
+
+            def _after_translation(ok):
+                if not ok:
+                    log_dlg.set_finished(False)
+                    return
+                if do_fc:
+                    log_dlg.append_line("\n════ رفع الكاش المرجعي (for_cache) ════")
+                    fc_worker = _ForCacheUploadWorker(game_id, version, fc_dir, manifest_path)
+                    fc_worker.log_line.connect(log_dlg.append_line)
+                    fc_worker.finished.connect(log_dlg.set_finished)
+                    self._fc_pub_worker = fc_worker   # prevent GC
+                    fc_worker.start()
+                else:
+                    log_dlg.set_finished(True)
+
+            tr_worker.finished.connect(_after_translation)
+            self._tr_worker = tr_worker   # prevent GC
+            tr_worker.start()
             log_dlg.exec()
 
         pub_btn.clicked.connect(_publish)
         lay.addWidget(pub_btn)
         return w
+
+    @staticmethod
+    def _suggest_next_version(cur: str) -> str:
+        """يقترح النسخة التالية = زيادة آخر جزء (0.4 → 0.5)."""
+        try:
+            parts = [int(x) for x in str(cur).strip().split(".")]
+            if not parts:
+                return ""
+            parts[-1] += 1
+            return ".".join(str(p) for p in parts)
+        except Exception:
+            return ""
 
     # ── App release dialog ────────────────────────────────────────────────────
 

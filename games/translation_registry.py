@@ -30,14 +30,14 @@ class TranslationRegistry:
         self._manifest: Optional[dict] = None
 
     def fetch(self, timeout: int = 8) -> bool:
-        """Download and parse the manifest. Returns True on success."""
+        """Download and parse the manifest over **verified** HTTPS.
+        المنفست هو مرساة الثقة → نتحقّق من شهادة SSL دائماً (عبر certifi)."""
         errors = []
-        # Use urllib (no SSL cert issues in PyInstaller bundles)
+        from games.security import ssl_context, requests_verify
+        # urllib مع سياق SSL موثَّق (certifi)
         try:
-            import urllib.request, ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode    = ssl.CERT_NONE
+            import urllib.request
+            ctx = ssl_context()
             req = urllib.request.Request(
                 MANIFEST_URL,
                 headers={"User-Agent": "GameArabicTranslator/1.0"},
@@ -47,10 +47,10 @@ class TranslationRegistry:
                 return True
         except Exception as e:
             errors.append(f"urllib:{e}")
-        # Fallback: requests
+        # Fallback: requests (تحقّق SSL مفعَّل عبر certifi)
         try:
             import requests
-            r = requests.get(MANIFEST_URL, timeout=timeout, verify=False)
+            r = requests.get(MANIFEST_URL, timeout=timeout, verify=requests_verify())
             if r.ok:
                 self._manifest = r.json()
                 return True

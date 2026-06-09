@@ -82,16 +82,16 @@ class UpdateDownloader(QThread):
     progress = Signal(int)        # 0-100
     done     = Signal(bool, str)  # success, extracted_dir_or_error
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, sha256: str = ""):
         super().__init__()
-        self._url = url
+        self._url    = url
+        self._sha256 = sha256 or ""
 
     def run(self):
         try:
-            import ssl, urllib.request
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode    = ssl.CERT_NONE
+            import urllib.request
+            from games.security import ssl_context, verify_sha256
+            ctx = ssl_context()   # تحقّق SSL موثَّق (certifi)
 
             tmp_dir  = tempfile.mkdtemp(prefix="GAT_update_")
             zip_path = os.path.join(tmp_dir, "update.zip")
@@ -114,6 +114,11 @@ class UpdateDownloader(QThread):
                             self.progress.emit(int(downloaded * 100 / total))
 
             self.progress.emit(100)
+
+            # تحقّق checksum (إن وُجد في المنفست) قبل الفكّ/التثبيت
+            if not verify_sha256(zip_path, self._sha256):
+                self.done.emit(False, "فشل التحقّق الأمني (sha256 لا يطابق) — أُلغي التحديث.")
+                return
 
             # Extract ZIP
             extract_dir = os.path.join(tmp_dir, "extracted")
@@ -213,6 +218,37 @@ class MainWindow(QMainWindow):
 
         cl.addWidget(self._update_banner)
 
+        # ── Translation-update banner (إشعار تحديث ترجمات الألعاب) ────────────
+        self._trans_banner = QFrame()
+        self._trans_banner.setObjectName("transBanner")
+        self._trans_banner.setStyleSheet(
+            "#transBanner { background: #1f4e79; border-bottom: 1px solid #2d6aa0; }"
+        )
+        self._trans_banner.setVisible(False)
+        tbl = QHBoxLayout(self._trans_banner)
+        tbl.setContentsMargins(16, 6, 16, 6)
+        tbl.setSpacing(8)
+        self._trans_lbl = QLabel()
+        self._trans_lbl.setStyleSheet("color: #cfe6ff; font-size: 13px;")
+        self._trans_lbl.setLayoutDirection(Qt.RightToLeft)
+        tbl.addWidget(self._trans_lbl, 1)
+        trans_btn = QPushButton("📥  عرض الألعاب")
+        trans_btn.setStyleSheet(
+            "QPushButton { background:#2d6aa0; color:white; border-radius:4px;"
+            " padding:3px 12px; font-size:12px; }"
+            "QPushButton:hover { background:#3a82c4; }"
+        )
+        trans_btn.clicked.connect(lambda: self._navigate("games"))
+        tbl.addWidget(trans_btn)
+        tdismiss = QPushButton("✕")
+        tdismiss.setFixedWidth(28)
+        tdismiss.setStyleSheet(
+            "QPushButton { background:transparent; color:#cfe6ff; border:none; font-size:14px; }"
+        )
+        tdismiss.clicked.connect(lambda: self._trans_banner.setVisible(False))
+        tbl.addWidget(tdismiss)
+        cl.addWidget(self._trans_banner)
+
         # ── Main row: sidebar + page stack ───────────────────────────────────
         self._row = QWidget()
         rl  = QHBoxLayout(self._row)
@@ -285,6 +321,7 @@ class MainWindow(QMainWindow):
         games_page.games_changed.connect(
             lambda: self._pages["home"].refresh() if "home" in self._pages else None
         )
+        games_page.translation_updates_available.connect(self._on_translation_updates)
         self._pages["games"] = games_page
         self._stack.addWidget(games_page)
 
@@ -432,11 +469,26 @@ class MainWindow(QMainWindow):
         if update_info:
             ver   = update_info.get("version", "")
             notes = update_info.get("release_notes", "")
-            self._update_url = update_info.get("download_url", "")
+            self._update_url    = update_info.get("download_url", "")
+            self._update_sha256 = update_info.get("sha256", "")
             self._update_lbl.setText(
                 f"🚀  يتوفر إصدار جديد: v{ver}  —  انقر لتثبيت التحديث"
             )
             self._update_banner.setVisible(True)
+
+    def _on_translation_updates(self, updates: dict):
+        """يُظهر بانر إشعار عند توفّر تحديث لترجمة لعبة واحدة أو أكثر."""
+        if not updates:
+            self._trans_banner.setVisible(False)
+            return
+        n = len(updates)
+        if n == 1:
+            gid, ver = next(iter(updates.items()))
+            txt = f"🔄  تحديث ترجمة متاح لـ «{gid}» ← v{ver}"
+        else:
+            txt = f"🔄  تحديث ترجمة متاح لـ {n} ألعاب: " + "، ".join(sorted(updates))
+        self._trans_lbl.setText(txt)
+        self._trans_banner.setVisible(True)
 
     # ── In-app update ─────────────────────────────────────────────────────────
 
@@ -455,7 +507,7 @@ class MainWindow(QMainWindow):
         self._update_progress.setVisible(True)
         self.statusBar().showMessage("⬇️  جارٍ تحميل التحديث…")
 
-        self._downloader = UpdateDownloader(self._update_url)
+        self._downloader = UpdateDownloader(self._update_url, getattr(self, "_update_sha256", ""))
         self._downloader.progress.connect(self._on_update_progress)
         self._downloader.done.connect(self._on_update_done)
         self._downloader.start()

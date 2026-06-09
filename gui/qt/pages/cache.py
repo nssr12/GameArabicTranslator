@@ -929,6 +929,19 @@ class CachePage(QWidget):
         )
         self._btn_rtl_rev.clicked.connect(self._toggle_rtl_reverse)
         lay.addWidget(self._btn_rtl_rev)
+
+        # زر «اقترح تصحيح» — يفتح GitHub Issue مُعبّأ بالنص الأصلي + الترجمة الحالية
+        self._btn_suggest = QPushButton("✍  اقترح تصحيح")
+        self._btn_suggest.setObjectName("btn_secondary")
+        self._btn_suggest.setVisible(False)
+        self._btn_suggest.setEnabled(False)
+        self._btn_suggest.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_suggest.setToolTip(
+            "أرسل تصحيحاً مقترحاً للمطوّر عبر GitHub Issue\n"
+            "(يُفتح المتصفّح بنموذج مُعبّأ بالنص الأصلي والترجمة الحالية)"
+        )
+        self._btn_suggest.clicked.connect(self._suggest_correction)
+        lay.addWidget(self._btn_suggest)
         lay.addSpacing(8)
 
         # أزرار الإجراء الرئيسية — نص كامل بالعربي
@@ -1496,6 +1509,11 @@ class CachePage(QWidget):
         if rtl_ok:
             self._btn_rtl_rev.setText(f"🔁  عكس RTL ({count})" if count > 1 else "🔁  عكس RTL")
 
+        # زر «اقترح تصحيح» — صف واحد محدَّد، عرض المترجَم
+        sug_ok = count == 1 and self._view != "failed"
+        self._btn_suggest.setVisible(sug_ok)
+        self._btn_suggest.setEnabled(sug_ok)
+
         self._btn_delete.setEnabled(count > 0)
         if count > 0:
             self._chip_sel.setText(f"{count} محدد")
@@ -1517,6 +1535,34 @@ class CachePage(QWidget):
                 if data:
                     out.append(data)
         return out
+
+    def _suggest_correction(self):
+        """يفتح GitHub Issue مُعبّأ بتصحيح مقترح للنص المحدَّد."""
+        import urllib.parse
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        entries = self._get_selected_entries()
+        if len(entries) != 1:
+            return
+        e = entries[0]
+        game = e.get("game", self._game)
+        orig = e.get("original", "") or ""
+        cur  = e.get("translated", "") or ""
+        repo = "nssr12/GameArabicTranslator"
+        title = f"[تصحيح ترجمة] {game}: {orig[:50]}"
+        body = (
+            f"**اللعبة:** {game}\n\n"
+            f"**النص الأصلي (EN):**\n```\n{orig}\n```\n\n"
+            f"**الترجمة الحالية:**\n```\n{cur}\n```\n\n"
+            f"**التصحيح المقترح:**\n```\n(اكتب الترجمة الصحيحة هنا)\n```\n\n"
+            f"**ملاحظات (اختياري):**\n"
+        )
+        url = (f"https://github.com/{repo}/issues/new?"
+               f"title={urllib.parse.quote(title)}"
+               f"&body={urllib.parse.quote(body)}"
+               f"&labels={urllib.parse.quote('translation-fix')}")
+        QDesktopServices.openUrl(QUrl(url))
+        self.status_message.emit("✍  فُتح نموذج اقتراح التصحيح في المتصفّح")
 
     def _edit_selected(self):
         entries = self._get_selected_entries()

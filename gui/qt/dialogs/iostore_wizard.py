@@ -428,8 +428,9 @@ class IoStoreWizard(QWidget):
         row_mode.addWidget(self._extr_mode_combo, 1)
         lay.addLayout(row_mode)
 
-        # AES Key
-        self._aes_field = _field("مفتاح AES:", "", "اختياري — للحزم المشفّرة (مثال: 0xABCD1234...)")
+        # AES Key — يُملأ تلقائياً من مفتاح اللعبة (config: aes_key)
+        self._aes_field = _field("مفتاح AES:", cfg.get("aes_key", "") or "",
+                                 "اختياري — للحزم المشفّرة (مثال: 0xABCD1234...)")
         self._aes_field.setFont(QFont("Courier New", 9))
 
         # Tool paths
@@ -446,10 +447,12 @@ class IoStoreWizard(QWidget):
             folder=False, filt="UAssetGUI (UAssetGUI.exe);;Exe (*.exe);;All (*.*)"
         )
 
-        # Mappings
+        # Mappings — يُملأ تلقائياً باسم الملف بدون الامتداد من مسار اللعبة (config: usmap_path)
+        _usmap_path = (cfg.get("usmap_path", "") or "").strip()
+        _usmap_name = os.path.splitext(os.path.basename(_usmap_path))[0] if _usmap_path else ""
         self._mappings_field = _field(
             "Mappings (.usmap):",
-            "",
+            _usmap_name,
             "اختياري — اسم الملف بدون الامتداد"
         )
 

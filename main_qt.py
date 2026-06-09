@@ -136,8 +136,15 @@ def main():
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
         from PySide6.QtCore import qInstallMessageHandler, QtMsgType
+        # تحذيرات Qt حميدة معروفة نتجاهلها (ضوضاء console بلا أثر وظيفي):
+        # - "Point size <= 0 (-1)": ينبعث من رسم الإيموجي/الرموز (🎮 ◆) عبر خط احتياطي
+        #   لا يحمل حجماً صريحاً — Qt يستخدم الحجم الافتراضي تلقائياً، لا تأثير بصري.
+        _QT_NOISE = ("point size", "qfont::setpointsize")
         def _qt_msg(mode, ctx, msg):
-            if 'parse' in msg.lower() or 'stylesheet' in msg.lower():
+            low = msg.lower()
+            if any(n in low for n in _QT_NOISE):
+                return   # تجاهل صامت
+            if 'parse' in low or 'stylesheet' in low:
                 prefix = {QtMsgType.QtWarningMsg: 'WARN', QtMsgType.QtCriticalMsg: 'CRIT'}.get(mode, 'INFO')
                 print(f"[QSS-{prefix}] {msg}")
                 if ctx.file:

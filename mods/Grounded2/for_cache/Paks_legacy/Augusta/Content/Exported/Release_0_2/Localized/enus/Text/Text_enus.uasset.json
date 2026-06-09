@@ -5981,7 +5981,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "لا يوجد مجند قريب."
+                              "Value": "لا يوجد مجند قريب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6079,7 +6079,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "لمزيد من النصائح، اطلع على دليل البقاء على قيد الحياة."
+                              "Value": "لمزيد من النصائح، اطلع على دليل البقاء على قيد الحياة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6569,7 +6569,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "الهيكل."
+                              "Value": "الهيكل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6961,7 +6961,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "إغلاق قائمة المهام\"."
+                              "Value": "إغلاق قائمة المهام\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7059,7 +7059,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "الحالة."
+                              "Value": "الحالة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7745,7 +7745,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "سلم الجوز\"."
+                              "Value": "سلم الجوز\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -9509,7 +9509,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "الأعمدة."
+                              "Value": "الأعمدة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -10097,7 +10097,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تحذير: ذاكرة الجهاز منخفضة."
+                              "Value": "تحذير: ذاكرة الجهاز منخفضة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11681,7 +11681,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "خوذة \"Nightstalker\"."
+                              "Value": "خوذة \"Nightstalker\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -11877,7 +11877,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "سترة \"نايتستوكر\"\"."
+                              "Value": "سترة \"نايتستوكر\"\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -12073,7 +12073,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "جوارب \"نايتستوكر\"\"."
+                              "Value": "جوارب \"نايتستوكر\"\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13641,7 +13641,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "سهم القوة."
+                              "Value": "سهم القوة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15649,7 +15649,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} دُهس حتى الموت على يد آكسل. "
+                              "Value": "{PlayerName} دُهس حتى الموت على يد آكسل "
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15747,7 +15747,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} تم تدميره بالكامل على يد أكسل."
+                              "Value": "{PlayerName} تم تدميره بالكامل على يد أكسل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15845,7 +15845,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} أصبح ضحية للتركيبة الهجومية العنيفة التي يستخدمها أكسل. "
+                              "Value": "{PlayerName} أصبح ضحية للتركيبة الهجومية العنيفة التي يستخدمها أكسل "
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -15943,7 +15943,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} لقد سقط بسبب شعر أكسل السام."
+                              "Value": "{PlayerName} لقد سقط بسبب شعر أكسل السام"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16351,7 +16351,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "شجرة الأعياد."
+                              "Value": "شجرة الأعياد"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16939,7 +16939,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "عرش العناكب\"."
+                              "Value": "عرش العناكب\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17331,7 +17331,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "ربع العشب، شكل مثلث، أرضية."
+                              "Value": "ربع العشب، شكل مثلث، أرضية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17527,7 +17527,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "الجزء السفلي، الربع، المثلث، الأرضية\"."
+                              "Value": "الجزء السفلي، الربع، المثلث، الأرضية\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18115,7 +18115,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "أرضية الربع دائرة\"."
+                              "Value": "أرضية الربع دائرة\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -18801,7 +18801,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "كرسي استرخاء خشبي."
+                              "Value": "كرسي استرخاء خشبي"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19977,7 +19977,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "شواية EverChar للشواء."
+                              "Value": "شواية EverChar للشواء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21463,7 +21463,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "الصناعة: كرة ملح\"."
+                              "Value": "الصناعة: كرة ملح\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22051,7 +22051,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "الحدادة: ترقيات فائقة\"."
+                              "Value": "الحدادة: ترقيات فائقة\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22247,7 +22247,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "شجرة الأعياد."
+                              "Value": "شجرة الأعياد"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -25953,7 +25953,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "زينوا القاعات بأشياء مريحة واحرصوا على وجود مكان لشجرة مميزة."
+                              "Value": "زينوا القاعات بأشياء مريحة واحرصوا على وجود مكان لشجرة مميزة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26051,7 +26051,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "فعالية خاصة بمناسبة العام الجديد\"."
+                              "Value": "فعالية خاصة بمناسبة العام الجديد\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26149,7 +26149,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "احتفلوا بالعام الجديد بحماس."
+                              "Value": "احتفلوا بالعام الجديد بحماس"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26247,7 +26247,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تتحول حديقة بروكهولو إلى مكان مخيف مع الألعاب والمكافآت."
+                              "Value": "تتحول حديقة بروكهولو إلى مكان مخيف مع الألعاب والمكافآت"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26541,7 +26541,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "قوس AXL، سهم، ورمح\"."
+                              "Value": "قوس AXL، سهم، ورمح\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26639,7 +26639,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "عناصر تزيين ومعدات مستوحاة من عالم AXL."
+                              "Value": "عناصر تزيين ومعدات مستوحاة من عالم AXL"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26933,7 +26933,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "المزيد من المركبات المدرعة قادمة\"."
+                              "Value": "المزيد من المركبات المدرعة قادمة\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27031,7 +27031,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "مواد بناء وأثاث جديدة للقاعدة."
+                              "Value": "مواد بناء وأثاث جديدة للقاعدة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27129,7 +27129,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تحسينات في تجربة اللعب وإصلاحات للأخطاء."
+                              "Value": "تحسينات في تجربة اللعب وإصلاحات للأخطاء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",

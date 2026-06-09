@@ -120,8 +120,18 @@ def main():
     with open(manifest_path, encoding="utf-8") as f:
         m = json.load(f)
 
+    # sha256 للتحقّق الأمني عند المستخدم
+    import hashlib
+    _h = hashlib.sha256()
+    with open(zip_path, "rb") as _zf:
+        for _b in iter(lambda: _zf.read(1 << 20), b""):
+            _h.update(_b)
+    app_sha = _h.hexdigest()
+
     m["app"]["version"]      = version
     m["app"]["download_url"] = download_url
+    m["app"]["sha256"]       = app_sha
+    print(f"app sha256: {app_sha}")
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(m, f, ensure_ascii=False, indent=2)

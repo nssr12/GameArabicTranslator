@@ -3,7 +3,7 @@
   "process_name": "Grounded2-WinGRTS-Shipping.exe",
   "game_path": "D:/SteamLibrary/steamapps/common/Grounded2",
   "engine": "unreal",
-  "hook_mode": "frida",
+  "hook_mode": "file",
   "source_lang": "en",
   "target_lang": "ar",
   "replace_font": false,
@@ -11,9 +11,12 @@
   "notes": "",
   "hooks": [],
   "enabled": true,
-  "hidden_features": [],
+  "hidden_features": [
+    "cache_section",
+    "translate"
+  ],
   "shown_features": [
-    "locres_section",
     "iostore_section"
-  ]
+  ],
+  "mod_mode": ""
 }

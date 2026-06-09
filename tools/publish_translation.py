@@ -76,14 +76,24 @@ def main():
     t = m["translations"][game_id]
     t["version"] = version
 
-    size_map   = {os.path.basename(p): os.path.getsize(p) for p in pak_files}
-    total_mb   = round(sum(size_map.values()) / (1024 * 1024))
+    import hashlib
+    def _sha256(p):
+        h = hashlib.sha256()
+        with open(p, "rb") as fh:
+            for b in iter(lambda: fh.read(1 << 20), b""):
+                h.update(b)
+        return h.hexdigest()
+
+    size_map = {os.path.basename(p): os.path.getsize(p) for p in pak_files}
+    sha_map  = {os.path.basename(p): _sha256(p) for p in pak_files}
+    total_mb = round(sum(size_map.values()) / (1024 * 1024))
     t["size_mb"] = total_mb
 
     for f in t.get("files", []):
         f["url"]  = f"https://github.com/{REPO}/releases/download/{tag}/{f['name']}"
         if f["name"] in size_map:
-            f["size"] = size_map[f["name"]]
+            f["size"]   = size_map[f["name"]]
+            f["sha256"] = sha_map[f["name"]]
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(m, f, ensure_ascii=False, indent=2)

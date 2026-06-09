@@ -13,14 +13,20 @@
   "notes": "Unreal Engine 5.5 (pak v11). تعريب عبر مود DataTable .pak: نكتب العربي مكان عمود en_US في DT_Translation_* → repak V11. UE5 يشكّل RTL أصلاً. انظر games/manorlords_mod.py و tools/manorlords/.",
   "hooks": [],
   "enabled": true,
-  "hidden_features": [],
+  "hidden_features": [
+    "cache_section",
+    "translate",
+    "edit_config",
+    "font_section"
+  ],
   "shown_features": [
-    "locres_section",
     "iostore_section"
   ],
   "font_path": "",
   "unreal_hook": {
     "win64_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Manor Lords\\ManorLords\\Binaries\\Win64",
     "translate_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Manor Lords\\ManorLords\\Binaries\\Win64\\Translate"
-  }
+  },
+  "aes_key": "0xD7D2FFA2744D18A7B84DFF09591C212C2068413A23BA3967F9890A6654989321",
+  "usmap_path": "C:\\Users\\nssr1\\AppData\\Local\\UAssetGUI\\Mappings\\ManorLords.usmap"
 }

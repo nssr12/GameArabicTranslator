@@ -77,10 +77,12 @@ class _DownloadWorker(QThread):
 
     def run(self):
         import requests
+        from games.security import requests_verify, verify_sha256
         os.makedirs(self._ready_dir, exist_ok=True)
         files      = self._info.get("files", [])
         total_size = sum(f.get("size", 0) for f in files)
         done = 0
+        verify = requests_verify()
         for fi in files:
             if self._cancel:
                 self.finished.emit(False, "إلغاء")
@@ -88,7 +90,7 @@ class _DownloadWorker(QThread):
             url  = fi["url"]
             dest = os.path.join(self._ready_dir, fi["name"])
             try:
-                r = requests.get(url, stream=True, timeout=60)
+                r = requests.get(url, stream=True, timeout=60, verify=verify)
                 r.raise_for_status()
                 with open(dest, "wb") as f:
                     for chunk in r.iter_content(65536):
@@ -98,6 +100,13 @@ class _DownloadWorker(QThread):
                         done += len(chunk)
                         if total_size:
                             self.progress.emit(done, total_size)
+                if not verify_sha256(dest, fi.get("sha256")):
+                    try:
+                        os.remove(dest)
+                    except Exception:
+                        pass
+                    self.finished.emit(False, f"فشل التحقّق الأمني لـ {fi['name']} (sha256)")
+                    return
             except Exception as e:
                 self.finished.emit(False, str(e))
                 return
@@ -108,16 +117,18 @@ class _ForCacheDownloadWorker(QThread):
     progress = Signal(int, int)
     finished = Signal(bool, str)
 
-    def __init__(self, url: str, fc_dir: str):
+    def __init__(self, url: str, fc_dir: str, sha256: str = ""):
         super().__init__()
         self._url    = url
         self._fc_dir = fc_dir
+        self._sha256 = sha256 or ""
 
     def run(self):
         import requests, zipfile, tempfile
+        from games.security import requests_verify, verify_sha256
         tmp_path = tempfile.mktemp(suffix=".zip")
         try:
-            r = requests.get(self._url, timeout=300, stream=True)
+            r = requests.get(self._url, timeout=300, stream=True, verify=requests_verify())
             r.raise_for_status()
             total = int(r.headers.get("content-length", 0))
             done  = 0
@@ -127,6 +138,10 @@ class _ForCacheDownloadWorker(QThread):
                     done += len(chunk)
                     if total:
                         self.progress.emit(done, total)
+            if not verify_sha256(tmp_path, self._sha256):
+                os.remove(tmp_path)
+                self.finished.emit(False, "فشل التحقّق الأمني (sha256) لملف for_cache")
+                return
             os.makedirs(self._fc_dir, exist_ok=True)
             with zipfile.ZipFile(tmp_path, "r") as z:
                 z.extractall(self._fc_dir)
@@ -1221,7 +1236,8 @@ class GameDetailDialog(QDialog):
             total = size_mb * 1_048_576 or 1
             self._fc_progress.setMaximum(total)
             self._fc_progress.setVisible(True)
-        self._fc_worker = _ForCacheDownloadWorker(url, fc_dir)
+        _fc_sha = (self._registry_info or {}).get("for_cache_sha256", "")
+        self._fc_worker = _ForCacheDownloadWorker(url, fc_dir, _fc_sha)
         self._fc_worker.progress.connect(
             lambda d, t: self._fc_progress.setValue(d) if self._fc_progress else None
         )

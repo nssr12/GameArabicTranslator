@@ -58,11 +58,13 @@ class DownloadWorker(QThread):
     def run(self):
         import requests, shutil
         from games.translation_package import TranslationPackage
+        from games.security import requests_verify, verify_sha256
 
         os.makedirs(self._ready_dir, exist_ok=True)
         files = self._info.get("files", [])
         total_size = sum(f.get("size", 0) for f in files)
         done = 0
+        verify = requests_verify()   # تحقّق SSL موثَّق (certifi)
 
         for fi in files:
             if self._cancel:
@@ -72,7 +74,7 @@ class DownloadWorker(QThread):
             url  = fi["url"]
             dest = os.path.join(self._ready_dir, name)
             try:
-                r = requests.get(url, stream=True, timeout=60)
+                r = requests.get(url, stream=True, timeout=60, verify=verify)
                 r.raise_for_status()
                 chunk_size = 65536
                 with open(dest, "wb") as f:
@@ -87,6 +89,14 @@ class DownloadWorker(QThread):
                             if cl:
                                 total_size = int(cl) * len(files)
                         self.progress.emit(done, max(total_size, 1))
+                # تحقّق checksum (إن وُفِّر في المنفست) — يمنع الملفات التالفة/المُتلاعَبة
+                if not verify_sha256(dest, fi.get("sha256")):
+                    try:
+                        os.remove(dest)
+                    except Exception:
+                        pass
+                    self.finished.emit(False, f"فشل التحقّق الأمني لـ {name} (sha256 لا يطابق)")
+                    return
                 self.file_done.emit(name)
             except Exception as e:
                 self.finished.emit(False, f"فشل تحميل {name}: {e}")
@@ -217,6 +227,38 @@ class ManorLordsBuildWorker(QThread):
             self.finished.emit(False, f"خطأ: {e}\n{traceback.format_exc()}")
 
 
+class IoStoreBuildWorker(QThread):
+    """يبني/يثبّت/يحدّث/يلغي مود IoStore (كاش → uassets → retoc to-zen → ready → اللعبة)."""
+    progress = Signal(int, int, str)        # done, total, file_name
+    finished = Signal(bool, str)            # success, log_text
+
+    def __init__(self, game_id: str, cfg: dict, game_path: str, cache, action: str = "install"):
+        super().__init__()
+        self._game_id = game_id
+        self._cfg = cfg
+        self._game_path = game_path
+        self._cache = cache
+        self._action = action   # install | update | uninstall
+
+    def run(self):
+        try:
+            from games.iostore_mod import IoStoreMod
+            mod = IoStoreMod()
+            cb = lambda i, n, name: self.progress.emit(i, n, name)
+            if self._action == "uninstall":
+                ok, log = mod.uninstall(self._game_id, self._game_path)
+            elif self._action == "update":
+                ok, log = mod.update_translations(
+                    self._game_id, self._cfg, self._game_path, self._cache, progress_cb=cb)
+            else:
+                ok, log = mod.install(
+                    self._game_id, self._cfg, self._game_path, self._cache, progress_cb=cb)
+            self.finished.emit(ok, "\n".join(log))
+        except Exception as e:
+            import traceback
+            self.finished.emit(False, f"خطأ: {e}\n{traceback.format_exc()}")
+
+
 # ── Compact list card ─────────────────────────────────────────────────────────
 
 class GameListItem(QFrame):
@@ -267,6 +309,15 @@ class GameListItem(QFrame):
         info.addWidget(proc_lbl)
         lay.addLayout(info, 1)
 
+        # Translation-update badge (مخفي حتى يُكتشَف تحديث ترجمة)
+        self._upd_badge = QLabel("⬆ تحديث")
+        self._upd_badge.setStyleSheet(
+            f"background: {c['yellow']}; color: #1a1a1a; border-radius: 6px;"
+            " padding: 1px 7px; font-size: 9px; font-weight: bold;"
+        )
+        self._upd_badge.setVisible(False)
+        lay.addWidget(self._upd_badge)
+
         # Engine badge
         eng_raw = self._cfg.get("engine", "auto").lower()
         eng_key = next(
@@ -314,6 +365,18 @@ class GameListItem(QFrame):
         self._active = active
         self._refresh_style()
 
+    def set_update_available(self, online_ver: str):
+        """يُظهر/يُخفي شارة «تحديث» حسب توفّر نسخة ترجمة أحدث."""
+        b = getattr(self, "_upd_badge", None)
+        if b is None:
+            return
+        if online_ver:
+            b.setText(f"⬆ v{online_ver}")
+            b.setToolTip(f"تحديث ترجمة متاح: v{online_ver}")
+            b.setVisible(True)
+        else:
+            b.setVisible(False)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self._id)
@@ -332,6 +395,7 @@ class GameDetailPanel(QFrame):
     install_requested     = Signal(str, str)   # game_id, game_path
     uninstall_requested   = Signal(str, str)   # game_id, game_path
     download_requested    = Signal(str)        # game_id
+    download_install_requested = Signal(str, str)  # game_id, game_path (تحميل + تثبيت/تحديث)
     check_registry_requested = Signal()
     locres_requested      = Signal(str, str)   # game_id, folder_path
     font_requested        = Signal(str, str)   # game_id, game_path
@@ -368,6 +432,12 @@ class GameDetailPanel(QFrame):
     manorlords_install_requested   = Signal(str, str)       # game_id, game_path
     manorlords_uninstall_requested = Signal(str, str)       # game_id, game_path
     manorlords_update_requested    = Signal(str, str)       # game_id, game_path
+
+    # IoStore mod (UE5 zen — retoc to-zen، بناء من الكاش)
+    iostore_mod_install_requested   = Signal(str, str)      # game_id, game_path
+    iostore_mod_uninstall_requested = Signal(str, str)      # game_id, game_path
+    iostore_mod_update_requested    = Signal(str, str)      # game_id, game_path
+    iostore_mod_rollback_requested  = Signal(str, str)      # game_id, game_path
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -627,8 +697,11 @@ class GameDetailPanel(QFrame):
 
         lay.addWidget(actions_card)
 
-        # ── UE4SS Arabic Translator card (لألعاب UE فقط) ─────────────────────
-        if eng_key in ("ue4", "ue5", "unreal"):
+        # ── UE4SS Arabic Translator card (للألعاب المضبوطة على هذا المسار فقط) ──
+        # مسار بديل لـ UE (dict/translations.txt عبر UE4SS). لا يظهر إلا عند
+        # اختياره صراحةً (mod_mode == "ue4ss" أو وجود إعداد ue4ss) — لئلا يزحم
+        # كل صفحات ألعاب UE بمسار لا تستخدمه.
+        if cfg.get("mod_mode") == "ue4ss" or "ue4ss" in cfg:
             self._render_ue4ss_card(lay, cfg)
 
         # ── Unreal Hook card (لألعاب UE5 اللي تحتاج dxgi injection) ────────────────
@@ -643,6 +716,22 @@ class GameDetailPanel(QFrame):
         # ── Manor Lords (DataTable .pak mod) card ───────────────────────────────
         if cfg.get("mod_mode") == "datatable_pak":
             self._render_manorlords_card(lay, cfg)
+
+        # ── بطاقة الترجمة الموحَّدة (UE5 IoStore — Grounded2/Windrose…) ──────────
+        # تظهر لألعاب IoStore التي لها: مصدر for_cache، أو حزمة ready، أو ترجمة
+        # متاحة أونلاين (registry) — فتغطّي التحميل والبناء والتثبيت معاً.
+        try:
+            from games.iostore_mod import IoStoreMod
+            if (cfg.get("mod_mode") != "datatable_pak"
+                    and IoStoreMod.is_supported(cfg)):
+                _iomod = IoStoreMod()
+                _has_online = bool((getattr(self, "_registry_info", {}) or {})
+                                   .get(self._game_id, {}).get("files"))
+                if (_iomod.has_source(self._game_id) or _iomod.has_ready(self._game_id)
+                        or _has_online):
+                    self._render_iostore_mod_card(lay, cfg, _iomod)
+        except Exception:
+            pass
 
         # ── BepInEx + XUnity card (لألعاب Unity) ────────────────────────────────
         # نُظهره لألعاب Unity أو أي لعبة فيها قسم bepinex_mod في الـ config
@@ -814,6 +903,159 @@ class GameDetailPanel(QFrame):
         elif status is False:
             v.addWidget(mkbtn("✅  تثبيت التعريب (بناء + حزم + تثبيت)", "green",
                 lambda: self.manorlords_install_requested.emit(self._game_id, gp), tools_ok))
+
+        lay.addWidget(card)
+
+    def _render_iostore_mod_card(self, lay, cfg: dict, mod):
+        """بطاقة الترجمة الموحَّدة لألعاب IoStore — تجمع كل دورة حياة الترجمة:
+        تحميل/تحديث من GitHub + بناء محلي من الكاش + تثبيت/إلغاء."""
+        c = theme.c
+        game_path = cfg.get("game_path", "")
+        status = mod.get_install_status(self._game_id, game_path)
+        tools_ok, tools_msg = mod.tools_exist(self._game_id)
+        has_src = mod.has_source(self._game_id)
+        has_ready = mod.has_ready(self._game_id)
+        path_ok = bool(game_path) and os.path.isdir(game_path)
+        if status is None and path_ok:
+            status = False
+
+        # ── بيانات الإصدار من الـ registry (GitHub) ─────────────────────────
+        reg_info   = (getattr(self, "_registry_info", {}) or {}).get(self._game_id) or {}
+        online_ver = str(reg_info.get("version", "") or "")
+        has_online = bool(reg_info.get("files"))
+        try:
+            from games.translation_package import TranslationPackage
+            from games.translation_registry import _version_gt
+            _pkg = TranslationPackage()
+            installed_ver = _pkg.get_installed_version(self._game_id) or ""
+            _inst_cmp = installed_ver if installed_ver else ("0" if status else "")
+            has_update = bool(has_online and online_ver and _inst_cmp != ""
+                              and _version_gt(online_ver, _inst_cmp))
+        except Exception:
+            installed_ver, has_update = "", False
+
+        title = QLabel("📦  حزمة الترجمة (IoStore)")
+        title.setStyleSheet(
+            f"color:{c['muted']};font-size:11px;font-weight:bold;background:transparent;border:none;")
+        lay.addWidget(title)
+
+        card = self._card()
+        v = QVBoxLayout(card)
+        v.setContentsMargins(16, 14, 16, 14)
+        v.setSpacing(10)
+
+        if has_update:
+            st, col = f"🔄 تحديث متاح ← v{online_ver}", c["yellow"]
+        elif status is None:
+            st, col = "⚠ حدّد مسار اللعبة أولاً", c["orange"]
+        elif status:
+            st, col = "✅ مُثبَّت — شغّل اللعبة عبر Steam عادي", c["green"]
+        else:
+            st, col = "○ غير مُثبَّت", c["muted"]
+        st_lbl = QLabel(st)
+        st_lbl.setStyleSheet(f"color:{col};font-size:12px;background:transparent;border:none;")
+        v.addWidget(st_lbl)
+
+        # «ما الجديد» (ملاحظات الإصدار) عند توفّر تحديث
+        if has_update and reg_info.get("release_notes"):
+            notes_lbl = QLabel("📝 " + str(reg_info["release_notes"]))
+            notes_lbl.setWordWrap(True)
+            notes_lbl.setStyleSheet(f"color:{c['secondary']};font-size:10px;background:transparent;border:none;")
+            v.addWidget(notes_lbl)
+
+        # شريط تقدّم التحميل (مخفي حتى يبدأ التحميل) — يستخدمه _run_download
+        self._dl_progress = QProgressBar()
+        self._dl_progress.setFixedHeight(6); self._dl_progress.setTextVisible(False)
+        self._dl_progress.setVisible(False)
+        self._dl_progress.setStyleSheet(
+            f"QProgressBar {{ background:{c['border']}; border-radius:3px; border:none; }}"
+            f"QProgressBar::chunk {{ background:{c['blue']}; border-radius:3px; }}")
+        v.addWidget(self._dl_progress)
+        self._dl_lbl = QLabel(""); self._dl_lbl.setVisible(False)
+        self._dl_lbl.setStyleSheet(f"color:{c['muted']};font-size:10px;background:transparent;border:none;")
+        v.addWidget(self._dl_lbl)
+
+        def mkbtn(label, color_key, slot, enabled=True):
+            b = QPushButton(label)
+            b.setFixedHeight(36)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            b.setStyleSheet(
+                f"QPushButton{{background:rgba(0,0,0,38);color:{clr};border:1px solid {clr};"
+                f"border-radius:8px;font-weight:bold;padding:0 14px;text-align:left;}}"
+                f"QPushButton:hover{{background:{clr};color:#fff;}}"
+                f"QPushButton:disabled{{color:{c['muted']};border-color:{c['muted']};}}")
+            b.setEnabled(enabled)
+            b.clicked.connect(slot)
+            return b
+
+        gp = game_path
+        can_build = tools_ok and has_src
+
+        # ① تحديث من GitHub (الأولوية القصوى عند توفّره)
+        if has_update:
+            v.addWidget(mkbtn(f"🔄  تحديث إلى v{online_ver}  (تحميل + تثبيت)", "yellow",
+                lambda: self.download_install_requested.emit(self._game_id, gp),
+                enabled=path_ok))
+
+        # ② التثبيت/التحميل عند عدم التثبيت
+        if status is False:
+            if has_ready or can_build:
+                v.addWidget(mkbtn("✅  تثبيت الترجمة (من ملفات المود المحلية)", "green",
+                    lambda: self.iostore_mod_install_requested.emit(self._game_id, gp),
+                    enabled=(can_build or has_ready)))
+            elif has_online:
+                v.addWidget(mkbtn("⬇️  تحميل + تثبيت الترجمة", "blue",
+                    lambda: self.download_install_requested.emit(self._game_id, gp),
+                    enabled=path_ok))
+
+        # ③ عند التثبيت: إلغاء + (إعادة بناء محلي للمطوّر)
+        elif status is True:
+            if can_build:
+                v.addWidget(mkbtn("🔧  إعادة بناء من الكاش (تحديث محلي بعد تعديل الكاش)", "teal",
+                    lambda: self.iostore_mod_update_requested.emit(self._game_id, gp)))
+            v.addWidget(mkbtn("🗑️  إلغاء التعريب (حذف المود)", "accent",
+                lambda: self.iostore_mod_uninstall_requested.emit(self._game_id, gp)))
+
+        # ④ تراجع للنسخة السابقة (إن وُجدت لقطة)
+        try:
+            from games.translation_package import TranslationPackage as _TP
+            _tp = _TP()
+            if _tp.has_previous(self._game_id):
+                _pv = _tp.previous_version(self._game_id)
+                _lbl = f"↩  تراجع للنسخة السابقة" + (f" (v{_pv})" if _pv else "")
+                v.addWidget(mkbtn(_lbl, "muted",
+                    lambda: self.iostore_mod_rollback_requested.emit(self._game_id, gp),
+                    enabled=path_ok))
+        except Exception:
+            pass
+
+        # ⑤ سجل التغييرات (changelog)
+        _clog = reg_info.get("changelog") or []
+        if _clog:
+            def _show_changelog(_ck=False, log=_clog, gname=self._game_id):
+                lines = []
+                for e in log[:10]:
+                    ver = e.get("version", "?")
+                    nt  = (e.get("notes", "") or "").strip() or "—"
+                    lines.append(f"• v{ver}: {nt}")
+                QMessageBox.information(self, f"📜 سجل تحديثات {gname}", "\n\n".join(lines))
+            v.addWidget(mkbtn("📜  سجل التحديثات", "muted", _show_changelog))
+
+        # تلميحات
+        if not tools_ok and (has_src or status is True):
+            w = QLabel("⚠ " + tools_msg + "  (البناء المحلي معطّل — التحميل من GitHub يعمل)")
+            w.setWordWrap(True)
+            w.setStyleSheet(f"color:{c['orange']};font-size:10px;background:transparent;border:none;")
+            v.addWidget(w)
+
+        if installed_ver or online_ver:
+            parts = []
+            if installed_ver: parts.append(f"مُثبَّت: v{installed_ver}")
+            if online_ver:    parts.append(f"متاح: v{online_ver}")
+            vl = QLabel("  |  ".join(parts))
+            vl.setStyleSheet(f"color:{c['muted']};font-size:10px;background:transparent;border:none;")
+            v.addWidget(vl)
 
         lay.addWidget(card)
 
@@ -2470,10 +2712,12 @@ class GamesPage(QWidget):
 
     status_message = Signal(str)
     games_changed  = Signal()
+    translation_updates_available = Signal(dict)   # {game_id: online_version}
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._engine       = None
+        self._registry_info: dict = {}
         self._cache        = None
         self._game_manager = None
         self._proxy_server = None
@@ -2537,6 +2781,7 @@ class GamesPage(QWidget):
         self._detail.install_requested.connect(self._on_install)
         self._detail.uninstall_requested.connect(self._on_uninstall)
         self._detail.download_requested.connect(self._on_download)
+        self._detail.download_install_requested.connect(self._on_download_install)
         self._detail.check_registry_requested.connect(self.retry_registry)
         self._detail.locres_requested.connect(self._on_locres_translate)
         self._detail.font_requested.connect(self._on_font_replace)
@@ -2550,6 +2795,10 @@ class GamesPage(QWidget):
         self._detail.manorlords_install_requested.connect(self._on_manorlords_install)
         self._detail.manorlords_uninstall_requested.connect(self._on_manorlords_uninstall)
         self._detail.manorlords_update_requested.connect(self._on_manorlords_update)
+        self._detail.iostore_mod_install_requested.connect(self._on_iostore_mod_install)
+        self._detail.iostore_mod_uninstall_requested.connect(self._on_iostore_mod_uninstall)
+        self._detail.iostore_mod_update_requested.connect(self._on_iostore_mod_update)
+        self._detail.iostore_mod_rollback_requested.connect(self._on_iostore_mod_rollback)
         self._detail.model_priority_requested.connect(self._on_model_priority)
         self._detail.ue4ss_install_requested.connect(self._on_ue4ss_install)
         self._detail.ue4ss_update_requested.connect(self._on_ue4ss_update)
@@ -2634,10 +2883,50 @@ class GamesPage(QWidget):
 
     def set_registry(self, registry_info: dict):
         """Pass {game_id: translation_info} from TranslationRegistry to detail panel."""
+        self._registry_info = registry_info or {}
         self._detail._registry_info   = registry_info
         self._detail._registry_loaded = bool(registry_info)  # True only when data received
         if self._detail._game_id:
             self._detail.load(self._detail._game_id, self._detail._game_cfg)
+        self._refresh_update_badges()
+
+    def _translation_update_version(self, game_id: str) -> str:
+        """يُرجع نسخة الترجمة المتاحة أونلاين إن كانت أحدث من المثبَّتة، وإلا ''."""
+        info = (getattr(self, "_registry_info", {}) or {}).get(game_id)
+        if not info:
+            return ""
+        online = str(info.get("version", "") or "")
+        if not online:
+            return ""
+        try:
+            from games.translation_package import TranslationPackage
+            from games.translation_registry import _version_gt
+            pkg = TranslationPackage()
+            # نعرض التحديث فقط لو المستخدم يملك حزمة محلية (مثبَّتة/محمَّلة)
+            if not pkg.has_files(game_id):
+                return ""
+            installed = pkg.get_installed_version(game_id) or "0"
+            return online if _version_gt(online, installed) else ""
+        except Exception:
+            return ""
+
+    def _refresh_update_badges(self):
+        """يحدّث شارات «تحديث» على عناصر قائمة الألعاب + يطلق إشعار البانر."""
+        items = getattr(self, "_items", {}) or {}
+        updates = {}
+        for gid, item in items.items():
+            ver = self._translation_update_version(gid)
+            if hasattr(item, "set_update_available"):
+                item.set_update_available(ver)
+            if ver:
+                updates[gid] = ver
+        # أبلغ النافذة الرئيسية بعدد التحديثات (لبانر/إشعار عام)
+        if updates:
+            names = "، ".join(sorted(updates))
+            self.status_message.emit(
+                f"🔄  تحديث ترجمة متاح لـ {len(updates)} لعبة: {names}"
+            )
+        self.translation_updates_available.emit(updates)
 
     def retry_registry(self):
         """Re-fetch registry in background and update the detail panel."""
@@ -2704,6 +2993,9 @@ class GamesPage(QWidget):
         elif games:
             self._select_game(next(iter(games)))
 
+        # حدّث شارات «تحديث الترجمة» (لو وصلت بيانات الـ registry مسبقاً)
+        self._refresh_update_badges()
+
     def refresh_game(self, game_id: str):
         """تحديث لوحة التفاصيل للعبة محددة بعد حفظ الإعدادات من لوحة الإدارة."""
         if not self._game_manager:
@@ -2719,6 +3011,31 @@ class GamesPage(QWidget):
         if game_id in self._items:
             self._items[game_id].set_active(True)
         self._detail.load(game_id, cfg, self._cache)
+        self._update_log_panel_visibility(cfg)
+
+    @staticmethod
+    def _game_needs_proxy_log(cfg: dict) -> bool:
+        """هل تستخدم اللعبة مسار الالتقاط الحيّ (بروكسي HTTP 5001)؟
+        السجل يُظهَر فقط لها — أمّا الأوضاع الساكنة (datatable_pak / ue4ss /
+        foundation / iostore) فلا تمرّ بالبروكسي إطلاقاً."""
+        cfg = cfg or {}
+        eng      = (cfg.get("engine", "") or "").lower()
+        mod_mode = cfg.get("mod_mode", "")
+        shown    = cfg.get("shown_features") or []
+        # Unity (BepInEx + XUnity → proxy)
+        if eng == "unity" or "bepinex_mod" in cfg:
+            return True
+        # UE5 Unreal Hook (watcher → proxy)
+        if "unreal_hook_section" in shown or cfg.get("hook_mode") == "unreal_hook":
+            return True
+        # بروكسي حيّ صريح
+        if mod_mode == "proxy":
+            return True
+        return False
+
+    def _update_log_panel_visibility(self, cfg: dict):
+        if hasattr(self, "_log_panel") and self._log_panel is not None:
+            self._log_panel.setVisible(self._game_needs_proxy_log(cfg))
 
     def _select_game(self, game_id: str):
         # Deactivate previous
@@ -2737,6 +3054,7 @@ class GamesPage(QWidget):
                 pass
 
         self._detail.load(game_id, cfg, self._cache)
+        self._update_log_panel_visibility(cfg)
 
     def select_game(self, game_id: str):
         """Public API — يُستخدَم من app.py عند الانتقال من home بزر 'إدارة اللعبة'."""
@@ -2855,6 +3173,13 @@ class GamesPage(QWidget):
         self.refresh()
 
     def _on_download(self, game_id: str):
+        self._run_download(game_id, auto_install=False, game_path="")
+
+    def _on_download_install(self, game_id: str, game_path: str):
+        """تحميل من GitHub ثم تثبيت تلقائي (للتحديث / تحميل+تثبيت)."""
+        self._run_download(game_id, auto_install=True, game_path=game_path)
+
+    def _run_download(self, game_id: str, auto_install: bool = False, game_path: str = ""):
         from games.translation_package import TranslationPackage
         registry_info = getattr(self._detail, '_registry_info', {})
         info = registry_info.get(game_id)
@@ -2864,7 +3189,14 @@ class GamesPage(QWidget):
         if self._dl_worker and self._dl_worker.isRunning():
             return
 
-        ready_dir = TranslationPackage().get_ready_dir(game_id)
+        pkg = TranslationPackage()
+        ready_dir = pkg.get_ready_dir(game_id)
+        online_ver = str(info.get("version", "") or "")
+        # لقطة للنسخة الحالية قبل التحميل فوقها (تتيح «↩ تراجع»)
+        try:
+            pkg.snapshot_ready(game_id)
+        except Exception:
+            pass
         self._dl_worker = DownloadWorker(game_id, info, ready_dir)
 
         # Wire progress to the detail panel's progress bar
@@ -2887,11 +3219,26 @@ class GamesPage(QWidget):
             def _on_done(ok, msg):
                 panel._dl_progress.setVisible(False)
                 panel._dl_lbl.setVisible(False)
-                if ok:
-                    self.status_message.emit(f"✅  {msg}")
-                    self.refresh()
-                else:
+                if not ok:
                     QMessageBox.warning(self, "فشل التحميل", msg)
+                    return
+                # تثبيت تلقائي + تسجيل النسخة بعد التحميل الناجح
+                if auto_install and game_path:
+                    iok, ilog = pkg.install(game_id, game_path)
+                    if online_ver:
+                        pkg.set_installed_version(game_id, online_ver)
+                    if iok:
+                        self.status_message.emit(f"✅  حُمِّلت وثُبِّتت ترجمة {game_id}"
+                                                 + (f" v{online_ver}" if online_ver else ""))
+                        QMessageBox.information(self, "✅  تم", "تم تحميل وتثبيت الترجمة بنجاح:\n\n"
+                                                + "\n".join(ilog))
+                    else:
+                        QMessageBox.warning(self, "فشل التثبيت", "\n".join(ilog))
+                else:
+                    if online_ver:
+                        pkg.set_installed_version(game_id, online_ver)
+                    self.status_message.emit(f"✅  {msg}")
+                self.refresh()
 
             self._dl_worker.progress.connect(_on_progress)
             self._dl_worker.file_done.connect(_on_file)
@@ -3106,6 +3453,105 @@ class GamesPage(QWidget):
             QMessageBox.information(self, "تم الإلغاء", msg)
         else:
             QMessageBox.warning(self, "خطأ في الإلغاء", msg)
+        self.refresh()
+
+    # ── IoStore mod (zen) handlers ─────────────────────────────────────────
+
+    def _run_iostore_build(self, game_id: str, game_path: str, action: str):
+        """يشغّل بناء/تثبيت/تحديث/إلغاء مود IoStore في خيط مع شريط تقدّم."""
+        from PySide6.QtWidgets import QProgressDialog
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        title = {"install": "تثبيت الترجمة", "update": "تحديث الترجمة",
+                 "uninstall": "إلغاء التعريب"}.get(action, "بناء المود")
+        dlg = QProgressDialog(f"{title} — تجهيز…", "إلغاء", 0, 100, self)
+        dlg.setWindowTitle(f"IoStore — {title}")
+        dlg.setMinimumWidth(440)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setValue(0)
+
+        worker = IoStoreBuildWorker(game_id, cfg, game_path, self._cache, action)
+
+        def on_prog(i, n, name):
+            dlg.setMaximum(max(n, 1))
+            dlg.setValue(i)
+            dlg.setLabelText(f"{title}: {i}/{n}\n{name}")
+
+        def on_done(ok, log):
+            dlg.close()
+            if ok:
+                # بعد بناء/تثبيت محلي ناجح، اضبط النسخة المثبَّتة = النسخة الأونلاين
+                # (إن وُجدت) كي لا يظهر إشعار «تحديث» كاذب على بناء محلي حديث.
+                if action in ("install", "update"):
+                    try:
+                        from games.translation_package import TranslationPackage
+                        _pkg = TranslationPackage()
+                        _online = ((getattr(self, "_registry_info", {}) or {})
+                                   .get(game_id, {}).get("version", ""))
+                        if _online:
+                            _pkg.set_installed_version(game_id, _online)
+                    except Exception:
+                        pass
+                self.status_message.emit(f"✅  {title} IoStore: {game_id}")
+                QMessageBox.information(self, f"✅  {title}", log)
+            else:
+                QMessageBox.critical(self, "❌  فشل", log)
+            self.refresh()
+            worker.deleteLater()
+
+        worker.progress.connect(on_prog)
+        worker.finished.connect(on_done)
+        dlg.canceled.connect(worker.terminate)
+        self._io_worker = worker   # امنع جمع القمامة
+        worker.start()
+        dlg.show()
+
+    def _on_iostore_mod_install(self, game_id: str, game_path: str):
+        from games.iostore_mod import IoStoreMod
+        mod = IoStoreMod()
+        ok, msg = mod.tools_exist(game_id)
+        if not ok and mod.has_source(game_id):
+            QMessageBox.critical(self, "أدوات مفقودة", msg)
+            return
+        self._run_iostore_build(game_id, game_path, "install")
+
+    def _on_iostore_mod_update(self, game_id: str, game_path: str):
+        from games.iostore_mod import IoStoreMod
+        ok, msg = IoStoreMod().tools_exist(game_id)
+        if not ok:
+            QMessageBox.critical(self, "أدوات مفقودة", msg)
+            return
+        self._run_iostore_build(game_id, game_path, "update")
+
+    def _on_iostore_mod_uninstall(self, game_id: str, game_path: str):
+        reply = QMessageBox.question(
+            self, "تأكيد الإلغاء",
+            "حذف ملفات مود الترجمة (.pak/.ucas/.utoc) من مجلد اللعبة وعودتها للإنجليزية؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self._run_iostore_build(game_id, game_path, "uninstall")
+
+    def _on_iostore_mod_rollback(self, game_id: str, game_path: str):
+        from games.translation_package import TranslationPackage
+        pkg = TranslationPackage()
+        pv = pkg.previous_version(game_id)
+        reply = QMessageBox.question(
+            self, "تأكيد التراجع",
+            f"الاستعادة للنسخة السابقة" + (f" (v{pv})" if pv else "") +
+            " وتثبيتها؟\n(النسخة الحالية تُحفظ كي يمكن الرجوع إليها لاحقاً)",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        ok, log = pkg.rollback(game_id, game_path)
+        msg = "\n".join(log)
+        if ok:
+            self.status_message.emit(f"↩  تمّ التراجع للنسخة السابقة: {game_id}")
+            QMessageBox.information(self, "↩  تراجع ناجح", msg)
+        else:
+            QMessageBox.warning(self, "فشل التراجع", msg)
         self.refresh()
 
     # ── UE4SS Arabic Translator handlers ───────────────────────────────────

@@ -31,8 +31,13 @@ from engine.ue_rtl_reverse import reverse_for_display
 from engine import rtl_overrides
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UAGUI = os.path.join(ROOT, "tools", "UAssetGUI", "UAssetGUI.exe")
-REPAK = os.path.join(ROOT, "tools", "repak", "repak.exe")
+try:
+    from games import tools_paths as _tp
+    UAGUI = _tp.uassetgui() or os.path.join(ROOT, "tools", "UAssetGUI", "UAssetGUI.exe")
+    REPAK = _tp.repak()     or os.path.join(ROOT, "tools", "repak", "repak.exe")
+except Exception:
+    UAGUI = os.path.join(ROOT, "tools", "UAssetGUI", "UAssetGUI.exe")
+    REPAK = os.path.join(ROOT, "tools", "repak", "repak.exe")
 FORCACHE = os.path.join(ROOT, "mods", "Manor Lords", "for_cache")
 HOODED = os.path.join(FORCACHE, "ManorLords", "Content", "Translation", "HoodedHorse")
 READY = os.path.join(ROOT, "mods", "Manor Lords", "ready")

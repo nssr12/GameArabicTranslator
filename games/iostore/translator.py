@@ -9,8 +9,13 @@ from engine.models.base import translate_preserving_tokens
 
 
 _TOOLS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools"))
-_RETOC_DEFAULT    = os.path.join(_TOOLS_DIR, "retoc", "retoc.exe")
-_UASSETGUI_DEFAULT = os.path.join(_TOOLS_DIR, "UAssetGUI.exe")
+try:
+    from games import tools_paths as _tp
+    _RETOC_DEFAULT     = _tp.retoc()     or os.path.join(_TOOLS_DIR, "retoc", "retoc.exe")
+    _UASSETGUI_DEFAULT = _tp.uassetgui() or os.path.join(_TOOLS_DIR, "UAssetGUI.exe")
+except Exception:
+    _RETOC_DEFAULT    = os.path.join(_TOOLS_DIR, "retoc", "retoc.exe")
+    _UASSETGUI_DEFAULT = os.path.join(_TOOLS_DIR, "UAssetGUI.exe")
 
 # UAssetGUI version format (VER_ prefix)
 UE_VERSIONS = [

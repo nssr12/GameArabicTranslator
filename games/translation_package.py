@@ -35,6 +35,77 @@ class TranslationPackage:
     def get_for_cache_dir(self, game_name: str) -> str:
         return os.path.join(self.get_mod_dir(game_name), "for_cache")
 
+    # ── Rollback (لقطة النسخة السابقة) ─────────────────────────────────
+    def get_ready_prev_dir(self, game_name: str) -> str:
+        return os.path.join(self.get_mod_dir(game_name), "ready_prev")
+
+    def snapshot_ready(self, game_name: str) -> bool:
+        """ينسخ ready/ الحالي → ready_prev/ قبل الكتابة فوقه (للتراجع لاحقاً).
+        يحفظ النسخة المثبَّتة الحالية في ready_prev/.version."""
+        ready = self.get_ready_dir(game_name)
+        if not os.path.isdir(ready) or not os.listdir(ready):
+            return False
+        prev = self.get_ready_prev_dir(game_name)
+        try:
+            if os.path.isdir(prev):
+                shutil.rmtree(prev)
+            shutil.copytree(ready, prev)
+            ver = self.get_installed_version(game_name)
+            with open(os.path.join(prev, ".version"), "w", encoding="utf-8") as f:
+                f.write(ver or "")
+            return True
+        except Exception:
+            return False
+
+    def has_previous(self, game_name: str) -> bool:
+        prev = self.get_ready_prev_dir(game_name)
+        if not os.path.isdir(prev):
+            return False
+        return any(
+            f for f in os.listdir(prev)
+            if f.endswith((".pak", ".ucas", ".utoc")) and
+            os.path.isfile(os.path.join(prev, f))
+        )
+
+    def previous_version(self, game_name: str) -> str:
+        try:
+            with open(os.path.join(self.get_ready_prev_dir(game_name), ".version"),
+                      encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            return ""
+
+    def rollback(self, game_name: str, game_path: str) -> Tuple[bool, List[str]]:
+        """يستعيد لقطة ready_prev/ → ready/ ثم يُثبّتها (تراجع للنسخة السابقة)."""
+        log: List[str] = []
+        prev = self.get_ready_prev_dir(game_name)
+        if not self.has_previous(game_name):
+            return False, ["لا توجد نسخة سابقة للتراجع إليها."]
+        ready = self.get_ready_dir(game_name)
+        try:
+            # بدّل الحالي بالسابق (مع لقطة عكسية كي يبقى التراجع متاحاً ذهاباً وإياباً)
+            cur_bak = ready + "_swap"
+            if os.path.isdir(cur_bak):
+                shutil.rmtree(cur_bak)
+            if os.path.isdir(ready):
+                shutil.move(ready, cur_bak)
+            shutil.copytree(prev, ready)
+            # حدّث ready_prev ليصبح النسخة التي كنا عليها (تبديل)
+            shutil.rmtree(prev)
+            if os.path.isdir(cur_bak):
+                shutil.move(cur_bak, prev)
+            log.append("✓ استُعيدت النسخة السابقة في ready/")
+        except Exception as e:
+            log.append(f"✗ فشل الاستعادة: {e}")
+            return False, log
+        # ثبّت + استعِد رقم النسخة السابق
+        ok, ilog = self.install(game_name, game_path)
+        log.extend(ilog)
+        pv = self.previous_version(game_name)
+        if pv:
+            self.set_installed_version(game_name, pv)
+        return ok, log
+
     def ensure_dirs(self, game_name: str):
         os.makedirs(self.get_ready_dir(game_name), exist_ok=True)
         os.makedirs(self.get_for_cache_dir(game_name), exist_ok=True)

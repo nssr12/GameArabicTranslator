@@ -792,7 +792,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "ضرس مغطى بالعفن\"."
+                              "Value": "ضرس مغطى بالعفن\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -890,7 +890,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تؤثر أسنان الحليب المتعفنة على أي حشرة تتبعك."
+                              "Value": "تؤثر أسنان الحليب المتعفنة على أي حشرة تتبعك"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -1870,7 +1870,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "حجم المخزون."
+                              "Value": "حجم المخزون"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -2752,7 +2752,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "المواد المطلوبة."
+                              "Value": "المواد المطلوبة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3340,7 +3340,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "استرجع المركبة المعطلة."
+                              "Value": "استرجع المركبة المعطلة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -3634,7 +3634,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "هل أنت مستعد للاستعادة؟"
+                              "Value": "هل أنت مستعد للاستعادة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4222,7 +4222,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "دوار."
+                              "Value": "دوار"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4516,7 +4516,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "غاز سام."
+                              "Value": "غاز سام"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -4712,7 +4712,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "المدة."
+                              "Value": "المدة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -6672,7 +6672,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "إطلاق النار على الأصدقاء مُفعَّل."
+                              "Value": "إطلاق النار على الأصدقاء مُفعَّل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7064,7 +7064,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "لا يوجد نظام لإدارة البقاء."
+                              "Value": "لا يوجد نظام لإدارة البقاء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -7652,7 +7652,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "لا يوجد نظام لإدارة البقاء."
+                              "Value": "لا يوجد نظام لإدارة البقاء"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -8338,7 +8338,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تعزيز."
+                              "Value": "تعزيز"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13238,7 +13238,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تأثير كاميرا مشوشة."
+                              "Value": "تأثير كاميرا مشوشة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -13532,7 +13532,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "العودة إلى نقطة التفتيش."
+                              "Value": "العودة إلى نقطة التفتيش"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16080,7 +16080,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "السماح باستعادة القدرة على التحمل."
+                              "Value": "السماح باستعادة القدرة على التحمل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -16668,7 +16668,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "[Stub] ابدأ السباق."
+                              "Value": "[Stub] ابدأ السباق"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17566,7 +17566,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "نص تجريبي لاختبار بعض الأمور"
+                              "Value": "Test String To Test Stuff"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17762,7 +17762,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل: المدخل الجنوبي\"."
+                              "Value": "تلة النمل: المدخل الجنوبي\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -17860,7 +17860,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل: المدخل الشرقي\"."
+                              "Value": "تلة النمل: المدخل الشرقي\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19232,7 +19232,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "خوذة قاتل التنانين."
+                              "Value": "خوذة قاتل التنانين"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -19428,7 +19428,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "درع \"قاتل التنانين\"."
+                              "Value": "درع \"قاتل التنانين\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -20212,7 +20212,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "حراشف سحلية."
+                              "Value": "حراشف سحلية"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21486,7 +21486,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "عنكبوت الذئب O.G.R.R."
+                              "Value": "عنكبوت الذئب O.G.R.R"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -21584,7 +21584,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "يرقة الصلاة Mantis الأصلية\"."
+                              "Value": "يرقة الصلاة Mantis الأصلية\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -22564,7 +22564,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "قرص بصري توربو لموقع مستنقع النمل."
+                              "Value": "قرص بصري توربو لموقع مستنقع النمل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -23054,7 +23054,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل: المدخل الغربي\"."
+                              "Value": "تلة النمل: المدخل الغربي\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -26908,7 +26908,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "عنكبوت الذئب O.G.R.R."
+                              "Value": "عنكبوت الذئب O.G.R.R"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27006,7 +27006,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "يرقة الصلاة Mantis الأصلية\"."
+                              "Value": "يرقة الصلاة Mantis الأصلية\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -27904,7 +27904,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "اصنع برميل \"باجي بافن\"\"."
+                              "Value": "اصنع برميل \"باجي بافن\"\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -28508,7 +28508,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} تم اغتياله على يد قاتل لا يرحم."
+                              "Value": "{PlayerName} تم اغتياله على يد قاتل لا يرحم"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -28704,7 +28704,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} قُتل حرقًا على يد الملك دوزر."
+                              "Value": "{PlayerName} قُتل حرقًا على يد الملك دوزر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -28802,7 +28802,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "{PlayerName} لقد لعقته، بالمعنى الحرفي والمجازي، الملك دوزر."
+                              "Value": "{PlayerName} لقد لعقته، بالمعنى الحرفي والمجازي، الملك دوزر"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -35792,7 +35792,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "قرص بصري توربو لموقع مستنقع النمل."
+                              "Value": "قرص بصري توربو لموقع مستنقع النمل"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -36690,7 +36690,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "مقاومة الحرق."
+                              "Value": "مقاومة الحرق"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -36886,7 +36886,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "علامة اللهب."
+                              "Value": "علامة اللهب"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -38160,7 +38160,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تقليل كبير في الدوار\"."
+                              "Value": "تقليل كبير في الدوار\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -38258,7 +38258,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "غاز سام."
+                              "Value": "غاز سام"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -41982,7 +41982,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "[Stub] منيع."
+                              "Value": "[Stub] منيع"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -42178,7 +42178,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "[Stub] إطلاق سحابة غاز\"."
+                              "Value": "[Stub] إطلاق سحابة غاز\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -43648,7 +43648,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "المزيد من النمل هو الأفضل\"."
+                              "Value": "المزيد من النمل هو الأفضل\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -46702,7 +46702,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل: المدخل الشرقي\"."
+                              "Value": "تلة النمل: المدخل الشرقي\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -46898,7 +46898,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل: المدخل الجنوبي\"."
+                              "Value": "تلة النمل: المدخل الجنوبي\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -47290,7 +47290,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل: المدخل الغربي\"."
+                              "Value": "تلة النمل: المدخل الغربي\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -47992,7 +47992,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "ضرس مغطى بالعفن\"."
+                              "Value": "ضرس مغطى بالعفن\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -48498,7 +48498,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "تلة النمل المنهارة\"."
+                              "Value": "تلة النمل المنهارة\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -52254,7 +52254,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "المزيد من النمل هو الأفضل\"."
+                              "Value": "المزيد من النمل هو الأفضل\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -53054,7 +53054,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "إطلاق سراح وحوش O.G.R.R. في الحديقة."
+                              "Value": "إطلاق سراح وحوش O.G.R.R. في الحديقة"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -53152,7 +53152,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "مزيد من المباني والأثاث والمعدات\"."
+                              "Value": "مزيد من المباني والأثاث والمعدات\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -53250,7 +53250,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "اجمع البيض وقم بزيارة محطة حماية الغابات لفتح وصفات جديدة للمارشميلو."
+                              "Value": "اجمع البيض وقم بزيارة محطة حماية الغابات لفتح وصفات جديدة للمارشميلو"
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",
@@ -53658,7 +53658,7 @@
                                 }
                               ],
                               "PropertyTagExtensions": "NoExtension",
-                              "Value": "قائمة المهام المنجزة\"."
+                              "Value": "قائمة المهام المنجزة\""
                             },
                             {
                               "$type": "UAssetAPI.PropertyTypes.Objects.StrPropertyData, UAssetAPI",

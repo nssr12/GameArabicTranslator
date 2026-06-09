@@ -12,7 +12,12 @@
     "extraction_mode": "default_text",
     "mappings": "",
     "output_base": "",
-    "game_target_dir": "D:/SteamLibrary/steamapps/common/Windrose/R5/Content/Paks"
+    "game_target_dir": "D:/SteamLibrary/steamapps/common/Windrose/R5/Content/Paks",
+    "build_type": "locres_pak",
+    "pak_version": "V3",
+    "mount_point": "../../../R5/Content/",
+    "pack_subdir": "R5/Content",
+    "output_pak_name": "pakchunk0-Windows_P.pak"
   },
   "installed_version": "0.4"
 }

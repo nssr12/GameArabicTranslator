@@ -130,3 +130,5 @@ mods/Manor Lords/for_cache/
 mods/Manor Lords/ready/
 # repak.exe (يُحمَّل محلياً من github.com/trumank/repak)
 tools/repak/
+_internal/
+*_NEW.locres

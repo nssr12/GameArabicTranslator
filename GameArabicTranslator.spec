@@ -11,16 +11,33 @@ block_cipher = None
 # ── Data files to bundle ──────────────────────────────────────────────────────
 
 added_datas = [
-    # IoStore tools — bundled inside _internal (app internals, not user-facing)
-    ('tools/retoc',         'tools/retoc'),
-    ('tools/UAssetGUI.exe', 'tools'),
+    # أدوات البناء — تُرفَق داخل _internal كي يتمكّن المستخدم النهائي من البناء/التحديث
+    # محلياً (لا يعتمد على pak جاهز فقط). يحلّها games/tools_paths.py وقت التشغيل.
+    ('tools/retoc',              'tools/retoc'),
+    ('tools/UAssetGUI.exe',      'tools'),
+    ('tools/UAssetGUI',          'tools/UAssetGUI'),                   # UAssetGUI.exe + Mappings
+    ('tools/repak',              'tools/repak'),                       # حزم pak (V3/V11)
+    ('tools/UE4localizationsTool', 'tools/UE4localizationsTool'),      # .locres import/export
     # Note: config.json, games/configs/, mods/ are copied NEXT TO the exe
     # by build_release.bat so users can edit them directly
 ]
 
+# CA bundle (certifi) — لتحقّق SSL في النسخة المُغلَّفة (تحميل آمن للمنفست والملفات)
+try:
+    import certifi as _certifi
+    added_datas.append((_certifi.where(), 'certifi'))
+except Exception:
+    pass
+
 # ── Hidden imports ────────────────────────────────────────────────────────────
 
 hidden_imports = [
+    'certifi',
+    'games.security',
+    'games.tools_paths',
+    'games.iostore_mod',
+    'games.manorlords_mod',
+    'games.locres_patcher',
     'PySide6.QtCore',
     'PySide6.QtGui',
     'PySide6.QtWidgets',
