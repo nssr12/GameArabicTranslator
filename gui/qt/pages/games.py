@@ -277,13 +277,15 @@ class IoStoreBuildWorker(QThread):
     progress = Signal(int, int, str)        # done, total, file_name
     finished = Signal(bool, str)            # success, log_text
 
-    def __init__(self, game_id: str, cfg: dict, game_path: str, cache, action: str = "install"):
+    def __init__(self, game_id: str, cfg: dict, game_path: str, cache,
+                 action: str = "install", model_filter: str = ""):
         super().__init__()
         self._game_id = game_id
         self._cfg = cfg
         self._game_path = game_path
         self._cache = cache
         self._action = action   # install | update | uninstall
+        self._model_filter = model_filter
 
     def run(self):
         try:
@@ -294,10 +296,12 @@ class IoStoreBuildWorker(QThread):
                 ok, log = mod.uninstall(self._game_id, self._game_path)
             elif self._action == "update":
                 ok, log = mod.update_translations(
-                    self._game_id, self._cfg, self._game_path, self._cache, progress_cb=cb)
+                    self._game_id, self._cfg, self._game_path, self._cache,
+                    progress_cb=cb, model_filter=self._model_filter)
             else:
                 ok, log = mod.install(
-                    self._game_id, self._cfg, self._game_path, self._cache, progress_cb=cb)
+                    self._game_id, self._cfg, self._game_path, self._cache,
+                    progress_cb=cb, model_filter=self._model_filter)
             self.finished.emit(ok, "\n".join(log))
         except Exception as e:
             import traceback
@@ -3600,7 +3604,37 @@ class GamesPage(QWidget):
 
     # ── IoStore mod (zen) handlers ─────────────────────────────────────────
 
-    def _run_iostore_build(self, game_id: str, game_path: str, action: str):
+    def _pick_build_source(self, game_id: str):
+        """حوار اختيار مصدر الترجمة للبناء (أفضل دمج / مودل محدّد / مستورَد).
+        يُرجع (model_filter, ok). model_filter='' = أفضل دمج (get_best)."""
+        game = self._cache_game_key(game_id)
+        try:
+            counts = self._cache.count_by_model(game) if self._cache else {}
+        except Exception:
+            counts = {}
+        # رتّب: المصادر المستورَدة أوّلاً ثم المودلات
+        items = sorted(counts.items(), key=lambda kv: (not kv[0].startswith("import:"), kv[0]))
+        box = QMessageBox(self)
+        box.setWindowTitle("مصدر الترجمة للبناء")
+        box.setIcon(QMessageBox.Question)
+        box.setText("اختر مصدر الترجمة الذي يُبنى منه:")
+        btn_best = box.addButton("🏆 أفضل دمج (موصى به)", QMessageBox.AcceptRole)
+        btn_map = {}
+        for model, cnt in items:
+            disp = ("🧩 " + model.split("import:", 1)[-1]) if model.startswith("import:") else ("🤖 " + model)
+            b = box.addButton(f"{disp} ({cnt:,})", QMessageBox.AcceptRole)
+            btn_map[b] = model
+        box.addButton("إلغاء", QMessageBox.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == btn_best:
+            return "", True
+        if clicked in btn_map:
+            return btn_map[clicked], True
+        return "", False
+
+    def _run_iostore_build(self, game_id: str, game_path: str, action: str,
+                           model_filter: str = ""):
         """يشغّل بناء/تثبيت/تحديث/إلغاء مود IoStore في خيط مع شريط تقدّم."""
         from PySide6.QtWidgets import QProgressDialog
         cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
@@ -3613,7 +3647,7 @@ class GamesPage(QWidget):
         dlg.setAutoReset(False)
         dlg.setValue(0)
 
-        worker = IoStoreBuildWorker(game_id, cfg, game_path, self._cache, action)
+        worker = IoStoreBuildWorker(game_id, cfg, game_path, self._cache, action, model_filter)
 
         def on_prog(i, n, name):
             dlg.setMaximum(max(n, 1))
@@ -3656,7 +3690,13 @@ class GamesPage(QWidget):
         if not ok and mod.has_source(game_id):
             QMessageBox.critical(self, "أدوات مفقودة", msg)
             return
-        self._run_iostore_build(game_id, game_path, "install")
+        # عند وجود مصدر للبناء → اسأل عن مصدر الترجمة (أفضل دمج/مودل/مستورَد)
+        mf = ""
+        if mod.has_source(game_id):
+            mf, go = self._pick_build_source(game_id)
+            if not go:
+                return
+        self._run_iostore_build(game_id, game_path, "install", mf)
 
     def _on_iostore_mod_update(self, game_id: str, game_path: str):
         from games.iostore_mod import IoStoreMod
@@ -3664,7 +3704,10 @@ class GamesPage(QWidget):
         if not ok:
             QMessageBox.critical(self, "أدوات مفقودة", msg)
             return
-        self._run_iostore_build(game_id, game_path, "update")
+        mf, go = self._pick_build_source(game_id)
+        if not go:
+            return
+        self._run_iostore_build(game_id, game_path, "update", mf)
 
     def _on_iostore_mod_uninstall(self, game_id: str, game_path: str):
         reply = QMessageBox.question(

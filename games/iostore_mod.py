@@ -112,11 +112,32 @@ class IoStoreMod:
         return self._pkg.get_status(game_id, game_path)
 
     # ── البناء من الكاش ────────────────────────────────────────────────────
+    @staticmethod
+    def _make_lookup(cache, game_name: str, model_filter: str = ""):
+        """يُرجع دالة بحث عن ترجمة. لو حُدِّد model_filter (مودل/مصدر مستورَد)،
+        نُفضّل ترجمته ثم نقع على get_best للنصوص الناقصة (لضمان التغطية)."""
+        model_map = {}
+        if model_filter:
+            try:
+                model_map = cache.get_by_model(game_name, model_filter) or {}
+            except Exception:
+                model_map = {}
+
+        def _lookup(en: str):
+            if model_filter and en in model_map:
+                v = model_map[en]
+                if v and v != en:
+                    return v
+            return cache.get_best(game_name, en)
+        return _lookup, len(model_map)
+
     def build(self, game_id: str, cfg: dict, cache,
               log: Optional[List[str]] = None,
-              progress_cb: Optional[Callable[[int, int, str], None]] = None
+              progress_cb: Optional[Callable[[int, int, str], None]] = None,
+              model_filter: str = ""
               ) -> Tuple[bool, List[str]]:
-        """يعيد بناء ملفات ready/ من ترجمات الكاش. لا يثبّت."""
+        """يعيد بناء ملفات ready/ من ترجمات الكاش. لا يثبّت.
+        model_filter: مودل/مصدر مستورَد محدّد للبناء منه (فارغ = أفضل دمج get_best)."""
         log = log if log is not None else []
 
         def _log(m: str):
@@ -139,9 +160,14 @@ class IoStoreMod:
         if self._pkg.snapshot_ready(game_id):
             _log("📸 حُفظت لقطة النسخة السابقة (للتراجع).")
 
+        lookup, mf_count = self._make_lookup(cache, game_name, model_filter)
+        if model_filter:
+            _log(f"🎯 البناء من المصدر: {model_filter} ({mf_count} نص) + get_best للناقص.")
+
         # نوع البناء: zen (uasset → retoc) أو locres_pak (locres → repak)
         if self._detect_build_type(wiz, legacy) == "locres_pak":
-            return self._build_locres_pak(game_id, cfg, cache, legacy, wiz, log, progress_cb)
+            return self._build_locres_pak(game_id, cfg, cache, legacy, wiz, log,
+                                          progress_cb, lookup)
 
         tr = IoStoreTranslator()
         tr.set_callbacks(log=_log)
@@ -174,7 +200,7 @@ class IoStoreMod:
                 continue
             translations = {}
             for en in texts:
-                ar = cache.get_best(game_name, en)
+                ar = lookup(en)
                 if ar and ar != en:
                     translations[en] = ar
             if not translations:
@@ -262,9 +288,12 @@ class IoStoreMod:
     # ملاحظة: الـ reader الثنائي لا يقرأ صيغة locres الخاصة بـ Windrose → نستخدم مسار
     # النصّ (.locres.txt) + UE4LocalizationsTool import (نفس آلية معالج locres المُثبت).
     def _build_locres_pak(self, game_id, cfg, cache, legacy, wiz,
-                          log, progress_cb) -> Tuple[bool, List[str]]:
+                          log, progress_cb, lookup=None) -> Tuple[bool, List[str]]:
         import subprocess
         from games.locres_patcher import LocresTxtFile
+        if lookup is None:
+            _gn = cfg.get("name", game_id) or game_id
+            lookup = lambda en: cache.get_best(_gn, en)
 
         def _log(m: str):
             log.append(m)
@@ -319,7 +348,7 @@ class IoStoreMod:
                 continue
             translations = {}
             for en in english:
-                ar = cache.get_best(game_name, en)
+                ar = lookup(en)
                 if ar and ar != en:
                     translations[en] = ar
             if not translations:
@@ -399,13 +428,15 @@ class IoStoreMod:
     # ── تثبيت / تحديث / إلغاء ───────────────────────────────────────────────
     def install(self, game_id: str, cfg: dict, game_path: str, cache,
                 log: Optional[List[str]] = None,
-                progress_cb: Optional[Callable[[int, int, str], None]] = None
+                progress_cb: Optional[Callable[[int, int, str], None]] = None,
+                model_filter: str = ""
                 ) -> Tuple[bool, List[str]]:
         """يبني من الكاش ثم ينسخ ready/ → مجلد اللعبة.
         إن لم يوجد مصدر for_cache لكن توجد حزمة ready جاهزة → يثبّتها كما هي (بلا بناء)."""
         log = log if log is not None else []
         if self.has_source(game_id):
-            ok, log = self.build(game_id, cfg, cache, log=log, progress_cb=progress_cb)
+            ok, log = self.build(game_id, cfg, cache, log=log, progress_cb=progress_cb,
+                                 model_filter=model_filter)
             if not ok:
                 return False, log
         elif self.has_ready(game_id):
@@ -424,10 +455,12 @@ class IoStoreMod:
 
     def update_translations(self, game_id: str, cfg: dict, game_path: str, cache,
                             log: Optional[List[str]] = None,
-                            progress_cb: Optional[Callable[[int, int, str], None]] = None
+                            progress_cb: Optional[Callable[[int, int, str], None]] = None,
+                            model_filter: str = ""
                             ) -> Tuple[bool, List[str]]:
         """نفس التثبيت — يعيد البناء من الكاش (بعد تعديله) ثم يُثبّت."""
-        return self.install(game_id, cfg, game_path, cache, log=log, progress_cb=progress_cb)
+        return self.install(game_id, cfg, game_path, cache, log=log,
+                            progress_cb=progress_cb, model_filter=model_filter)
 
     def uninstall(self, game_id: str, game_path: str) -> Tuple[bool, List[str]]:
         ok, log = self._pkg.uninstall(game_id, game_path)

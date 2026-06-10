@@ -2602,6 +2602,14 @@ class AdminPanel(QDialog):
             if not version:
                 QMessageBox.warning(dlg, "تنبيه", "أدخل رقم الإصدار")
                 return
+            # النشر يتطلّب المصدر (python + git + gh + tools/publish_app.py)
+            script = os.path.join(_PROJECT_ROOT, "tools", "publish_app.py")
+            if getattr(sys, "frozen", False) or not os.path.isfile(script):
+                QMessageBox.warning(dlg, "غير متاح من النسخة المُغلّفة",
+                    "نشر إصدار جديد يتطلّب تشغيل التطبيق **من المصدر** (python + git + gh)\n"
+                    "— لا يعمل من النسخة المُغلّفة (.exe).\n\n"
+                    "شغّل: «start - main_qt.py.bat» ثم أعد المحاولة من لوحة الأدمن.")
+                return
             dlg.accept()
             log_dlg = _LogDialog(f"🚀  إصدار التطبيق v{version} — السجل", parent=self)
             worker  = _AppReleaseWorker(version)
