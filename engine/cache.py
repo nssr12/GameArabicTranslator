@@ -857,6 +857,60 @@ class TranslationCache:
         ).fetchall()
         return {r[0]: r[1] for r in rows if r[0]}
 
+    # ── تصدير/استيراد الكاش (مشاركة بين المستخدمين) ──────────────────────────
+    IMPORT_PREFIX = "import:"
+
+    def export_rows(self, game_name: str) -> list[dict]:
+        """يُصدّر كل صفوف الكاش للعبة (كل المودلات). لمشاركة/نسخ احتياطي."""
+        conn = self._get_conn(game_name)
+        rows = conn.execute(
+            "SELECT original_text, translated_text, model_used, mode_used, is_preferred "
+            "FROM translations"
+        ).fetchall()
+        return [
+            {"o": r[0], "t": r[1], "m": r[2], "mode": r[3] or "", "pref": int(r[4] or 0)}
+            for r in rows
+        ]
+
+    def import_rows(self, game_name: str, rows: list[dict],
+                    mode: str = "merge", label: str = "") -> dict:
+        """يستورد صفوفاً.
+        mode="merge"    → يدمج تحت مودلاتها الأصلية (لا يدهس ترجمات أخرى).
+        mode="separate" → يخزّنها كمصدر مستقل تحت model='import:<label>'.
+        يُرجع إحصاءً {added, skipped}."""
+        added = skipped = 0
+        sep_model = f"{self.IMPORT_PREFIX}{label}".strip() if mode == "separate" else ""
+        for r in rows:
+            o = r.get("o") or r.get("original") or r.get("original_text")
+            t = r.get("t") or r.get("translated") or r.get("translated_text")
+            if not o or not t or t == o:
+                skipped += 1
+                continue
+            if mode == "separate":
+                m = sep_model
+                mu = "imported"
+            else:
+                m = (r.get("m") or r.get("model_used") or "imported")
+                mu = (r.get("mode") or r.get("mode_used") or "imported")
+            self.put(game_name, o, t, model=m, mode_used=mu)
+            if mode == "merge" and r.get("pref"):
+                try:
+                    self.set_preferred(game_name, o, m, True)
+                except Exception:
+                    pass
+            added += 1
+        return {"added": added, "skipped": skipped}
+
+    def list_import_sources(self, game_name: str) -> dict:
+        """يُرجع {model: count} لمصادر الاستيراد المستقلّة (import:*)."""
+        conn = self._get_conn(game_name)
+        rows = conn.execute(
+            "SELECT model_used, COUNT(*) FROM translations "
+            "WHERE model_used LIKE ? GROUP BY model_used",
+            (self.IMPORT_PREFIX + "%",)
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def close(self):
         if hasattr(self._local, "conns"):
             for conn in self._local.conns.values():

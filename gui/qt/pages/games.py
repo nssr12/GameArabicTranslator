@@ -484,6 +484,9 @@ class GameDetailPanel(QFrame):
     iostore_mod_update_requested    = Signal(str, str)      # game_id, game_path
     iostore_mod_rollback_requested  = Signal(str, str)      # game_id, game_path
     iostore_forcache_requested      = Signal(str)           # game_id (تحميل مصدر البناء)
+    cache_export_requested          = Signal(str)           # game_id
+    cache_import_requested          = Signal(str)           # game_id
+    cache_delete_import_requested   = Signal(str, str)      # game_id, model
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -784,7 +787,83 @@ class GameDetailPanel(QFrame):
         if eng_key == "unity" or "bepinex_mod" in cfg:
             self._render_bepinex_card(lay, cfg)
 
+        # ── بطاقة كاش الترجمة (تصدير/استيراد — مشاركة بين المستخدمين) ────────────
+        if "cache_section" not in hidden:
+            self._render_cache_share_card(lay, cfg)
+
         lay.addStretch()
+
+    def _render_cache_share_card(self, lay, cfg: dict):
+        """بطاقة كاش الترجمة: تصدير/استيراد + مصادر مستوردة مستقلّة."""
+        c = theme.c
+        cache = getattr(self, "_cache", None)
+        if not cache:
+            return
+        game = cfg.get("name", self._game_id) or self._game_id
+        try:
+            counts = cache.count_by_model(game) or {}
+            imports = cache.list_import_sources(game) or {}
+        except Exception:
+            return
+        total = sum(counts.values())
+        if total == 0 and not imports:
+            return  # لا كاش لهذه اللعبة
+
+        title = QLabel("💾  كاش الترجمة (تصدير / استيراد / مشاركة)")
+        title.setStyleSheet(
+            f"color:{c['muted']};font-size:11px;font-weight:bold;background:transparent;border:none;")
+        lay.addWidget(title)
+
+        card = self._card()
+        v = QVBoxLayout(card); v.setContentsMargins(16, 14, 16, 14); v.setSpacing(10)
+
+        own = total - sum(imports.values())
+        info = QLabel(f"ترجماتك: {own:,}" + (f"  |  مستورَدة: {sum(imports.values()):,}" if imports else ""))
+        info.setStyleSheet(f"color:{c['secondary']};font-size:12px;background:transparent;border:none;")
+        v.addWidget(info)
+
+        def mkbtn(label, color_key, slot, enabled=True):
+            b = QPushButton(label); b.setFixedHeight(34)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            clr = c.get(color_key, c["accent"])
+            b.setStyleSheet(
+                f"QPushButton{{background:rgba(0,0,0,38);color:{clr};border:1px solid {clr};"
+                f"border-radius:8px;font-weight:bold;padding:0 14px;text-align:left;}}"
+                f"QPushButton:hover{{background:{clr};color:#fff;}}")
+            b.setEnabled(enabled); b.clicked.connect(slot)
+            return b
+
+        row = QHBoxLayout(); row.setSpacing(8)
+        row.addWidget(mkbtn("📤  تصدير الكاش", "teal",
+            lambda: self.cache_export_requested.emit(self._game_id), total > 0))
+        row.addWidget(mkbtn("📥  استيراد كاش", "blue",
+            lambda: self.cache_import_requested.emit(self._game_id)))
+        v.addLayout(row)
+
+        # مصادر الاستيراد المستقلّة (مستورد 1، مستورد 2…) — مع حذف
+        for model, cnt in sorted(imports.items()):
+            disp = model.split("import:", 1)[-1] or model
+            r2 = QHBoxLayout()
+            lbl = QLabel(f"🧩  {disp}  ({cnt:,})")
+            lbl.setStyleSheet(f"color:{c['muted']};font-size:11px;background:transparent;border:none;")
+            r2.addWidget(lbl, 1)
+            del_b = QPushButton("🗑")
+            del_b.setFixedWidth(34); del_b.setCursor(QCursor(Qt.PointingHandCursor))
+            del_b.setStyleSheet(
+                f"QPushButton{{background:transparent;color:#e06c6c;border:1px solid #e06c6c;border-radius:6px;}}"
+                "QPushButton:hover{background:#e06c6c;color:#fff;}")
+            del_b.clicked.connect(
+                lambda _ck=False, m=model: self.cache_delete_import_requested.emit(self._game_id, m))
+            r2.addWidget(del_b)
+            v.addLayout(r2)
+
+        hint = QLabel("ⓘ شارك ملف .gatcache مع غيرك (واتساب/درايف). الاستيراد لا يدهس ترجماتك "
+                      "(دمج آمن) أو يحفظها كمصدر مستقل. بعدها «إعادة بناء» تطبّقها.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{c['muted']};font-size:9px;background:transparent;border:none;")
+        v.addWidget(hint)
+
+        lay.addWidget(card)
 
     # ====================== FOUNDATION (HURRICANE) CARD ======================
     def _render_foundation_card(self, lay, cfg: dict):
@@ -2859,6 +2938,9 @@ class GamesPage(QWidget):
         self._detail.iostore_mod_update_requested.connect(self._on_iostore_mod_update)
         self._detail.iostore_mod_rollback_requested.connect(self._on_iostore_mod_rollback)
         self._detail.iostore_forcache_requested.connect(self._on_iostore_forcache)
+        self._detail.cache_export_requested.connect(self._on_cache_export)
+        self._detail.cache_import_requested.connect(self._on_cache_import)
+        self._detail.cache_delete_import_requested.connect(self._on_cache_delete_import)
         self._detail.model_priority_requested.connect(self._on_model_priority)
         self._detail.ue4ss_install_requested.connect(self._on_ue4ss_install)
         self._detail.ue4ss_update_requested.connect(self._on_ue4ss_update)
@@ -3592,6 +3674,113 @@ class GamesPage(QWidget):
         if reply != QMessageBox.Yes:
             return
         self._run_iostore_build(game_id, game_path, "uninstall")
+
+    # ── Cache export / import (مشاركة الكاش) ───────────────────────────────
+    def _cache_game_key(self, game_id: str) -> str:
+        cfg = (self._game_manager.get_game(game_id) if self._game_manager else {}) or {}
+        return cfg.get("name", game_id) or game_id
+
+    def _on_cache_export(self, game_id: str):
+        import json as _json
+        from PySide6.QtWidgets import QFileDialog
+        if not self._cache:
+            return
+        game = self._cache_game_key(game_id)
+        try:
+            rows = self._cache.export_rows(game)
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", f"تعذّر قراءة الكاش: {e}")
+            return
+        if not rows:
+            QMessageBox.information(self, "تصدير", "لا توجد ترجمات لتصديرها.")
+            return
+        default = f"{game}.gatcache"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "تصدير كاش الترجمة", default, "كاش الترجمة (*.gatcache);;كل الملفات (*.*)")
+        if not path:
+            return
+        data = {"gatcache": 1, "game": game, "count": len(rows), "rows": rows}
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(data, f, ensure_ascii=False)
+            self.status_message.emit(f"📤  صُدّر {len(rows):,} ترجمة → {os.path.basename(path)}")
+            QMessageBox.information(self, "✅  تم التصدير",
+                f"صُدّرت {len(rows):,} ترجمة إلى:\n{path}\n\nشاركه مع غيرك ليستورده.")
+        except Exception as e:
+            QMessageBox.warning(self, "فشل التصدير", str(e))
+
+    def _on_cache_import(self, game_id: str):
+        import json as _json
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        if not self._cache:
+            return
+        game = self._cache_game_key(game_id)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "استيراد كاش الترجمة", "", "كاش الترجمة (*.gatcache *.json);;كل الملفات (*.*)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = _json.load(f)
+            rows = data.get("rows", data if isinstance(data, list) else [])
+            src_game = data.get("game", "") if isinstance(data, dict) else ""
+        except Exception as e:
+            QMessageBox.warning(self, "ملف غير صالح", f"تعذّر قراءة الملف: {e}")
+            return
+        if not rows:
+            QMessageBox.information(self, "استيراد", "الملف لا يحوي ترجمات.")
+            return
+        if src_game and src_game != game:
+            if QMessageBox.question(self, "لعبة مختلفة",
+                    f"الملف للعبة «{src_game}» وأنت تستورد إلى «{game}». متابعة؟",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+        # اختيار وضع الاستيراد
+        box = QMessageBox(self)
+        box.setWindowTitle("طريقة الاستيراد")
+        box.setText(f"الملف يحوي {len(rows):,} ترجمة.\n\nكيف تستوردها؟")
+        b_merge = box.addButton("🔗 دمج آمن (لا يدهس ترجماتك)", QMessageBox.AcceptRole)
+        b_sep   = box.addButton("🧩 احفظها كمصدر مستقل", QMessageBox.AcceptRole)
+        box.addButton("إلغاء", QMessageBox.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == b_merge:
+            mode, label = "merge", ""
+        elif clicked == b_sep:
+            n = len(self._cache.list_import_sources(game)) + 1
+            label, ok = QInputDialog.getText(self, "اسم المصدر", "اسم مصدر الاستيراد:",
+                                             text=f"مستورد {n}")
+            if not ok or not label.strip():
+                return
+            mode, label = "separate", label.strip()
+        else:
+            return
+        try:
+            stats = self._cache.import_rows(game, rows, mode=mode, label=label)
+        except Exception as e:
+            QMessageBox.warning(self, "فشل الاستيراد", str(e))
+            return
+        self.status_message.emit(f"📥  استُورد {stats['added']:,} ترجمة لـ {game}")
+        QMessageBox.information(self, "✅  تم الاستيراد",
+            f"أُضيف/حُدِّث: {stats['added']:,}\nتُخطّي: {stats['skipped']:,}\n\n"
+            "استخدم «إعادة بناء من الكاش» لتطبيقها في اللعبة.")
+        self.refresh()
+
+    def _on_cache_delete_import(self, game_id: str, model: str):
+        if not self._cache:
+            return
+        disp = model.split("import:", 1)[-1] or model
+        if QMessageBox.question(self, "حذف مصدر مستورَد",
+                f"حذف مصدر الاستيراد «{disp}» بالكامل؟ (لا يؤثّر على ترجماتك)",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        game = self._cache_game_key(game_id)
+        try:
+            self._cache.delete_by_model(game, model)
+            self.status_message.emit(f"🗑  حُذف المصدر المستورَد: {disp}")
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", str(e))
+        self.refresh()
 
     def _on_iostore_forcache(self, game_id: str):
         """يحمّل مصدر البناء (for_cache) ليُمكّن المستخدم من البناء من كاشه المحلي."""
