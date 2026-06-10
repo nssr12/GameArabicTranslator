@@ -13,11 +13,15 @@ block_cipher = None
 added_datas = [
     # أدوات البناء — تُرفَق داخل _internal كي يتمكّن المستخدم النهائي من البناء/التحديث
     # محلياً (لا يعتمد على pak جاهز فقط). يحلّها games/tools_paths.py وقت التشغيل.
-    ('tools/retoc',              'tools/retoc'),
-    ('tools/UAssetGUI.exe',      'tools'),
-    ('tools/UAssetGUI',          'tools/UAssetGUI'),                   # UAssetGUI.exe + Mappings
-    ('tools/repak',              'tools/repak'),                       # حزم pak (V3/V11)
-    ('tools/UE4localizationsTool', 'tools/UE4localizationsTool'),      # .locres import/export
+    # ملاحظة: نحزم exe الأدوات فقط (ذاتية الاحتواء) لا مجلّداتها كاملةً — مجلّد
+    # UAssetGUI كان يحوي 243MB مصدراً برمجياً + ملفات اختبار بمسارات > 260 حرف
+    # تكسر فكّ أرشيف التحديث (MAX_PATH). exe وحده يكفي (مُختبَر: tojson يعمل منفرداً).
+    ('tools/retoc/retoc.exe',                  'tools/retoc'),
+    ('tools/retoc/oo2core_9_win64.dll',        'tools/retoc'),   # Oodle — يحتاجه retoc
+    ('tools/UAssetGUI/UAssetGUI.exe',          'tools/UAssetGUI'),  # ذاتي الاحتواء
+    ('tools/repak/repak.exe',                  'tools/repak'),
+    ('tools/UE4localizationsTool/UE4localizationsTool.exe', 'tools/UE4localizationsTool'),
+    ('tools/UE4localizationsTool/Csv.dll',     'tools/UE4localizationsTool'),  # يحتاجه الأداة
     ('data/logo.png',            'data'),                              # شعار الشريط الجانبي
     ('data/icon.ico',            'data'),
     # Note: config.json, games/configs/, mods/ are copied NEXT TO the exe

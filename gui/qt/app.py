@@ -135,8 +135,14 @@ class UpdateDownloader(QThread):
                 self.done.emit(False, "فشل التحقّق الأمني (sha256 لا يطابق) — أُلغي التحديث.")
                 return
 
-            # Extract ZIP
-            extract_dir = os.path.join(tmp_dir, "extracted")
+            # Extract ZIP — مسار قصير لتجنّب حدّ MAX_PATH (260) مع الملفات العميقة
+            extract_dir = os.path.join(tempfile.gettempdir(), "GATx")
+            try:
+                if os.path.isdir(extract_dir):
+                    import shutil as _sh
+                    _sh.rmtree(extract_dir, ignore_errors=True)
+            except Exception:
+                pass
             with zipfile.ZipFile(zip_path, "r") as z:
                 z.extractall(extract_dir)
 
