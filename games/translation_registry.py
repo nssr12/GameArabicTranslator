@@ -10,7 +10,7 @@ from typing import Optional, Dict
 MANIFEST_URL = (
     "https://raw.githubusercontent.com/nssr12/GameArabicTranslator/main/manifest.json"
 )
-APP_VERSION = "2.2"
+APP_VERSION = "2.3"
 
 
 def _version_gt(a: str, b: str) -> bool:
