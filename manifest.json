@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
   "app": {
-    "version": "2.4",
-    "download_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/v2.4/GameArabicTranslator_v2.4.zip",
+    "version": "2.5",
+    "download_url": "https://github.com/nssr12/GameArabicTranslator/releases/download/v2.5/GameArabicTranslator_v2.5.zip",
     "release_notes": "الإصدار الأول - واجهة PySide6 + دعم IoStore + Grounded2",
-    "sha256": "e6de0e0160f9ac67879f50f83ab4a457e20cada737d0104baa37b77b2c772f90"
+    "sha256": "cfcabe7052ade5ee06d157a1b927c4cd426f046cd39c2e183dfce2e669f64bec"
   },
   "translations": {
     "Grounded2": {
