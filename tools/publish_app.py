@@ -65,12 +65,14 @@ def main():
         for db in _glob.glob(os.path.join(cache_src, "*.db")):
             shutil.copy2(db, cache_dst)
             print(f"  Copied cache: {os.path.basename(db)}")
-    # Copy icon
-    icon_src = os.path.join(ROOT, "data", "icon.ico")
-    if os.path.isfile(icon_src):
-        icon_dst = os.path.join(dist_dir, "data")
-        os.makedirs(icon_dst, exist_ok=True)
-        shutil.copy2(icon_src, icon_dst)
+    # Copy icon + logo (شعار الشريط الجانبي — يظهر في واجهة المستخدم)
+    data_dst = os.path.join(dist_dir, "data")
+    os.makedirs(data_dst, exist_ok=True)
+    for asset in ("icon.ico", "logo.png", "logo.jpg", "logo.jpeg"):
+        asrc = os.path.join(ROOT, "data", asset)
+        if os.path.isfile(asrc):
+            shutil.copy2(asrc, data_dst)
+            print(f"  Copied asset: {asset}")
     # Copy game cover images
     img_src = os.path.join(ROOT, "data", "game_images")
     if os.path.isdir(img_src):

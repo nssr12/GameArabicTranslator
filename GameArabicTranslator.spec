@@ -18,6 +18,8 @@ added_datas = [
     ('tools/UAssetGUI',          'tools/UAssetGUI'),                   # UAssetGUI.exe + Mappings
     ('tools/repak',              'tools/repak'),                       # حزم pak (V3/V11)
     ('tools/UE4localizationsTool', 'tools/UE4localizationsTool'),      # .locres import/export
+    ('data/logo.png',            'data'),                              # شعار الشريط الجانبي
+    ('data/icon.ico',            'data'),
     # Note: config.json, games/configs/, mods/ are copied NEXT TO the exe
     # by build_release.bat so users can edit them directly
 ]

@@ -530,29 +530,39 @@ class MainWindow(QMainWindow):
         exe_path    = sys.executable
         src         = path_or_error  # native Windows path from tempfile/os.path
 
-        # Strategy: rename the running exe (Windows allows this on a live process),
-        # then copy the new exe in its place, then start it.
-        # robocopy handles all other files first with /XF to skip the exe.
+        # استراتيجية آمنة:
+        #  1) robocopy لكل شيء عدا exe — مع **استثناء بيانات المستخدم**
+        #     (config.json + data\cache + logs) كي لا يدهسها التحديث.
+        #  2) تبديل exe بأمان: نُعيد القديم لو فشل نسخ الجديد (لا يبقى التطبيق بلا exe).
+        cache_dir = os.path.join(src, "data", "cache")
         bat = "\r\n".join([
             "@echo off",
-            # Give the process ~3 s to fully exit (os._exit fires after 300 ms)
+            "chcp 65001 >nul",
+            # امنح العملية ~3 ث للخروج الكامل (os._exit بعد 300ms)
             "timeout /t 3 /nobreak >nul",
-            # Copy everything except the exe (exe is still locked until process dies)
+            # انسخ كل شيء عدا: exe (مقفول) + config.json + data\cache (بيانات المستخدم)
             f'robocopy "{src}" "{install_dir}" /E /IS /IT /NFL /NDL /NJH /NJS'
-            f' /XF {exe_name} /W:0 /R:1 >nul 2>&1',
-            # Rename the running exe — Windows permits this even while the file is mapped
+            f' /XF "{exe_name}" "config.json" /XD "{cache_dir}" "{os.path.join(install_dir, "logs")}"'
+            f' /W:0 /R:1 >nul 2>&1',
+            # تبديل آمن للـ exe
+            f'if exist "{install_dir}\\{exe_name}.old" del /f /q "{install_dir}\\{exe_name}.old"',
             f'ren "{install_dir}\\{exe_name}" "{exe_name}.old"',
-            # Copy the new exe with the original name
             f'copy /y "{src}\\{exe_name}" "{install_dir}\\{exe_name}" >nul',
-            # Delete the old renamed exe (it's unlocked now that the process died)
-            f'del /f /q "{install_dir}\\{exe_name}.old" 2>nul',
-            # Launch the updated exe
+            # لو نُسخ الجديد بنجاح → احذف القديم؛ وإلا أعِد القديم (حماية من التلف)
+            f'if exist "{install_dir}\\{exe_name}" (',
+            f'  del /f /q "{install_dir}\\{exe_name}.old" 2>nul',
+            f') else (',
+            f'  ren "{install_dir}\\{exe_name}.old" "{exe_name}"',
+            f')',
+            # نظّف مجلّد التحديث المؤقّت
+            f'rmdir /s /q "{os.path.dirname(src)}" 2>nul',
+            # شغّل النسخة المحدَّثة
             f'start "" "{exe_path}"',
             'del "%~f0"',
         ])
 
         bat_path = os.path.join(tempfile.gettempdir(), "gat_update.bat")
-        with open(bat_path, "w", encoding="cp1252") as f:
+        with open(bat_path, "w", encoding="utf-8") as f:
             f.write(bat)
 
         # CREATE_NO_WINDOW suppresses the console entirely (unlike DETACHED_PROCESS).

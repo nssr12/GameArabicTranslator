@@ -23,11 +23,24 @@ else:
     )
 
 
+def _data_bases() -> list:
+    """مجلّدات data المحتملة (نسخة مُغلّفة: بجانب exe + _internal + _MEIPASS)."""
+    bases = [_DATA_DIR]
+    if getattr(sys, 'frozen', False):
+        exedir = os.path.dirname(sys.executable)
+        bases.append(os.path.join(exedir, "_internal", "data"))
+        mei = getattr(sys, "_MEIPASS", "")
+        if mei:
+            bases.append(os.path.join(mei, "data"))
+    return bases
+
+
 def _find_logo() -> str:
-    for name in ("logo.png", "logo.jpg", "logo.jpeg"):
-        p = os.path.join(_DATA_DIR, name)
-        if os.path.isfile(p):
-            return p
+    for base in _data_bases():
+        for name in ("logo.png", "logo.jpg", "logo.jpeg"):
+            p = os.path.join(base, name)
+            if os.path.isfile(p):
+                return p
     return ""
 
 
