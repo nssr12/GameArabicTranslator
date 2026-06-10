@@ -121,6 +121,51 @@ class DownloadWorker(QThread):
         self.finished.emit(True, f"تم تحميل {len(files)} ملفات بنجاح")
 
 
+class ForCacheWorker(QThread):
+    """يحمّل أرشيف for_cache (مصدر البناء) ويفكّه في mods/<game>/for_cache/."""
+    progress = Signal(int, int)        # done_bytes, total_bytes
+    finished = Signal(bool, str)       # success, message
+
+    def __init__(self, game_id: str, url: str, fc_dir: str, sha256: str = ""):
+        super().__init__()
+        self._game_id = game_id
+        self._url     = url
+        self._fc_dir  = fc_dir
+        self._sha256  = sha256 or ""
+
+    def run(self):
+        import requests, zipfile, tempfile, os as _os
+        from games.security import requests_verify, verify_sha256
+        tmp = tempfile.mktemp(suffix=".zip")
+        try:
+            r = requests.get(self._url, stream=True, timeout=300, verify=requests_verify())
+            r.raise_for_status()
+            total = int(r.headers.get("content-length", 0))
+            done = 0
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_content(65536):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if total:
+                        self.progress.emit(done, total)
+            if not verify_sha256(tmp, self._sha256):
+                _os.remove(tmp)
+                self.finished.emit(False, "فشل التحقّق الأمني (sha256) لمصدر البناء")
+                return
+            _os.makedirs(self._fc_dir, exist_ok=True)
+            with zipfile.ZipFile(tmp, "r") as z:
+                z.extractall(self._fc_dir)
+            _os.remove(tmp)
+            self.finished.emit(True, "تم تحميل مصدر البناء (for_cache) بنجاح")
+        except Exception as e:
+            if _os.path.exists(tmp):
+                try:
+                    _os.remove(tmp)
+                except Exception:
+                    pass
+            self.finished.emit(False, f"فشل تحميل مصدر البناء: {e}")
+
+
 # ── Engine colors (same as home page) ────────────────────────────────────────
 
 _ENGINE_COLOR = {
@@ -438,6 +483,7 @@ class GameDetailPanel(QFrame):
     iostore_mod_uninstall_requested = Signal(str, str)      # game_id, game_path
     iostore_mod_update_requested    = Signal(str, str)      # game_id, game_path
     iostore_mod_rollback_requested  = Signal(str, str)      # game_id, game_path
+    iostore_forcache_requested      = Signal(str)           # game_id (تحميل مصدر البناء)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1017,7 +1063,20 @@ class GameDetailPanel(QFrame):
             v.addWidget(mkbtn("🗑️  إلغاء التعريب (حذف المود)", "accent",
                 lambda: self.iostore_mod_uninstall_requested.emit(self._game_id, gp)))
 
-        # ④ تراجع للنسخة السابقة (إن وُجدت لقطة)
+        # ④ تمكين البناء المحلي: تحميل مصدر البناء (for_cache) لمن لا مصدر لديه
+        #    بعده يصبح زر «إعادة بناء/تثبيت من الكاش» متاحاً (الأدوات مُضمَّنة).
+        if not has_src and reg_info.get("for_cache_url"):
+            fc_mb = reg_info.get("for_cache_size_mb", 0)
+            fc_txt = f"  (~{fc_mb}MB)" if fc_mb else ""
+            v.addWidget(mkbtn(f"🧩  تحميل مصدر البناء للتعديل المحلي{fc_txt}", "blue",
+                lambda: self.iostore_forcache_requested.emit(self._game_id)))
+            hint = QLabel("ⓘ لإعادة البناء من كاشك المحلي (بعد تعديل الترجمات في صفحة الكاش) "
+                          "حمّل مصدر البناء مرّة واحدة — ثم يظهر زر «إعادة بناء».")
+            hint.setWordWrap(True)
+            hint.setStyleSheet(f"color:{c['muted']};font-size:10px;background:transparent;border:none;")
+            v.addWidget(hint)
+
+        # ⑤ تراجع للنسخة السابقة (إن وُجدت لقطة)
         try:
             from games.translation_package import TranslationPackage as _TP
             _tp = _TP()
@@ -2799,6 +2858,7 @@ class GamesPage(QWidget):
         self._detail.iostore_mod_uninstall_requested.connect(self._on_iostore_mod_uninstall)
         self._detail.iostore_mod_update_requested.connect(self._on_iostore_mod_update)
         self._detail.iostore_mod_rollback_requested.connect(self._on_iostore_mod_rollback)
+        self._detail.iostore_forcache_requested.connect(self._on_iostore_forcache)
         self._detail.model_priority_requested.connect(self._on_model_priority)
         self._detail.ue4ss_install_requested.connect(self._on_ue4ss_install)
         self._detail.ue4ss_update_requested.connect(self._on_ue4ss_update)
@@ -3532,6 +3592,49 @@ class GamesPage(QWidget):
         if reply != QMessageBox.Yes:
             return
         self._run_iostore_build(game_id, game_path, "uninstall")
+
+    def _on_iostore_forcache(self, game_id: str):
+        """يحمّل مصدر البناء (for_cache) ليُمكّن المستخدم من البناء من كاشه المحلي."""
+        from games.translation_package import TranslationPackage
+        registry_info = getattr(self._detail, '_registry_info', {})
+        info = registry_info.get(game_id) or {}
+        url = info.get("for_cache_url", "")
+        if not url:
+            QMessageBox.warning(self, "تحميل", "مصدر البناء غير متاح لهذه اللعبة.")
+            return
+        if getattr(self, "_fc_worker", None) and self._fc_worker.isRunning():
+            return
+        pkg = TranslationPackage()
+        fc_dir = pkg.get_for_cache_dir(game_id)
+        sha = info.get("for_cache_sha256", "")
+        from PySide6.QtWidgets import QProgressDialog
+        dlg = QProgressDialog("تحميل مصدر البناء…", "إلغاء", 0, 100, self)
+        dlg.setWindowTitle(f"{game_id} — مصدر البناء")
+        dlg.setMinimumWidth(420); dlg.setAutoClose(False); dlg.setValue(0)
+
+        self._fc_worker = ForCacheWorker(game_id, url, fc_dir, sha)
+
+        def _prog(done, total):
+            if total:
+                dlg.setValue(int(done * 100 / total))
+                dlg.setLabelText(f"تحميل مصدر البناء… {done//1048576}/{total//1048576} MB")
+
+        def _done(ok, msg):
+            dlg.close()
+            if ok:
+                self.status_message.emit(f"✅  {msg} — الآن يمكنك «إعادة البناء من الكاش»")
+                QMessageBox.information(self, "✅  جاهز للبناء",
+                    f"{msg}\n\nعدّل الترجمات في صفحة الكاش ثم استخدم زر «تثبيت/إعادة بناء من الكاش».")
+            else:
+                QMessageBox.warning(self, "فشل", msg)
+            self.refresh()
+            self._fc_worker.deleteLater()
+
+        self._fc_worker.progress.connect(_prog)
+        self._fc_worker.finished.connect(_done)
+        dlg.canceled.connect(self._fc_worker.terminate)
+        self._fc_worker.start()
+        dlg.show()
 
     def _on_iostore_mod_rollback(self, game_id: str, game_path: str):
         from games.translation_package import TranslationPackage
