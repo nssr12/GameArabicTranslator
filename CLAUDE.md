@@ -2,11 +2,11 @@
 
 > ملف سياق المشروع لـ Claude / AI assistants.
 > للمستخدمين النهائيين، انظر [README.md](README.md).
-> آخر تحديث: 2026-06-08 (v2.4 — تعريب Manor Lords مود DataTable .pak + حماية UE RichText + عكس RTL انتقائي + تطوير لوحة الأدمن)
+> آخر تحديث: 2026-06-10 (v2.5 — منظومة توزيع/تحديث متينة + مشاركة الكاش + بناء المستخدم + كشف مسار تلقائي + أمان sha256)
 
 ## TL;DR
 
-Game Arabic Translator v2.4 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
+Game Arabic Translator v2.5 — تطبيق Python/**PySide6** لترجمة ألعاب Unity/UE5 إلى العربية. يستخدم:
 
 > ⚠ **ملاحظة framework**: الكود يستورد فعلياً من `PySide6` (لا PyQt6). استخدم `Signal`/`Slot`/`@Property` (لا `pyqtSignal`/`pyqtSlot`/`pyqtProperty`) في أي كود Qt جديد.
 
@@ -1029,6 +1029,79 @@ I2 batch translator يخزّن ترجمات بصيغة template (`{0} Days`, `Po
 - **عمّال خلفية (QThread)**: `_AppReleaseWorker` (publish_app.py)، `_TranslationReleaseWorker` (GitHub)،
   `_ForCacheUploadWorker`.
 
+## ⭐ منظومة التوزيع/التحديث/المشاركة (v2.5 — 2026-06-10)
+
+تطويرات كبيرة على دورة حياة الإصدار والتوزيع والمستخدم النهائي. كلها مدفوعة لـ main.
+
+### 1. أمان التحميل — `games/security.py`
+سلسلة ثقة: المنفست يُجلَب عبر **HTTPS موثَّق** (شهادة certifi مُرفَقة في الـ spec) → يحوي
+`sha256` لكل ملف → كل تحميل يُتحقَّق منه قبل التثبيت.
+- `sha256_file` / `ssl_context` (certifi) / `requests_verify` / `verify_sha256` (متوافق رجعياً:
+  فارغ = يقبل).
+- أُعيد تفعيل تحقّق SSL (كان `CERT_NONE`/`verify=False` — ثغرة MITM) في: `translation_registry.fetch`،
+  `app.py::UpdateDownloader`، `games.py::DownloadWorker`/`ForCacheWorker`، `game_detail_dialog`.
+- النشر يكتب sha256: `publish_app.py` (app)، `publish_translation.py` + `admin_panel` العمّال (ترجمات + for_cache).
+
+### 2. ⚠️ التحديث الذاتي المتين — `app.py::UpdateDownloader` + `_apply_update`
+**السبب الجذري لفشل التحديث (مهم جداً)**: كان مجلّد `tools/UAssetGUI` يُحزَم **كاملاً** (256MB
+مصدر برمجي + `UAssetAPI.Tests/TestAssets` بمسارات **177 حرف**). عند فكّ أرشيف التحديث في `%TEMP%`
+العميق يتجاوز **MAX_PATH (260)** → `zipfile.extractall` يفشل (`Errno 2`) → الزر يعود (الخطأ يُكتم
+في شريط الحالة) → يبدو «التحديث لا يعمل».
+- **الحل الجذري**: في الـ spec نحزم **exe الأدوات فقط** (ذاتية الاحتواء) لا مجلّداتها. UAssetGUI.exe
+  وحده (13MB، مُختبَر standalone) + DLLs المطلوبة فقط (`oo2core_9_win64.dll` لـ retoc، `Csv.dll`
+  لـ UE4loc). **الحجم: 238MB → 80MB، أطول مسار: 177 → 80 حرف.**
+- إصلاحات متانة: فكّ في مسار قصير (`%TEMP%\GATx`)، إعادة محاولة تحميل 3×، كشف التحميل الناقص،
+  حلقة إعادة محاولة لتبديل exe (~15ث)، انتظار 5ث، حوار خطأ واضح + زر «🌐 تحميل يدوي» بديل،
+  سجلّات `logs/update.log` + `logs/update_bat.log`.
+- ⚠ **التحديث يحفظ بيانات المستخدم**: `robocopy /XF config.json /XD data\cache logs` — لا يدهس
+  الإعدادات/الكاش (كان يدهسها في ≤ v2.2).
+- ⚠ **خطأ الدفع المُصلَح**: النشر كان `git push origin main` (يدفع `main` المحلي القديم) → الآن
+  `HEAD:main` (يدفع الفرع الحالي). كان يترك التحديثات عالقة على فرع العمل.
+
+### 3. منظومة الترجمة الموحَّدة في صفحة اللعبة — `games.py`
+**بطاقة واحدة موحَّدة** (`_render_iostore_mod_card`) لألعاب IoStore (Grounded2 zen / Windrose locres):
+- تحميل/تحديث من GitHub (مع sha256) + بناء محلي من الكاش + تثبيت/إلغاء + **↩ تراجع** (لقطة
+  `ready_prev`) + **📜 سجل التحديثات** (changelog من manifest).
+- **إشعار تحديث الترجمات**: بانر علوي أزرق (`app.py::_trans_banner`) + شارة `⬆ vX` على عنصر القائمة
+  + `_translation_update_version` (online > installed).
+- **🧩 تحميل مصدر البناء (for_cache)** للمستخدم بلا مصدر → يمكّنه من البناء المحلي.
+- **🎯 اختيار مصدر الترجمة قبل البناء** (`_pick_build_source` + `IoStoreMod.build(model_filter=...)`):
+  أفضل دمج (get_best) / مودل / مصدر مستورَد — لتجربة ترجمة مستورَدة. يُفضّل المصدر ثم get_best للناقص.
+
+### 4. تمكين المستخدم من البناء — `games/tools_paths.py`
+مُحلِّل مسارات أدوات واعٍ بالنسخة المُغلّفة (config → حزمة `_internal`/`_MEIPASS` → `tools/` المشروع).
+الأدوات مُضمَّنة → المستخدم النهائي يبني/يحدّث محلياً (Grounded2/Windrose/Manor Lords). استُخدم في
+`manorlords_mod` + `iostore/translator` + `iostore_mod`.
+
+### 5. مشاركة/استيراد الكاش (.gatcache) — `cache.py` + بطاقة في صفحة اللعبة
+- `cache.export_rows` / `import_rows(mode, label)` / `list_import_sources` / `delete_by_model`.
+- **صيغة JSON، لعبة لكل ملف**. وضعان للاستيراد: **دمج آمن** (لا يدهس — `put` بنفس المودل) أو **مصدر
+  مستقل** (`model='import:<اسم>'` مثل «مستورد 1/2» — قابل للحذف، لا يلمس ترجمات المستخدم).
+- بطاقة «💾 كاش الترجمة» (`_render_cache_share_card`) — **مستقلّة عن `cache_section`** (تظهر لأي لعبة
+  لها كاش). تتكامل مع «إعادة بناء من الكاش».
+
+### 6. الكشف التلقائي لمسار اللعبة — `games/steam_detector.py`
+كشف عبر **appid** من `appmanifest_<id>.acf` في كل مكتبات Steam (registry + libraryfolders.vdf).
+`resolve_game_path(game_id, cfg)`: لو `game_path` غير موجود → يكتشف ويصحّح ويحفظ. configs فيها
+`steam_appid` + `steam_subpath`. `game_manager` يصحّح عند الإقلاع. يحلّ اختلاف المسار بين الأجهزة.
+
+### 7. معالج نشر موحّد + رمز/لوقو
+- **معالج نشر موحّد** (`admin_panel::_build_release_tab`): زر «🚀 نشر كل شيء» (release ترجمة + رفع
+  for_cache متسلسل) + اقتراح نسخة تلقائي (`_suggest_next_version`) + ملاحظات إصدار إجبارية + changelog.
+  حارس: النشر يتطلّب التشغيل **من المصدر** (لا من .exe). + عدّادات تحميل (`_DownloadStatsWorker` عبر gh api).
+- **قناة مساهمة**: زر «✍ اقترح تصحيح» في صفحة الكاش → GitHub Issue مُعبّأ.
+- **🐛 اللوقو في frozen**: `data/logo.png` يُضمَّن (spec + publish_app) + `_find_logo` يبحث في
+  مواقع متعددة. **🐛 كتم تحذيرات Qt `Point size`** في `main_qt.py`.
+
+### مزالق التوزيع (مهمّة لأي إصدار قادم)
+1. **لا تحزم مجلّدات أدوات كاملةً** — exe فقط + DLLs المطلوبة (المصدر/الاختبارات تكسر التحديث بمسارات
+   > 260 حرف + تضخّم الحجم). تحقّق `du -sh` + أطول مسار قبل البناء.
+2. **النشر من المصدر فقط** (python + git + gh + repo). النسخة المُغلّفة للاستخدام لا للنشر.
+3. **الدفع `HEAD:main`** لا `main` (لأن العمل على فرع `work/session-*`). بعد النشر: `git branch -f main HEAD`.
+4. **التحديث يحفظ بيانات المستخدم** (استثنِ config.json + data\cache + logs من robocopy).
+5. **Git LFS** للملفات الكبيرة (`Text_enus.uasset.json` = 54MB) — تحذير GitHub قائم.
+6. مهام معلّقة (انظر ذاكرة المشروع): تحديثات **دلتا** بدل zip كامل · كاش مجتمعي سحابي.
+
 ## الإصلاحات الجوهرية من هذه الجلسة (2026-05-22)
 
 تاريخ الـ commits السابقة:
@@ -1153,6 +1226,16 @@ cache.set_model_priority(game, model, priority)        # رفع/خفض الأو�
 
 | ما تريده | الملف |
 |------|------|
+| **أمان التحميل (sha256 + SSL/certifi)** | `games/security.py` |
+| **التحديث الذاتي + الـ batch** | `gui/qt/app.py::UpdateDownloader` + `_apply_update` |
+| **حزم الأدوات (exe فقط!)** | `GameArabicTranslator.spec::added_datas` (لا تحزم مجلّدات أدوات كاملة) |
+| **مُحلِّل مسارات الأدوات (frozen)** | `games/tools_paths.py` |
+| **مود IoStore (Grounded2 zen / Windrose locres)** | `games/iostore_mod.py::IoStoreMod` (build/install/rollback، model_filter) |
+| **البطاقة الموحَّدة + إشعار/شارة التحديث** | `gui/qt/pages/games.py::_render_iostore_mod_card` + `_trans_banner` (app.py) |
+| **مشاركة/استيراد الكاش (.gatcache)** | `engine/cache.py::export_rows/import_rows` + `_render_cache_share_card` |
+| **كشف مسار اللعبة تلقائياً (appid)** | `games/steam_detector.py::resolve_game_path` (+ `steam_appid`/`steam_subpath` في configs) |
+| **معالج النشر الموحّد + عدّادات** | `gui/qt/dialogs/admin_panel.py::_build_release_tab` + `_DownloadStatsWorker` |
+| **النشر (يتطلّب المصدر)** | `tools/publish_app.py` / `publish_translation.py` (يدفع `HEAD:main`) |
 | تعديل البرومت الافتراضي | `config.json["system_prompt"]` (أو `_default_ollama_system_prompt()` في `engine/models/api_translator.py:9`) |
 | إعدادات Ollama (num_ctx, num_predict, ...) | `config.json["ollama_options"]` |
 | **الفلتر العام (tag_mode)** | `config.json["tag_mode"]` ← UI في `gui/qt/pages/models.py` (topbar combo) |
