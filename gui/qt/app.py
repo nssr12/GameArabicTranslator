@@ -96,22 +96,37 @@ class UpdateDownloader(QThread):
             tmp_dir  = tempfile.mkdtemp(prefix="GAT_update_")
             zip_path = os.path.join(tmp_dir, "update.zip")
 
-            req = urllib.request.Request(
-                self._url,
-                headers={"User-Agent": "GameArabicTranslator/1.0"},
-            )
-            with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
-                total      = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                with open(zip_path, "wb") as f:
-                    while True:
-                        chunk = resp.read(65536)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            self.progress.emit(int(downloaded * 100 / total))
+            # تحميل مع إعادة محاولة (يعالج تقطّع الاتصال على النسخ الكبيرة)
+            last_err = ""
+            ok = False
+            for attempt in range(3):
+                try:
+                    req = urllib.request.Request(
+                        self._url, headers={"User-Agent": "GameArabicTranslator/1.0"})
+                    with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
+                        total = int(resp.headers.get("Content-Length", 0))
+                        downloaded = 0
+                        with open(zip_path, "wb") as f:
+                            while True:
+                                chunk = resp.read(1 << 18)   # 256KB
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total:
+                                    self.progress.emit(int(downloaded * 100 / total))
+                    # تأكّد أن التحميل اكتمل (الحجم يطابق المتوقّع)
+                    if total and os.path.getsize(zip_path) < total:
+                        raise IOError(f"تحميل ناقص ({os.path.getsize(zip_path)}/{total})")
+                    ok = True
+                    break
+                except Exception as e:
+                    last_err = str(e)
+                    if attempt < 2:
+                        self.progress.emit(0)
+            if not ok:
+                self.done.emit(False, f"تعذّر إكمال التحميل بعد عدّة محاولات:\n{last_err}")
+                return
 
             self.progress.emit(100)
 
@@ -517,69 +532,107 @@ class MainWindow(QMainWindow):
         self._update_btn.setText(f"جارٍ التحميل… {pct}%")
         self.statusBar().showMessage(f"⬇️  تحميل التحديث: {pct}%")
 
+    def _update_log(self, msg: str):
+        """يكتب خطوات التحديث في logs/update.log للتشخيص."""
+        try:
+            base = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.getcwd()
+            logdir = os.path.join(base, "logs")
+            os.makedirs(logdir, exist_ok=True)
+            with open(os.path.join(logdir, "update.log"), "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
+
+    def _update_failed(self, reason: str):
+        """يُظهر فشل التحديث بوضوح + خيار التحميل اليدوي عبر المتصفّح."""
+        self._update_log(f"FAILED: {reason}")
+        self._update_progress.setVisible(False)
+        self._update_btn.setEnabled(True)
+        self._update_btn.setText("⬇️  تثبيت التحديث")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("تعذّر التحديث التلقائي")
+        box.setText("لم يكتمل التحديث التلقائي:\n\n" + reason +
+                    "\n\nيمكنك التحميل يدوياً من المتصفّح ثم استبدال الملفات.")
+        b_browser = box.addButton("🌐 افتح صفحة التحميل", QMessageBox.AcceptRole)
+        box.addButton("إغلاق", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() == b_browser and getattr(self, "_update_url", ""):
+            QDesktopServices.openUrl(QUrl(self._update_url))
+
     def _on_update_done(self, success: bool, path_or_error: str):
         if not success:
-            self._update_progress.setVisible(False)
-            self._update_btn.setEnabled(True)
-            self._update_btn.setText("⬇️  تثبيت التحديث")
-            self.statusBar().showMessage(f"❌  فشل التحميل: {path_or_error}")
+            self._update_failed(str(path_or_error))
             return
+        try:
+            self._apply_update(path_or_error)
+        except Exception as e:
+            import traceback
+            self._update_log("EXC in _apply_update:\n" + traceback.format_exc())
+            self._update_failed(f"خطأ أثناء تطبيق التحديث: {e}")
 
+    def _apply_update(self, src: str):
         install_dir = os.path.dirname(sys.executable)
         exe_name    = os.path.basename(sys.executable)   # GameArabicTranslator.exe
         exe_path    = sys.executable
-        src         = path_or_error  # native Windows path from tempfile/os.path
 
-        # استراتيجية آمنة:
-        #  1) robocopy لكل شيء عدا exe — مع **استثناء بيانات المستخدم**
-        #     (config.json + data\cache + logs) كي لا يدهسها التحديث.
-        #  2) تبديل exe بأمان: نُعيد القديم لو فشل نسخ الجديد (لا يبقى التطبيق بلا exe).
+        # تحقّق أن النسخة الجديدة سليمة قبل لمس التثبيت
+        new_exe = os.path.join(src, exe_name)
+        if not os.path.isfile(new_exe):
+            self._update_failed(f"الملف التنفيذي الجديد غير موجود في الأرشيف:\n{new_exe}")
+            return
+        self._update_log(f"apply: src={src} install={install_dir} new_exe_ok=True")
+
+        bat_log   = os.path.join(install_dir, "logs", "update_bat.log")
         cache_dir = os.path.join(src, "data", "cache")
+        logs_dir  = os.path.join(install_dir, "logs")
+        # سجلّ الـ batch + استراتيجية آمنة (استثناء بيانات المستخدم + تبديل exe قابل للاستعادة)
         bat = "\r\n".join([
             "@echo off",
             "chcp 65001 >nul",
-            # امنح العملية ~3 ث للخروج الكامل (os._exit بعد 300ms)
-            "timeout /t 3 /nobreak >nul",
-            # انسخ كل شيء عدا: exe (مقفول) + config.json + data\cache (بيانات المستخدم)
+            f'echo [update] start %DATE% %TIME% > "{bat_log}"',
+            "timeout /t 5 /nobreak >nul",
             f'robocopy "{src}" "{install_dir}" /E /IS /IT /NFL /NDL /NJH /NJS'
-            f' /XF "{exe_name}" "config.json" /XD "{cache_dir}" "{os.path.join(install_dir, "logs")}"'
-            f' /W:0 /R:1 >nul 2>&1',
-            # تبديل آمن للـ exe
+            f' /XF "{exe_name}" "config.json" /XD "{cache_dir}" "{logs_dir}"'
+            f' /W:0 /R:1 >> "{bat_log}" 2>&1',
+            f'echo [update] robocopy exit=%ERRORLEVEL% >> "{bat_log}"',
             f'if exist "{install_dir}\\{exe_name}.old" del /f /q "{install_dir}\\{exe_name}.old"',
-            f'ren "{install_dir}\\{exe_name}" "{exe_name}.old"',
-            f'copy /y "{src}\\{exe_name}" "{install_dir}\\{exe_name}" >nul',
-            # لو نُسخ الجديد بنجاح → احذف القديم؛ وإلا أعِد القديم (حماية من التلف)
+            # حلقة: انتظر حتى يُفكّ قفل exe القديم (حتى ~15ث) ثم بدّله
+            f'set /a _try=0',
+            f':_renloop',
+            f'ren "{install_dir}\\{exe_name}" "{exe_name}.old" 2>nul',
+            f'if exist "{install_dir}\\{exe_name}" (',
+            f'  set /a _try+=1',
+            f'  if %_try% lss 15 ( timeout /t 1 /nobreak >nul & goto _renloop )',
+            f')',
+            f'copy /y "{src}\\{exe_name}" "{install_dir}\\{exe_name}" >> "{bat_log}" 2>&1',
             f'if exist "{install_dir}\\{exe_name}" (',
             f'  del /f /q "{install_dir}\\{exe_name}.old" 2>nul',
+            f'  echo [update] exe replaced OK >> "{bat_log}"',
             f') else (',
             f'  ren "{install_dir}\\{exe_name}.old" "{exe_name}"',
+            f'  echo [update] exe copy FAILED - restored old >> "{bat_log}"',
             f')',
-            # نظّف مجلّد التحديث المؤقّت
             f'rmdir /s /q "{os.path.dirname(src)}" 2>nul',
-            # شغّل النسخة المحدَّثة
+            f'echo [update] launching >> "{bat_log}"',
             f'start "" "{exe_path}"',
             'del "%~f0"',
         ])
-
         bat_path = os.path.join(tempfile.gettempdir(), "gat_update.bat")
         with open(bat_path, "w", encoding="utf-8") as f:
             f.write(bat)
+        self._update_log(f"apply: wrote bat → {bat_path}")
 
-        # CREATE_NO_WINDOW suppresses the console entirely (unlike DETACHED_PROCESS).
         subprocess.Popen(
             ["cmd", "/c", bat_path],
             creationflags=_CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        self._update_log("apply: launched updater, exiting in 600ms")
+        self.statusBar().showMessage("✅  اكتمل التحميل — سيُغلق التطبيق ويُعاد تشغيله…")
 
-        self.statusBar().showMessage("✅  اكتمل التحميل — جارٍ إعادة التشغيل…")
-
-        # os._exit kills the process immediately (no lingering threads).
-        # QTimer gives 300 ms for the status bar to render before dying.
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(300, lambda: os._exit(0))
+        QTimer.singleShot(600, lambda: os._exit(0))
 
     # ── Sidebar toggle ────────────────────────────────────────────────────────
 
