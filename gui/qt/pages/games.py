@@ -788,8 +788,9 @@ class GameDetailPanel(QFrame):
             self._render_bepinex_card(lay, cfg)
 
         # ── بطاقة كاش الترجمة (تصدير/استيراد — مشاركة بين المستخدمين) ────────────
-        if "cache_section" not in hidden:
-            self._render_cache_share_card(lay, cfg)
+        # مستقلّة عن cache_section (الذي يخفي بطاقة الحزمة القديمة) — تظهر لأي
+        # لعبة لها كاش، فالتصدير/الاستيراد مفيد للجميع.
+        self._render_cache_share_card(lay, cfg)
 
         lay.addStretch()
 
