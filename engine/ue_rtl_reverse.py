@@ -80,8 +80,8 @@ def reverse_for_display(text: str, max_line_len: int = 110, strip_img: bool = Fa
         else:
             seg = " ".join(reversed(units))
         seg = seg.replace(_SENT, " ")
-        # مسافة بعد إغلاق </> لو لاصقته كلمة (ترجمة وضعت كلمة بعد التاق بلا مسافة)
-        seg = re.sub(r'(</>)(?=[^\s<])', r'\1 ', seg)
+        # مسافة بعد إغلاق </> لو لاصقته كلمة — لكن ليس قبل علامة ترقيم أو وسم
+        seg = re.sub(r'(</>)(?=[^\s<.,!?:;)\]}،؛؟])', r'\1 ', seg)
         out.append(seg)
     return "".join(out)
 

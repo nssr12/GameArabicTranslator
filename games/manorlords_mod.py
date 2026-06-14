@@ -29,6 +29,7 @@ _AR = re.compile(r'[؀-ۿ]')   # نطاق العربية — لكشف المصا
 
 from engine.ue_rtl_reverse import reverse_for_display
 from engine import rtl_overrides
+from engine import ue_richtext as ue
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -181,6 +182,9 @@ class ManorLordsMod:
                         continue
                     ar = cache.get_best(GAME, en)
                     if ar:
+                        # منظّف حتمي: يحذف </> اليتيمة (تظهر حرفياً) + يضيف المسافات
+                        # الناقصة بعد التاقات — يصلح مخرجات المودل المعطوبة بلا إعادة ترجمة
+                        ar = ue.sanitize_richtext(ar)
                         # عكس RTL: لجدول كامل مُعلَّم (الموسوعة) أو لنص مُعلَّم بعينه
                         if reverse_whole_table or en in rtl_marked:
                             ar = reverse_for_display(ar)

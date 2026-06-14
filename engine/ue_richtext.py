@@ -22,6 +22,45 @@ from typing import List, Optional, Tuple
 _RICH_RE = re.compile(r'(?:\{[^{}]*\}|</>|<[^<>]+>)(?:\s*(?:\{[^{}]*\}|</>|<[^<>]+>))*')
 _TOK_FIND = re.compile(r'⟦(\d+)⟧')
 
+# تقطيع UE RichText: إغلاق عام </> ، أو تاق <…> ، أو نص
+_RT_TOKEN = re.compile(r'</>|<[^<>]+>|[^<]+', re.S)
+
+
+def sanitize_richtext(text: str) -> str:
+    """منظّف حتمي لعرض UE RichText — يصلح مخرجات المودل المعطوبة بلا إعادة ترجمة:
+
+    1. **يحذف `</>` اليتيمة** (إغلاق بلا فتح مطابق) — المودل أحياناً يُسقط وسم الفتح
+       `<r>`/`<h>` ويُبقي إغلاقه `</>` فيظهر حرفياً في اللعبة.
+    2. **يغلق الوسوم المفتوحة المتبقّية** في النهاية (تجنّب تنسيق يتسرّب لبقية النص).
+    3. **يضيف مسافة** بعد `</>` أو `<…/>` (img) إن لصقتها كلمة (المودل يلصق بلا مسافة).
+
+    آمن: `<img id="X"/>` ذاتي الإغلاق لا يغيّر العمق. النص بلا `<` يُعاد كما هو."""
+    if not text or "<" not in text:
+        return text
+    res: List[str] = []
+    depth = 0
+    for m in _RT_TOKEN.finditer(text):
+        t = m.group(0)
+        if t == "</>":
+            if depth > 0:
+                depth -= 1
+                res.append(t)
+            # وإلا: إغلاق يتيم → احذفه
+        elif t.startswith("<"):
+            if t.endswith("/>"):
+                res.append(t)            # ذاتي الإغلاق (img) — العمق لا يتغيّر
+            else:
+                depth += 1
+                res.append(t)            # فتح
+        else:
+            res.append(t)                # نص
+    if depth > 0:                        # أغلق ما تبقّى مفتوحاً
+        res.append("</>" * depth)
+    s = "".join(res)
+    # مسافة بعد </> أو /> إن لصقتها كلمة — لكن ليس قبل علامة ترقيم أو وسم
+    s = re.sub(r'(</>|/>)(?=[^\s<.,!?:;)\]}،؛؟])', r'\1 ', s)
+    return s
+
 
 def protect(text: str) -> Tuple[str, List[str]]:
     """يستبدل كل تاق/قالب بتوكن ⟦N⟧ ويُرجع (النص_المحمي، قائمة_التاقات)."""
