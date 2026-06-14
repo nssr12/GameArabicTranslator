@@ -20,10 +20,11 @@ from typing import List, Optional, Tuple
 # بشدّة (UE يجمّع `<img/><h>` و`{br}{br}`) فيسهل على المودل الحفاظ عليها.
 # ترتيب البدائل: {…} ثم </> ثم أي <…> (بفراغات اختيارية بينها داخل التتابع).
 _RICH_RE = re.compile(r'(?:\{[^{}]*\}|</>|<[^<>]+>)(?:\s*(?:\{[^{}]*\}|</>|<[^<>]+>))*')
-# ⚠ متسامح: المودل أحياناً يضيف `/` أو مسافات داخل التوكن (`⟦/0⟧`، `⟦ 0⟧`) ظنّاً أنه
-# وسم إغلاق → المطابقة الصارمة كانت تفشل فيُرفَض كل شيء. نتسامح مع `/` والمسافات
-# (رقم التوكن وحده يحدّد التاق، فالـ`/` الزائد لا يضرّ).
-_TOK_FIND = re.compile(r'⟦\s*/?\s*(\d+)\s*/?\s*⟧')
+# تقطيع تاق واحد: قالب {…} | إغلاق عام </> | ذاتي <…/> | فتح <…>
+_TAG = re.compile(r'\{[^{}]*\}|</>|<[^<>]*/>|<[^<>]+>', re.S)
+# ⚠ متسامح: المودل قد يضيف `/`/`s`/مسافات داخل التوكن. المجموعات:
+#   (1)='s' ذاتي/قالب | '/' إغلاق ، (2)=الرقم ، (3)='/' لاحقة (إغلاق مشوّه).
+_TOK_ANY = re.compile(r'⟦\s*([s/])?\s*(\d+)\s*(/)?\s*⟧')
 
 # تقطيع UE RichText: إغلاق عام </> ، أو تاق <…> ، أو نص
 _RT_TOKEN = re.compile(r'</>|<[^<>]+>|[^<]+', re.S)
@@ -65,23 +66,44 @@ def sanitize_richtext(text: str) -> str:
     return s
 
 
-def protect(text: str) -> Tuple[str, List[str]]:
-    """يستبدل كل تاق/قالب بتوكن ⟦N⟧ ويُرجع (النص_المحمي، قائمة_التاقات)."""
+def protect(text: str) -> Tuple[str, List[str], List[int]]:
+    """حماية **واعية بالأزواج** (مثل Bulletproof — تمنع المودل من إسقاط الفتح):
+      - فتح `<tag>`   → `⟦N⟧`   (يُسجَّل في toks[N] + يُدفَع للمكدّس)
+      - إغلاق `</>`   → `⟦/K⟧`  (K = رقم فتحه المطابق — يربطهما بصرياً للمودل)
+      - ذاتي/قالب     → `⟦sN⟧`  (`<img/>`، `{br}`، `{0}`)
+    يُرجع (النص_المحمي، toks، closes) حيث closes = أرقام الفتح التي لها إغلاق.
+    رقم الإغلاق المطابق يجعل المودل يرى `⟦2⟧spoil⟦/2⟧` زوجاً واضحاً فلا يحذف الفتح."""
     toks: List[str] = []
-
-    def repl(m: re.Match) -> str:
-        toks.append(m.group(0))
-        return f"⟦{len(toks) - 1}⟧"
-
-    return _RICH_RE.sub(repl, text), toks
+    closes: List[int] = []
+    stack: List[int] = []
+    parts: List[str] = []
+    last = 0
+    for m in _TAG.finditer(text):
+        parts.append(text[last:m.start()])
+        last = m.end()
+        tag = m.group(0)
+        if tag == "</>":
+            if stack:
+                k = stack.pop()
+                closes.append(k)
+                parts.append(f"⟦/{k}⟧")
+            else:                                   # إغلاق يتيم → عامله كذاتي
+                i = len(toks); toks.append(tag); parts.append(f"⟦s{i}⟧")
+        elif tag[0] == "{" or tag.endswith("/>"):
+            i = len(toks); toks.append(tag); parts.append(f"⟦s{i}⟧")
+        else:                                       # فتح
+            i = len(toks); toks.append(tag); parts.append(f"⟦{i}⟧"); stack.append(i)
+    parts.append(text[last:])
+    return "".join(parts), toks, closes
 
 
 def restore(text: str, toks: List[str]) -> str:
     def repl(m: re.Match) -> str:
-        i = int(m.group(1))
-        return toks[i] if 0 <= i < len(toks) else m.group(0)
-
-    return _TOK_FIND.sub(repl, text)
+        kind, num, trail = m.group(1), int(m.group(2)), m.group(3)
+        if kind == "/" or trail == "/":            # إغلاق (متسامح مع التشويه)
+            return "</>"
+        return toks[num] if 0 <= num < len(toks) else m.group(0)
+    return _TOK_ANY.sub(repl, text)
 
 
 def tags_of(text: str) -> List[str]:
@@ -89,10 +111,20 @@ def tags_of(text: str) -> List[str]:
     return _RICH_RE.findall(text or "")
 
 
-def is_valid(out: str, toks: List[str]) -> bool:
-    """كل توكن ⟦i⟧ موجود مرّة واحدة بالضبط (لا حذف/تكرار)."""
-    found = [int(x) for x in _TOK_FIND.findall(out or "")]
-    return sorted(found) == list(range(len(toks)))
+def is_valid(out: str, toks: List[str], closes: List[int]) -> bool:
+    """كل توكن فتح/ذاتي موجود مرّة، وكل إغلاق مطابق موجود مرّة (لا حذف/تكرار)."""
+    from collections import Counter
+    tok_count: dict = {}
+    close_count: dict = {}
+    for m in _TOK_ANY.finditer(out or ""):
+        kind, num, trail = m.group(1), int(m.group(2)), m.group(3)
+        if kind == "/" or trail == "/":
+            close_count[num] = close_count.get(num, 0) + 1
+        else:
+            tok_count[num] = tok_count.get(num, 0) + 1
+    if tok_count != {i: 1 for i in range(len(toks))}:
+        return False
+    return close_count == dict(Counter(closes))
 
 
 def tags_match(original: str, translated: str) -> bool:
@@ -114,8 +146,8 @@ def translate(text: str, engine, enforce_punct=True, retries: int = 2) -> Option
     """يترجم نصّاً مع حماية تاقات UE الكاملة. يُرجع الترجمة أو None لو فشلت الحماية.
     يُعيد المحاولة حتى `retries` مرّات لو أفسد المودل التوكنات (truncation عابر).
     يرفع num_predict/num_ctx ديناميكياً للنصوص الطويلة (تمنع قصّ التوكنات الأخيرة)."""
-    cleaned, toks = protect(text)
-    if not toks:
+    cleaned, toks, closes = protect(text)
+    if not toks and not closes:
         result = engine.translate(text)
     else:
         # نحفظ خيارات Ollama لاستعادتها (نعدّل num_predict/num_ctx/temperature)
@@ -139,7 +171,7 @@ def translate(text: str, engine, enforce_punct=True, retries: int = 2) -> Option
                 if tr is not None and attempt < len(temps):
                     tr._opts["temperature"] = temps[attempt]
                 out = engine.translate(cleaned)
-                if out and is_valid(out, toks):
+                if out and is_valid(out, toks, closes):
                     result = restore(out, toks)
                     break
         finally:
