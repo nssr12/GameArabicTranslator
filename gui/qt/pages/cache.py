@@ -466,6 +466,18 @@ class EditDialog(QWidget):
         legend.setStyleSheet("background: transparent; border: none; font-size: 10px;")
         prev_hdr.addWidget(prev_ttl)
         prev_hdr.addStretch()
+        # زر «تفاصيل التاقات» — جدول يقابل كل تاق أصلي بمخرجه المترجَم
+        self._btn_tag_details = QPushButton("🏷  تفاصيل التاقات")
+        self._btn_tag_details.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_tag_details.setToolTip("جدول يقابل كل تاق في الأصل بمخرجه في الترجمة")
+        self._btn_tag_details.setStyleSheet(
+            f"QPushButton {{ background: {c['surface']}; color: {c['secondary']};"
+            f" border: 1px solid {c['border']}; border-radius: 5px; padding: 2px 10px;"
+            " font-size: 10px; }"
+            f"QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; }}")
+        self._btn_tag_details.clicked.connect(self._show_tag_details)
+        prev_hdr.addWidget(self._btn_tag_details)
+        prev_hdr.addSpacing(8)
         prev_hdr.addWidget(legend)
         pl.addLayout(prev_hdr)
 
@@ -610,6 +622,78 @@ class EditDialog(QWidget):
         opt = QTextOption()
         opt.setTextDirection(qt_dir)
         self._trans.document().setDefaultTextOption(opt)
+
+    @staticmethod
+    def _extract_tag_units(text: str) -> list:
+        """يستخرج وحدات التاقات بالترتيب: <tag>محتوى</> أو <…/> أو {…}."""
+        import re as _re
+        pat = _re.compile(r'<[A-Za-z][^<>]*?(?<!/)>[^<]*?</>|<[^<>]*?/>|\{[^{}]*\}')
+        return pat.findall(text or "")
+
+    def _show_tag_details(self):
+        """حوار يعرض جدولاً يقابل كل تاق في الأصل بمخرجه في الترجمة."""
+        from PySide6.QtWidgets import QDialog
+        c = theme.c
+        orig = self._orig.toPlainText()
+        trans = self._trans.toPlainText()
+        o_units = self._extract_tag_units(orig)
+        t_units = self._extract_tag_units(trans)
+        n = max(len(o_units), len(t_units))
+
+        dlg = QDialog(self._dlg)
+        dlg.setWindowTitle("🏷  تفاصيل التاقات")
+        dlg.setMinimumSize(560, 420)
+        dlg.setStyleSheet(f"QDialog {{ background: {c['bg']}; }} QLabel {{ color: {c['primary']}; }}")
+        v = QVBoxLayout(dlg)
+        head = QLabel(f"عدد التاقات — الأصل: {len(o_units)}  |  الترجمة: {len(t_units)}"
+                      + ("   ⚠ غير متطابق!" if len(o_units) != len(t_units) else "   ✓ متطابق"))
+        head.setStyleSheet(
+            f"font-size: 12px; color: {c['accent'] if len(o_units)!=len(t_units) else c['green']};")
+        v.addWidget(head)
+
+        table = QTableWidget(n, 3)
+        table.setHorizontalHeaderLabels(["#", "الأصلي (إنجليزي)", "المترجَم (المخرَج)"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().hide()
+        mono = QFont("Consolas", 10)
+        for i in range(n):
+            o = o_units[i] if i < len(o_units) else ""
+            t = t_units[i] if i < len(t_units) else ""
+            num = QTableWidgetItem(str(i + 1)); num.setTextAlignment(Qt.AlignCenter)
+            io = QTableWidgetItem(o or "— (مفقود)"); io.setFont(mono)
+            it = QTableWidgetItem(t or "— (مفقود)"); it.setFont(mono)
+            # علّم الصفوف الناقصة/المختلفة بنوع التاق بالأحمر
+            o_name = self._tag_name(o); t_name = self._tag_name(t)
+            if (not o) or (not t) or (o_name != t_name):
+                col = QColor(c["accent"])
+                io.setForeground(col); it.setForeground(col)
+            table.setItem(i, 0, num)
+            table.setItem(i, 1, io)
+            table.setItem(i, 2, it)
+        v.addWidget(table, 1)
+
+        note = QLabel("ⓘ نوع التاق يجب أن يتطابق (<h>=<h>). الأحمر = مفقود أو نوع مختلف. "
+                      "المحتوى يختلف (الترجمة) وهذا طبيعي.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {c['muted']}; font-size: 10px;")
+        v.addWidget(note)
+        dlg.exec()
+
+    @staticmethod
+    def _tag_name(unit: str) -> str:
+        """اسم التاق من الوحدة (<h>..</> → h، <img id=X/> → img، {0} → {})."""
+        import re as _re
+        if not unit:
+            return ""
+        m = _re.match(r'<\s*([A-Za-z]+)', unit)
+        if m:
+            return m.group(1).lower()
+        if unit.startswith("{"):
+            return "{}"
+        return unit
 
     def exec(self) -> bool:
         return self._dlg.exec() == 1
