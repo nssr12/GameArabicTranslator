@@ -19,6 +19,36 @@ from gui.qt.theme              import theme
 from gui.qt.widgets.page_header import make_topbar
 from engine.cache    import TranslationCache
 
+import re as _re_tags
+# وحدة تاق: <tag>محتوى</> أو <…/> (img/إغلاق يتيم) أو {…}
+_TAG_UNIT_RE = _re_tags.compile(r'<[A-Za-z][^<>]*?(?<!/)>[^<]*?</>|<[^<>]*?/>|\{[^{}]*\}')
+
+
+def tag_units(text: str) -> list:
+    """يستخرج وحدات التاقات بالترتيب (للمقارنة الأصل↔الترجمة)."""
+    return _TAG_UNIT_RE.findall(text or "")
+
+
+def tag_name_of(unit: str) -> str:
+    """اسم/نوع وحدة التاق (<h>..</>→h، <img/>→img، {0}→{}، </>→</>)."""
+    if not unit:
+        return ""
+    m = _re_tags.match(r'<\s*([A-Za-z]+)', unit)
+    if m:
+        return m.group(1).lower()
+    return "{}" if unit.startswith("{") else unit
+
+
+def has_tag_mismatch(orig: str, trans: str) -> bool:
+    """True لو تاقات الترجمة لا تطابق الأصل (عدد مختلف أو نوع مختلف بأي موضع)."""
+    o = tag_units(orig)
+    t = tag_units(trans)
+    if not o:                       # لا تاقات في الأصل → لا تحقّق
+        return False
+    if len(o) != len(t):
+        return True
+    return any(tag_name_of(a) != tag_name_of(b) for a, b in zip(o, t))
+
 
 # ── Re-translate worker ───────────────────────────────────────────────────────
 
@@ -625,10 +655,7 @@ class EditDialog(QWidget):
 
     @staticmethod
     def _extract_tag_units(text: str) -> list:
-        """يستخرج وحدات التاقات بالترتيب: <tag>محتوى</> أو <…/> أو {…}."""
-        import re as _re
-        pat = _re.compile(r'<[A-Za-z][^<>]*?(?<!/)>[^<]*?</>|<[^<>]*?/>|\{[^{}]*\}')
-        return pat.findall(text or "")
+        return tag_units(text)
 
     def _show_tag_details(self):
         """حوار يعرض جدولاً يقابل كل تاق في الأصل بمخرجه في الترجمة."""
@@ -684,16 +711,7 @@ class EditDialog(QWidget):
 
     @staticmethod
     def _tag_name(unit: str) -> str:
-        """اسم التاق من الوحدة (<h>..</> → h، <img id=X/> → img، {0} → {})."""
-        import re as _re
-        if not unit:
-            return ""
-        m = _re.match(r'<\s*([A-Za-z]+)', unit)
-        if m:
-            return m.group(1).lower()
-        if unit.startswith("{"):
-            return "{}"
-        return unit
+        return tag_name_of(unit)
 
     def exec(self) -> bool:
         return self._dlg.exec() == 1
@@ -774,6 +792,7 @@ class CachePage(QWidget):
             ("manual",    "🩹 يدوية",     "تصحيحات يدوية (mode_used='manual')", c.get('teal', '#00d2ff')),
             ("preferred", "🏆 مفضّلة",    "ترجمات حدّدتها يدوياً كأفضل (is_preferred=1)", c.get('yellow', '#f0c14b')),
             ("conflict",  "🔀 تعارض",    "نصوص لها ترجمات من مودلات متعدّدة", c.get('green', '#19c37d')),
+            ("tagmismatch", "🏷 تاقات ناقصة", "تاقات الترجمة لا تطابق الأصل (نوع مفقود/ناقص/مختلف)", c.get('orange', '#f0883e')),
         ]
 
         self._chip_buttons: dict[str, QPushButton] = {}
@@ -1101,7 +1120,7 @@ class CachePage(QWidget):
         # tooltips للعناوين
         self._table.horizontalHeaderItem(1).setToolTip(
             "حالة الترجمة:\n"
-            "✓ سليمة  |  ⚠ تاقات معطوبة  |  🩹 تصحيح يدوي  |  🏆 مفضّلة"
+            "✓ سليمة  |  ⚠ تاقات معطوبة  |  🏷 تاقات ناقصة  |  🩹 تصحيح يدوي  |  🏆 مفضّلة"
         )
         self._table.horizontalHeaderItem(5).setToolTip(
             "عدد المودلات التي ترجمت نفس النص — 1 = مودل واحد فقط، >1 = ترجمات متعدّدة (قارنها)"
@@ -1315,22 +1334,26 @@ class CachePage(QWidget):
                    if self._game == "All Games"
                    else [self._game])
 
-        # فلتر "معطوبة" يتطلّب فحص كل الصفوف (regex على المحتوى) — مسار خاص
-        if self._health_filter == "broken":
-            from engine.tag_health import is_broken_translation
-            broken_rows: list = []
+        # فلاتر تتطلّب فحص كل الصفوف بايثونياً (regex على المحتوى) — مسار خاص
+        if self._health_filter in ("broken", "tagmismatch"):
+            if self._health_filter == "broken":
+                from engine.tag_health import is_broken_translation
+                _check = is_broken_translation
+            else:
+                _check = has_tag_mismatch
+            filtered_rows: list = []
             for g in games:
                 for r in self._cache.iter_all_for_broken_check(
                     g, self._search, model_f, exact_match=self._exact_match
                 ):
-                    if is_broken_translation(r["original"], r["translated"]):
-                        broken_rows.append({"game": g, **r})
-            total = len(broken_rows)
+                    if _check(r["original"], r["translated"]):
+                        filtered_rows.append({"game": g, **r})
+            total = len(filtered_rows)
             self._total = total
             pages = max(1, (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
             self._page = max(0, min(self._page, pages - 1))
             start = self._page * self.PAGE_SIZE
-            rows = broken_rows[start:start + self.PAGE_SIZE]
+            rows = filtered_rows[start:start + self.PAGE_SIZE]
         else:
             total = sum(
                 self._cache.count_entries(g, self._search, model_f,
@@ -1397,12 +1420,15 @@ class CachePage(QWidget):
             mode = (row.get("mode_used") or "").lower()
             is_preferred = bool(row.get("is_preferred"))
             broken = is_broken_translation(row["original"], row["translated"])
+            mismatch = has_tag_mismatch(row["original"], row["translated"])
             if is_preferred:
                 icon, tip, color = "🏆", "مفضّلة (اختيار يدوي)", c.get('yellow', '#f0c14b')
             elif mode == "manual":
                 icon, tip, color = "🩹", "تصحيح يدوي", c.get('teal', '#00d2ff')
             elif broken:
                 icon, tip, color = "⚠", "تاقات معطوبة — تحتاج إعادة ترجمة", c.get('accent', '#e94560')
+            elif mismatch:
+                icon, tip, color = "🏷", "تاقات الترجمة لا تطابق الأصل (نوع مفقود/مختلف)", c.get('orange', '#f0883e')
             else:
                 icon, tip, color = "✓", "ترجمة سليمة", c.get('success', '#19c37d')
             health = QTableWidgetItem(icon)
