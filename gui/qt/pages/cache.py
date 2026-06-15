@@ -72,6 +72,21 @@ class RetranslateWorker(QThread):
                 continue
             try:
                 result = ue.translate(orig, self._engine)
+                # fallback: لو فشلت حماية ue (المودل أفسد التوكنات) → نفس مسار الترجمة
+                # الفورية (FilteredTranslator/Bulletproof + cascade — أثبت نجاحه مع المودل)
+                if not result or result == orig:
+                    try:
+                        from engine.filtered_translator import (
+                            FilteredTranslator, get_global_tag_mode)
+                        ft = FilteredTranslator(self._engine, tag_mode=get_global_tag_mode())
+                        r2, _mode = ft.translate_with_info(orig)
+                        if r2 and r2 != orig:
+                            result = r2
+                    except Exception:
+                        pass
+                # نظّف العرض حتمياً (يحذف </> اليتيمة + يضيف المسافات) قبل الحفظ
+                if result and result != orig:
+                    result = ue.sanitize_richtext(result)
                 if result and result != orig:
                     if self._cache:
                         # cache.put يستخدم ON CONFLICT(original_text, model_used)
